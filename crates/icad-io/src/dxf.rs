@@ -136,7 +136,12 @@ const XDATA_APP: &str = "IMAGINECAD";
 /// Shapes DXF 2000 has no entity for: written as an anonymous block of their
 /// graphics plus extended data holding the exact shape.
 fn needs_proxy(s: &Shape) -> bool {
-    matches!(s, Shape::Dim(d) if d.kind == DimKind::ArcLength)
+    match s {
+        Shape::Dim(d) => d.kind == DimKind::ArcLength,
+        Shape::Tolerance(f) => !f.leader.is_empty(),
+        Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) => true,
+        _ => false,
+    }
 }
 
 /// The exact shape stored in ImagineCAD extended data, if present.
@@ -319,6 +324,14 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
         Shape::Dim(d) if !explode_dims => {
             n.dim += 1;
             write_dimension(w, doc, d, layer, owner, st, n.dim);
+        }
+        Shape::Tolerance(f) if modern && !explode_dims => {
+            w.ent("TOLERANCE", layer, owner, st, "AcDbFcf");
+            w.g(3, "Standard");
+            w.pt(10, f.pos);
+            w.g(1, f.to_dxf());
+            w.pt(11, V2::new(1.0, 0.0));
+            w.xdata(&e.shape);
         }
         Shape::Point { p } => {
             w.ent("POINT", layer, owner, st, "AcDbPoint");
@@ -1201,6 +1214,7 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
             Some(Shape::Spline { pts, closed })
         }
         "POINT" => Some(Shape::Point { p: r.p(10) }),
+        "TOLERANCE" => Some(Shape::Tolerance(icad_core::symbols::Fcf::from_dxf(r.p(10), r.s(1).unwrap_or("")))),
         "XLINE" => Some(Shape::XLine { p: r.p(10), dir: r.p(11).norm() }),
         "RAY" => Some(Shape::Ray { p: r.p(10), dir: r.p(11).norm() }),
         "HATCH" => read_hatch(r),
@@ -1594,6 +1608,60 @@ mod tests {
         // Re-associated with the arc on reading.
         assert!(a.assoc.is_some_and(|x| x.curve.is_some()));
         assert!(r.blocks.iter().all(|b| !b.name.starts_with('*')));
+    }
+
+    fn symbols() -> Vec<Shape> {
+        use icad_core::symbols::*;
+        let row = FcfRow {
+            symbol: GdtSymbol::Perpendicularity,
+            diameter: false,
+            tolerance: "0.02".into(),
+            material: Material::None,
+            datums: vec![DatumRef { letter: "A".into(), material: Material::None }],
+        };
+        vec![
+            Shape::Tolerance(Fcf { pos: V2::new(10., 10.), rows: vec![row.clone()], leader: vec![] }),
+            Shape::Tolerance(Fcf { pos: V2::new(10., 40.), rows: vec![row], leader: vec![V2::new(0., 30.)] }),
+            Shape::Datum(DatumFeature { letter: "B".into(), pos: V2::new(50., 20.), tip: V2::new(50., 0.) }),
+            Shape::Surface(SurfaceFinish {
+                pos: V2::new(70., 0.),
+                rotation: 0.3,
+                process: SurfaceProcess::NoRemoval,
+                requirement: "Rz 6.3".into(),
+                method: "cast".into(),
+                lay: "⊥".into(),
+                all_around: true,
+            }),
+            Shape::Weld(WeldSymbol {
+                tip: V2::new(90., 0.),
+                elbow: V2::new(100., 15.),
+                arrow_side: WeldSide { kind: WeldType::Fillet, size: "a4".into(), length: "3x50 (100)".into() },
+                other_side: WeldSide { kind: WeldType::VButt, size: String::new(), length: String::new() },
+                all_around: false,
+                field: true,
+                tail: "135".into(),
+            }),
+        ]
+    }
+
+    #[test]
+    fn symbols_round_trip() {
+        let mut d = Document::new();
+        for s in symbols() {
+            d.add(s);
+        }
+        let s = write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() });
+        assert!(s.contains("AcDbFcf") && s.contains("{\\Fgdt;b}%%v0.02%%vA"));
+        let r = read_dxf(&s).unwrap();
+        let back: Vec<Shape> = r.entities.iter().map(|e| e.shape.clone()).collect();
+        assert_eq!(back, symbols());
+        // A plain TOLERANCE from other software is read from its GDT codes.
+        let plain = s.replace("1001\nIMAGINECAD", "1001\nOTHERAPP");
+        let r = read_dxf(&plain).unwrap();
+        assert!(r.entities.iter().any(|e| matches!(&e.shape, Shape::Tolerance(f) if f.rows[0].tolerance == "0.02")));
+        // R12 explodes them into plain graphics.
+        let r12 = read_dxf(&write_dxf(&d, &DxfOptions { version: DxfVersion::R12, include_sheet: false, ..Default::default() })).unwrap();
+        assert!(r12.entities.len() > 20);
     }
 
     #[test]

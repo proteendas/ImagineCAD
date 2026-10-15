@@ -539,3 +539,22 @@ pub fn draw_snap_marker(painter: &Painter, s: Pos2, kind: SnapKind) {
     }
     painter.text(s + vec2(12.0, 14.0), Align2::LEFT_TOP, kind.label(), FontId::proportional(11.0), theme::SNAP);
 }
+
+/// Draw primitives fitted into a box of `size` (dialog previews).
+pub fn preview_prims(ui: &mut egui::Ui, prims: &[Prim], size: egui::Vec2) {
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, theme::CANVAS);
+    let b = prims.iter().fold(BBox::empty(), |b, p| b.union(&p.bbox()));
+    let mut view = View { rect: rect.shrink(10.0), ..Default::default() };
+    view.fit(&b);
+    let st = Style { color: theme::TEXT, width: 1.2, dash: vec![] };
+    let mut shapes = vec![];
+    for p in prims {
+        prim_shapes(&view, p, &st, &mut shapes);
+        if let Prim::Text(t) = p {
+            draw_text(&painter, &view, t, theme::TEXT);
+        }
+    }
+    painter.extend(shapes);
+}

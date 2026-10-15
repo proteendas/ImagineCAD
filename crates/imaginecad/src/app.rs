@@ -296,6 +296,10 @@ impl App {
             }
             "AISETTINGS" => self.dlg.ai_settings = true,
             "AICHAT" | "CHAT" | "ASSISTANT" => self.settings.show_chat = !self.settings.show_chat,
+            "TOLERANCE" | "TOL" | "GDT" => self.new_symbol(crate::symbol_ui::SymbolKind::Tolerance),
+            "DATUM" | "DATUMSYMBOL" => self.new_symbol(crate::symbol_ui::SymbolKind::Datum),
+            "SURFFINISH" | "SF" | "ROUGHNESS" => self.new_symbol(crate::symbol_ui::SymbolKind::Surface),
+            "WELD" | "WELDSYMBOL" => self.new_symbol(crate::symbol_ui::SymbolKind::Weld),
             "AIHELP" => self.dlg.ai_help = true,
             "LAYER" | "LA" => self.dlg.layers = true,
             "PROPERTIES" | "PR" | "PROPS" => {
@@ -900,7 +904,7 @@ impl App {
         let clicked = resp.clicked_by(PointerButton::Primary);
         if wants.is_none() && resp.double_clicked() {
             if let Some(id) = hover_id {
-                if self.edit_text_of(id) {
+                if self.edit_text_of(id) || self.edit_symbol_of(id) {
                     return;
                 }
             }
@@ -1064,12 +1068,12 @@ impl App {
             .frame(egui::Frame::NONE.fill(theme::RIBBON_TABS).inner_margin(egui::Margin { left: 4, right: 4, top: 3, bottom: 0 }))
             .show(ctx, |ui| {
                 let mut out = vec![];
-                let (grid, lwt, props, ai_ready) =
-                    (self.settings.grid, self.settings.lineweights, self.settings.show_properties, self.ai_ready);
+                let (grid, lwt, props, ai_ready, chat) =
+                    (self.settings.grid, self.settings.lineweights, self.settings.show_properties, self.ai_ready, self.settings.show_chat);
                 let t = &mut self.tabs[self.active];
                 let (sheet, layout) = (t.doc.sheet.visible, t.layout);
                 let mut layer_ui = |ui: &mut egui::Ui| layer_combo(ui, t);
-                let st = RibbonState { grid, lwt, props, sheet, layout, ai_ready, layer_ui: &mut layer_ui };
+                let st = RibbonState { grid, lwt, props, sheet, layout, ai_ready, chat, layer_ui: &mut layer_ui };
                 ribbon::show(ui, &mut self.ribbon_tab, st, &mut out);
                 for c in out {
                     self.run(&c);
@@ -1428,7 +1432,7 @@ fn layer_combo(ui: &mut egui::Ui, t: &mut Tab) {
         if let Some(l) = t.doc.layer(&shown) {
             color_swatch(ui, l.color);
         }
-        egui::ComboBox::from_id_salt("layer_combo").width(170.0).selected_text(&shown).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("layer_combo").width(128.0).selected_text(&shown).show_ui(ui, |ui| {
             let names: Vec<(String, u8, bool)> = t.doc.layers.iter().map(|l| (l.name.clone(), l.color, l.visible)).collect();
             for (name, color, vis) in names {
                 ui.horizontal(|ui| {
@@ -1780,6 +1784,13 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             dv(ui, &format!("Vertex {} X", i + 1), &mut p.x);
                             dv(ui, &format!("Vertex {} Y", i + 1), &mut p.y);
                         }
+                    }
+                    Shape::Tolerance(_) | Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) => {
+                        ui.end_row();
+                        if crate::symbol_ui::symbol_editor(ui, &mut proto.shape) {
+                            gflag.set(true);
+                        }
+                        ui.end_row();
                     }
                     Shape::Image(img) => {
                         ui.label("File");

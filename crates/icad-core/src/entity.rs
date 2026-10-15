@@ -8,6 +8,7 @@ use crate::geom::*;
 use crate::hatch;
 use crate::prim::*;
 use crate::style::*;
+use crate::symbols::*;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -575,6 +576,14 @@ pub enum Shape {
     Insert(Insert),
     Leader(Leader),
     Image(ImageRef),
+    /// Geometric tolerance feature control frame.
+    Tolerance(Fcf),
+    /// Datum feature symbol.
+    Datum(DatumFeature),
+    /// Surface texture symbol.
+    Surface(SurfaceFinish),
+    /// Weld symbol.
+    Weld(WeldSymbol),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -727,11 +736,25 @@ impl Shape {
             Shape::Insert(_) => "Block Reference",
             Shape::Leader(_) => "Leader",
             Shape::Image(_) => "Raster Image",
+            Shape::Tolerance(_) => "Tolerance",
+            Shape::Datum(_) => "Datum Symbol",
+            Shape::Surface(_) => "Surface Texture Symbol",
+            Shape::Weld(_) => "Weld Symbol",
         }
     }
 
     pub fn is_annotation(&self) -> bool {
-        matches!(self, Shape::Text(_) | Shape::Dim(_) | Shape::MText(_) | Shape::Leader(_))
+        matches!(
+            self,
+            Shape::Text(_)
+                | Shape::Dim(_)
+                | Shape::MText(_)
+                | Shape::Leader(_)
+                | Shape::Tolerance(_)
+                | Shape::Datum(_)
+                | Shape::Surface(_)
+                | Shape::Weld(_)
+        )
     }
 
     /// Construction geometry that is excluded from extents.
@@ -789,6 +812,10 @@ impl Shape {
             }
             Shape::Leader(l) => leader_prims(l, ctx),
             Shape::Image(i) => vec![Prim::Image(i.clone())],
+            Shape::Tolerance(f) => f.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
+            Shape::Datum(d) => d.prims(ctx.ds.text_height * ctx.scale),
+            Shape::Surface(s) => s.prims(ctx.ds.text_height * ctx.scale),
+            Shape::Weld(w) => w.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
         }
     }
 
@@ -897,6 +924,10 @@ impl Shape {
             Shape::Leader(l) => l.pts.iter().map(|p| (End, *p)).collect(),
             Shape::Image(i) => i.corners().into_iter().map(|p| (End, p)).collect(),
             Shape::Hatch(_) => vec![],
+            Shape::Tolerance(f) => vec![(Insertion, f.pos)],
+            Shape::Datum(d) => vec![(Insertion, d.pos), (End, d.tip)],
+            Shape::Surface(s) => vec![(Insertion, s.pos)],
+            Shape::Weld(w) => vec![(End, w.tip), (Insertion, w.elbow)],
         }
     }
 
@@ -942,6 +973,10 @@ impl Shape {
                     vec![b.center()]
                 }
             }
+            Shape::Tolerance(f) => std::iter::once(f.pos).chain(f.leader.iter().copied()).collect(),
+            Shape::Datum(d) => vec![d.pos, d.tip],
+            Shape::Surface(s) => vec![s.pos],
+            Shape::Weld(w) => vec![w.tip, w.elbow],
         }
     }
 
@@ -1047,6 +1082,29 @@ impl Shape {
                 let d = p - b.center();
                 h.loops.iter_mut().flatten().for_each(|q| *q += d);
             }
+            Shape::Tolerance(f) => match i {
+                0 => f.pos = p,
+                _ => {
+                    if let Some(q) = f.leader.get_mut(i - 1) {
+                        *q = p
+                    }
+                }
+            },
+            Shape::Datum(d) => {
+                if i == 0 {
+                    d.pos = p
+                } else {
+                    d.tip = p
+                }
+            }
+            Shape::Surface(s) => s.pos = p,
+            Shape::Weld(w) => {
+                if i == 0 {
+                    w.tip = p
+                } else {
+                    w.elbow = p
+                }
+            }
         }
     }
 
@@ -1149,6 +1207,25 @@ impl Shape {
                 img.w = b.width();
                 img.h = b.height();
             }
+            // Symbols move with the geometry but keep their paper size.
+            Shape::Tolerance(f) => {
+                f.pos = x.apply(f.pos);
+                f.leader.iter_mut().for_each(|p| *p = x.apply(*p));
+            }
+            Shape::Datum(d) => {
+                d.pos = x.apply(d.pos);
+                d.tip = x.apply(d.tip);
+            }
+            Shape::Surface(s) => {
+                s.pos = x.apply(s.pos);
+                if !x.is_mirror() {
+                    s.rotation = norm_angle(x.apply_angle(s.rotation));
+                }
+            }
+            Shape::Weld(w) => {
+                w.tip = x.apply(w.tip);
+                w.elbow = x.apply(w.elbow);
+            }
         }
     }
 
@@ -1171,7 +1248,13 @@ impl Shape {
         };
         match self {
             Shape::Polyline { pts, closed } => Some(poly_segments(pts, *closed).map(|(a, b)| Shape::Line { a, b }).collect()),
-            Shape::Dim(_) | Shape::Leader(_) | Shape::MText(_) => Some(from_prims(self.prims(ctx))),
+            Shape::Dim(_)
+            | Shape::Leader(_)
+            | Shape::MText(_)
+            | Shape::Tolerance(_)
+            | Shape::Datum(_)
+            | Shape::Surface(_)
+            | Shape::Weld(_) => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) if !h.is_solid() => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) => Some(h.loops.iter().map(|l| Shape::Polyline { pts: l.clone(), closed: true }).collect()),
             _ => None,

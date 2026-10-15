@@ -280,6 +280,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("QDIM", ""),
     ("DIMREASSOCIATE", "DRE"),
     ("DIMDISASSOCIATE", "DDA"),
+    ("TOLERANCE", "TOL"),
+    ("DATUM", ""),
+    ("SURFFINISH", "SF"),
+    ("WELD", ""),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {
@@ -520,7 +524,7 @@ impl Command for CircleCmd {
             self.two = Some(vec![]);
             return Flow::Continue;
         }
-        if self.center.is_some() && (u == "D" || u == "DIAMETER") {
+        if u == "D" || u == "DIAMETER" {
             self.diameter = true;
             return Flow::Continue;
         }

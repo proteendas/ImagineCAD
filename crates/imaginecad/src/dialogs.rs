@@ -237,6 +237,7 @@ pub struct Dialogs {
     pub text_edit: Option<(u64, String)>,
     pub ai_check: Option<Receiver<Result<Vec<ModelInfo>, String>>>,
     pub ai_models: Vec<ModelInfo>,
+    pub symbol: Option<crate::symbol_ui::SymbolDialog>,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -326,6 +327,7 @@ impl App {
         self.qselect_dialog(ctx);
         self.text_edit_dialog(ctx);
         self.units_dialog(ctx);
+        self.symbol_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();

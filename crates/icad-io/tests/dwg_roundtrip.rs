@@ -22,6 +22,29 @@ fn dwg_save_and_reopen() {
     d.add(Shape::Arc { c: V2::new(60., 50.), r: 30., start: 0.0, end: std::f64::consts::FRAC_PI_2 });
     d.add(Shape::Dim(Dimension::ordinate(V2::ZERO, V2::new(160., 100.), V2::new(160., 120.))));
     d.add(Shape::Dim(Dimension::arc_length(V2::new(60., 50.), V2::new(90., 50.), V2::new(60., 80.), V2::new(85., 75.))));
+    use icad_core::symbols::*;
+    let fcf = Fcf {
+        pos: V2::new(10., 130.),
+        rows: vec![FcfRow {
+            symbol: GdtSymbol::Flatness,
+            diameter: false,
+            tolerance: "0.05".into(),
+            material: Material::None,
+            datums: vec![],
+        }],
+        leader: vec![],
+    };
+    d.add(Shape::Tolerance(fcf.clone()));
+    let weld = WeldSymbol {
+        tip: V2::new(160., 50.),
+        elbow: V2::new(180., 70.),
+        arrow_side: WeldSide { kind: WeldType::Fillet, size: "a5".into(), length: String::new() },
+        other_side: WeldSide::default(),
+        all_around: true,
+        field: false,
+        tail: String::new(),
+    };
+    d.add(Shape::Weld(weld.clone()));
     let dir = std::env::temp_dir().join(format!("icad-dwg-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("part.dwg");
@@ -39,5 +62,7 @@ fn dwg_save_and_reopen() {
     assert!((arc.measurement() - 30.0 * std::f64::consts::FRAC_PI_2).abs() < 1e-6);
     let c = r.entities.iter().find_map(|e| if let Shape::Circle { r, .. } = e.shape { Some(r) } else { None }).unwrap();
     assert!((c - 20.0).abs() < 1e-9);
+    assert!(r.entities.iter().any(|e| e.shape == Shape::Tolerance(fcf.clone())), "tolerance survives DWG");
+    assert!(r.entities.iter().any(|e| e.shape == Shape::Weld(weld.clone())), "weld symbol survives DWG");
     let _ = std::fs::remove_dir_all(&dir);
 }

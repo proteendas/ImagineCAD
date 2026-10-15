@@ -17,7 +17,7 @@
 ```
 
 - **IC menu**: new, open, save, export, plot, recent drawings, About, exit.
-- **Ribbon**: every button runs the same command you could type; hover for the command name and alias.
+- **Ribbon**: every button runs the same command you could type; hover for the command name and alias. Buttons with a **▾** are split buttons: click the top for the usual tool, the arrow for its variants (Circle ▾: centre/radius, centre/diameter, 2-point, 3-point; Dimension ▾: every dimension type). Click a panel title with a ▾ (**Draw ▾**, **Modify ▾**, **Annotation ▾**, **Layers ▾**) for the panel's other tools, so each tab fits on screen without scrolling.
 - **Properties palette** (`PR`): layer, colour, linetype and exact geometry of the selection: coordinates, lengths, angles, radii, ellipse axes, spline fit points, text, hatch pattern/scale/angle, block scale/rotation, image width/fade.
 - **Command line**: start typing anywhere on the canvas. Suggestions appear as you type; `Tab` completes.
 - **Status bar**: Model/Layout, coordinates, drafting aids, sheet scale. Right-click **POLAR** to set the angle increment, **OSNAP** to choose snap modes, **SNAP** to set the spacing.
@@ -124,6 +124,20 @@ Hatch patterns: `SOLID`, `ANSI31`–`ANSI38`, `NET`, `LINE`, `ANGLE`.
 | `DIMSTYLE` | `D` | text height, arrows, gaps, precision, LTSCALE |
 
 Dimension text override: leave empty for the measured value; `<>` inserts it (`2x <>`).
+
+**Engineering symbols** (Annotate → Symbols). Each opens a dialog with a live
+preview, then asks where to place the symbol; double-click a placed symbol (or
+use the Properties palette) to edit it.
+
+| Command | Symbol | Placement |
+|---|---|---|
+| `TOLERANCE` (`TOL`) | geometric tolerance feature control frame (ISO 1101): 14 characteristics, Ø zone, Ⓜ/Ⓛ/Ⓢ modifiers, up to three datums, composite second row | arrow point on the feature (Enter for no leader), then the frame |
+| `DATUM` | datum feature symbol (framed letter and filled triangle); the next unused letter is proposed | point on the feature, then the frame |
+| `SURFFINISH` (`SF`) | surface texture (ISO 1302/21920): any process / machined / no removal, requirement (Ra, Rz…), method, lay, all around | point on the surface, then the direction away from it (Enter = upright) |
+| `WELD` | weld symbol (ISO 2553): fillet, square, V, bevel, U, J, plug, spot, seam on the arrow and other side, size and length, all-around, field weld, tail | arrow point on the joint, then the reference line |
+
+Feature control frames are written to DXF/DWG as native tolerance entities;
+the other symbols travel as their graphics plus ImagineCAD data.
 
 **Associative dimensions.** A dimension placed on snap points (endpoints,
 centres, midpoints) or on a circle or arc is tied to that geometry. Move,

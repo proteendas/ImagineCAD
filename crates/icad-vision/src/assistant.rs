@@ -14,6 +14,7 @@ use icad_core::geom::*;
 use icad_core::prim::Text;
 use icad_core::sheet::{fit_margin, parse_scale, scale_label, PaperSize};
 use icad_core::style::*;
+use icad_core::symbols::*;
 use serde_json::{json, Value};
 
 /// Entities listed to the model in full; larger drawings are summarised.
@@ -94,6 +95,77 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
         Shape::Insert(i) => format!("block {:?} at {} scale {}x{} rotation {}°", i.name, p(i.pos), n(i.sx), n(i.sy), deg(i.rotation)),
         Shape::Leader(l) => format!("leader arrow at {} text {:?}", p(l.pts.first().copied().unwrap_or(V2::ZERO)), l.text),
         Shape::Image(i) => format!("image {:?} at {} size {}x{}", i.path, p(i.pos), n(i.w), n(i.h)),
+        Shape::Tolerance(f) => {
+            let rows: Vec<String> = f
+                .rows
+                .iter()
+                .map(|r| {
+                    let datums: Vec<String> = r.datums.iter().map(|d| format!("{}{}", d.letter, d.material.letter())).collect();
+                    format!(
+                        "{} {}{}{} datums [{}]",
+                        r.symbol.name(),
+                        if r.diameter { "Ø" } else { "" },
+                        r.tolerance,
+                        r.material.letter(),
+                        datums.join(",")
+                    )
+                })
+                .collect();
+            format!("geometric tolerance at {}: {}", p(f.pos), rows.join(" / "))
+        }
+        Shape::Datum(d) => format!("datum feature symbol {:?} at {} on feature {}", d.letter, p(d.pos), p(d.tip)),
+        Shape::Surface(s) => format!("surface texture symbol at {} {:?} {:?} method {:?}", p(s.pos), s.process, s.requirement, s.method),
+        Shape::Weld(w) => format!(
+            "weld symbol arrow at {} arrow side {} {}{} other side {} {}{} tail {:?}",
+            p(w.tip),
+            w.arrow_side.kind.name(),
+            w.arrow_side.size,
+            w.arrow_side.length,
+            w.other_side.kind.name(),
+            w.other_side.size,
+            w.other_side.length,
+            w.tail
+        ),
+    }
+}
+
+fn gdt_symbol(s: &str) -> Option<GdtSymbol> {
+    let k = s.to_ascii_lowercase().replace([' ', '_', '-'], "");
+    GdtSymbol::ALL.into_iter().find(|g| {
+        let name = g.name().to_ascii_lowercase().replace([' ', '_', '-', '(', ')', '/'], "");
+        name.starts_with(&k) || format!("{g:?}").to_ascii_lowercase() == k
+    })
+}
+
+fn material(v: &Value) -> Material {
+    v.as_str().map(Material::from_letter).unwrap_or_default()
+}
+
+/// "A", "B(M)", "BM" or {"letter": "B", "material": "M"}.
+fn datum_ref(v: &Value) -> Option<DatumRef> {
+    match v {
+        Value::String(s) => {
+            let s = s.trim().replace(['(', ')'], "");
+            let (letter, m) =
+                if s.len() > 1 && matches!(s.chars().last(), Some('M' | 'L' | 'S')) { s.split_at(s.len() - 1) } else { (s.as_str(), "") };
+            Some(DatumRef { letter: letter.to_string(), material: Material::from_letter(m) })
+        }
+        Value::Object(_) => Some(DatumRef { letter: v["letter"].as_str()?.to_string(), material: material(&v["material"]) }),
+        _ => None,
+    }
+}
+
+fn weld_side(v: &Value) -> WeldSide {
+    let kind = v["kind"].as_str().map(|k| k.to_ascii_lowercase().replace([' ', '_', '-'], "")).and_then(|k| {
+        WeldType::ALL.into_iter().find(|t| {
+            let n = t.name().to_ascii_lowercase().replace([' ', '_', '-', '/'], "");
+            n.contains(&k) || format!("{t:?}").to_ascii_lowercase() == k
+        })
+    });
+    WeldSide {
+        kind: kind.unwrap_or_default(),
+        size: v["size"].as_str().unwrap_or("").to_string(),
+        length: v["length"].as_str().unwrap_or("").to_string(),
     }
 }
 
@@ -215,6 +287,12 @@ SHAPE is one of:
 {"type": "ellipse", "c": [x, y], "major": [dx, dy], "ratio": 0.5}
 {"type": "point", "p": [x, y]}
 {"type": "hatch", "loops": [[[x, y], ...]], "pattern": "ANSI31", "scale": 1, "angle": 0}
+{"type": "tolerance", "at": [x, y], "rows": [{"symbol": "position", "diameter": true, "tolerance": "0.05", "material": "M", "datums": ["A", "B(M)"]}], "leader": [[feature x, y]]}
+     (symbols: position, straightness, flatness, circularity, cylindricity, profile of a line, profile of a surface, angularity, perpendicularity, parallelism, concentricity, symmetry, circular run-out, total run-out)
+{"type": "datum", "letter": "A", "at": [x, y], "tip": [point on the feature]}
+{"type": "surface", "at": [point on the surface], "rotation": 0, "process": "removal" | "any" | "no_removal", "requirement": "Ra 1.6", "method": "ground", "lay": "=", "all_around": false}
+{"type": "weld", "tip": [joint x, y], "elbow": [x, y], "arrow_side": {"kind": "fillet", "size": "a5", "length": "100"}, "other_side": {"kind": "none"}, "all_around": false, "field": false, "tail": "111"}
+     (weld kinds: fillet, square butt, v butt, bevel butt, u butt, j butt, plug, spot, seam)
 
 PART (same form as the drawing description shows):
 {"type": "shaft", "total_length": 2836, "segments": [{"length": 155, "diameter": 160}, ...], "keyways": [{"start": 25, "length": 105, "width": 0}], "chamfers": [{"at": 2, "size": 2.5}]}
@@ -393,6 +471,51 @@ pub fn shape_from_json(v: &Value, doc: &Document) -> Result<Shape, String> {
             }
             Shape::Leader(Leader { pts, text: v["text"].as_str().unwrap_or("").to_string() })
         }
+        "tolerance" | "fcf" | "gdt" => {
+            let rows = v["rows"]
+                .as_array()
+                .ok_or("tolerance needs rows")?
+                .iter()
+                .map(|r| {
+                    Ok(FcfRow {
+                        symbol: r["symbol"].as_str().and_then(gdt_symbol).ok_or(format!("unknown tolerance symbol {}", r["symbol"]))?,
+                        diameter: r["diameter"].as_bool().unwrap_or(false),
+                        tolerance: r["tolerance"].as_str().map(String::from).or_else(|| r["tolerance"].as_f64().map(n)).unwrap_or_default(),
+                        material: material(&r["material"]),
+                        datums: r["datums"].as_array().map(|a| a.iter().filter_map(datum_ref).take(3).collect()).unwrap_or_default(),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let leader = v["leader"].as_array().map(|a| a.iter().filter_map(pt).collect()).unwrap_or_default();
+            Shape::Tolerance(Fcf { pos: get_pt(v, &["at", "pos"])?, rows, leader })
+        }
+        "datum" => Shape::Datum(DatumFeature {
+            letter: v["letter"].as_str().unwrap_or("A").to_string(),
+            pos: get_pt(v, &["at", "pos"])?,
+            tip: get_pt(v, &["tip", "feature"])?,
+        }),
+        "surface" | "surface_finish" | "roughness" => Shape::Surface(SurfaceFinish {
+            pos: get_pt(v, &["at", "pos", "tip"])?,
+            rotation: get_num(v, &["rotation"]).unwrap_or(0.0).to_radians(),
+            process: match v["process"].as_str().unwrap_or("removal").to_ascii_lowercase().as_str() {
+                "any" => SurfaceProcess::Any,
+                "no_removal" | "noremoval" | "none" => SurfaceProcess::NoRemoval,
+                _ => SurfaceProcess::Removal,
+            },
+            requirement: v["requirement"].as_str().unwrap_or("").to_string(),
+            method: v["method"].as_str().unwrap_or("").to_string(),
+            lay: v["lay"].as_str().unwrap_or("").to_string(),
+            all_around: v["all_around"].as_bool().unwrap_or(false),
+        }),
+        "weld" => Shape::Weld(WeldSymbol {
+            tip: get_pt(v, &["tip", "arrow"])?,
+            elbow: get_pt(v, &["elbow", "at"])?,
+            arrow_side: weld_side(&v["arrow_side"]),
+            other_side: weld_side(&v["other_side"]),
+            all_around: v["all_around"].as_bool().unwrap_or(false),
+            field: v["field"].as_bool().unwrap_or(false),
+            tail: v["tail"].as_str().unwrap_or("").to_string(),
+        }),
         "ellipse" => Shape::Ellipse {
             c: get_pt(v, &["c", "center"])?,
             major: get_pt(v, &["major", "major_axis"])?,

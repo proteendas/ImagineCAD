@@ -11,6 +11,8 @@ All notable changes to ImagineCAD are documented here. The format follows
 - `imaginecad ask DRAWING "CHANGE" -o OUT`: the same from the command line.
 - Drawings remember the parametric part they were generated from (`.icad`).
 - **Dimensions:** ordinate (`DIMORDINATE`) and arc-length (`DIMARC`) dimensions; `QDIM` quick dimensioning (continuous, staggered, baseline, ordinate, radius, diameter); **associative dimensions** that follow moved, stretched or resized geometry (`DIMREASSOCIATE`, `DIMDISASSOCIATE`). Ordinate dimensions are native DXF/DWG dimensions; arc-length dimensions round-trip through DXF/DWG.
+- **Engineering symbols:** geometric tolerance feature control frames (`TOLERANCE`, ISO 1101: all 14 characteristics, Ø zone, material modifiers, datums, composite rows, optional leader), datum feature symbols (`DATUM`), surface texture symbols (`SURFFINISH`, ISO 1302/21920) and weld symbols (`WELD`, ISO 2553). Dialogs with live preview; double-click to edit. Feature control frames are native DXF/DWG tolerance entities and plain ones from other programs are read.
+- **Compact ribbon:** split buttons with variant lists (Circle ▾, Arc ▾, Dimension ▾, Trim ▾, Fillet ▾, Array ▾…), icon tool columns and panel-title menus (Draw ▾, Modify ▾, Annotation ▾, Layers ▾), so each tab fits without scrolling.
 - DXF/DWG: objects without a DXF 2000 equivalent are written as their graphics plus ImagineCAD extended data, so other programs show them and ImagineCAD reads them back exactly.
 
 ### Changed

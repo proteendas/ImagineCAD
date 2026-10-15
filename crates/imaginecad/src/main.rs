@@ -17,6 +17,7 @@ mod icons;
 mod ribbon;
 mod secrets;
 mod settings;
+mod symbol_ui;
 mod tab;
 mod theme;
 mod view;

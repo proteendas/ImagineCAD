@@ -77,6 +77,14 @@ pub enum Icon {
     DimOrdinate,
     DimArc,
     QDim,
+    Tolerance,
+    Datum,
+    Surface,
+    Weld,
+    Lock,
+    Unlock,
+    Link,
+    Unlink,
     Block,
     Insert,
     Area,
@@ -574,6 +582,62 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 ln(p, pos2(x, tl.y), pos2(x, bl.y), Stroke::new(1.0f32, crate::theme::TEXT_DIM));
             }
             ln(p, bl, br, s);
+        }
+        Icon::Lock | Icon::Unlock => {
+            let body = Rect::from_min_max(pos2(tl.x + u * 0.2, c.y - u * 0.1), pos2(tr.x - u * 0.2, bl.y));
+            p.rect_filled(body, 2.0, if icon == Icon::Lock { accent } else { col });
+            let sh = if icon == Icon::Lock { 0.0 } else { u * 0.45 };
+            let pts = arc_pts(pos2(c.x + sh, c.y - u * 0.1), u * 0.45, 0.0, PI);
+            p.add(Shape::line(pts.into_iter().map(|q| pos2(q.x, c.y - u * 0.1 - (q.y - (c.y - u * 0.1)).abs())).collect(), s));
+        }
+        Icon::Link | Icon::Unlink => {
+            let a = Rect::from_center_size(c + vec2(-u * 0.45, u * 0.2), vec2(u * 1.1, u * 0.7));
+            let b = Rect::from_center_size(c + vec2(u * 0.45, -u * 0.2), vec2(u * 1.1, u * 0.7));
+            p.rect_stroke(a, u * 0.35, s, eframe::egui::StrokeKind::Middle);
+            p.rect_stroke(b, u * 0.35, Stroke::new(s.width, accent), eframe::egui::StrokeKind::Middle);
+            if icon == Icon::Unlink {
+                ln(p, tl + vec2(u * 0.2, u * 0.2), br - vec2(u * 0.2, u * 0.2), Stroke::new(s.width * 1.3, crate::theme::ERR));
+            }
+        }
+        Icon::Tolerance => {
+            let h = u * 0.9;
+            let r = Rect::from_min_max(pos2(tl.x, c.y - h / 2.0), pos2(tr.x, c.y + h / 2.0));
+            p.rect_stroke(r, 0.0, thin, eframe::egui::StrokeKind::Middle);
+            let x1 = tl.x + h;
+            ln(p, pos2(x1, r.top()), pos2(x1, r.bottom()), thin);
+            let sc = pos2(tl.x + h / 2.0, c.y);
+            p.circle_stroke(sc, h * 0.28, Stroke::new(s.width * 0.8, accent));
+            ln(p, sc - vec2(h * 0.42, 0.0), sc + vec2(h * 0.42, 0.0), Stroke::new(s.width * 0.8, accent));
+            ln(p, sc - vec2(0.0, h * 0.42), sc + vec2(0.0, h * 0.42), Stroke::new(s.width * 0.8, accent));
+            p.text(pos2((x1 + tr.x) / 2.0, c.y), Align2::CENTER_CENTER, "0.1", FontId::proportional(u * 0.62), col);
+        }
+        Icon::Datum => {
+            let b = Rect::from_center_size(pos2(c.x, tl.y + u * 0.55), vec2(u * 1.0, u * 1.0));
+            p.rect_stroke(b, 0.0, thin, eframe::egui::StrokeKind::Middle);
+            p.text(b.center(), Align2::CENTER_CENTER, "A", FontId::proportional(u * 0.75), col);
+            ln(p, pos2(c.x, b.bottom()), pos2(c.x, bl.y - u * 0.45), thin);
+            p.add(Shape::convex_polygon(
+                vec![pos2(c.x - u * 0.4, bl.y), pos2(c.x + u * 0.4, bl.y), pos2(c.x, bl.y - u * 0.55)],
+                accent,
+                Stroke::NONE,
+            ));
+            ln(p, bl, br, s);
+        }
+        Icon::Surface => {
+            let tip = pos2(c.x - u * 0.4, bl.y);
+            ln(p, tip, tip + vec2(-u * 0.45, -u * 0.8), s);
+            ln(p, tip, tip + vec2(u * 0.9, -u * 1.6), s);
+            ln(p, tip + vec2(-u * 0.45, -u * 0.8), tip + vec2(u * 0.45, -u * 0.8), Stroke::new(s.width, accent));
+            ln(p, tip + vec2(u * 0.9, -u * 1.6), tip + vec2(u * 1.6, -u * 1.6), thin);
+        }
+        Icon::Weld => {
+            ln(p, bl + vec2(u * 0.1, -u * 0.1), c + vec2(-u * 0.3, 0.0), thin);
+            p.add(Shape::convex_polygon(vec![bl, bl + vec2(u * 0.45, -u * 0.15), bl + vec2(u * 0.15, -u * 0.45)], col, Stroke::NONE));
+            ln(p, c + vec2(-u * 0.3, 0.0), pos2(tr.x, c.y), s);
+            p.add(Shape::line(
+                vec![c + vec2(u * 0.2, 0.0), c + vec2(u * 0.2, u * 0.6), c + vec2(u * 0.8, 0.0)],
+                Stroke::new(s.width, accent),
+            ));
         }
         Icon::DimOrdinate => {
             // Datum corner with three ordinate leaders.
