@@ -65,11 +65,16 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
                 DimKind::Radius => "radius",
                 DimKind::Diameter => "diameter",
                 DimKind::Angular => "angular",
+                DimKind::OrdinateX => "ordinate-x",
+                DimKind::OrdinateY => "ordinate-y",
+                DimKind::ArcLength => "arc-length",
             };
             let shown = d.label(&doc.dimstyle);
             let geo = match d.kind {
                 DimKind::Radius | DimKind::Diameter => format!("center {} through {}", p(d.p1), p(d.p2)),
                 DimKind::Angular => format!("vertex {} rays to {} and {}", p(d.center.unwrap_or(V2::ZERO)), p(d.p1), p(d.p2)),
+                DimKind::OrdinateX | DimKind::OrdinateY => format!("feature {} from datum {}", p(d.p1), p(d.center.unwrap_or(V2::ZERO))),
+                DimKind::ArcLength => format!("arc around {} from {} to {}", p(d.center.unwrap_or(V2::ZERO)), p(d.p1), p(d.p2)),
                 _ => format!("from {} to {}", p(d.p1), p(d.p2)),
             };
             format!(
@@ -204,6 +209,8 @@ SHAPE is one of:
 {"type": "dim", "kind": "horizontal" | "vertical" | "aligned", "p1": [x, y], "p2": [x, y], "at": [x, y], "text": "optional, <> = measured value"}
 {"type": "dim", "kind": "radius" | "diameter", "c": [x, y], "r": 10, "at": [x, y]}
 {"type": "dim", "kind": "angular", "center": [x, y], "p1": [x, y], "p2": [x, y], "at": [x, y]}
+{"type": "dim", "kind": "ordinate", "datum": [0, 0], "feature": [x, y], "at": [leader end x, y], "axis": "x" | "y"}
+{"type": "dim", "kind": "arc_length", "c": [x, y], "r": 10, "start": 0, "end": 90, "at": [x, y]}
 {"type": "leader", "pts": [[tip x, tip y], [x, y]], "text": "2x M6"}
 {"type": "ellipse", "c": [x, y], "major": [dx, dy], "ratio": 0.5}
 {"type": "point", "p": [x, y]}
@@ -356,6 +363,23 @@ pub fn shape_from_json(v: &Value, doc: &Document) -> Result<Shape, String> {
                 "angular" | "angle" => {
                     Dimension::angular(get_pt(v, &["center", "c", "vertex"])?, get_pt(v, &["p1", "a"])?, get_pt(v, &["p2", "b"])?, at)
                 }
+                "ordinate" => {
+                    let datum = get_pt(v, &["datum", "origin"]).unwrap_or(V2::ZERO);
+                    let mut d = Dimension::ordinate(datum, get_pt(v, &["feature", "p1", "p"])?, at);
+                    match v["axis"].as_str().map(|a| a.to_ascii_lowercase()) {
+                        Some(a) if a == "x" => d.kind = DimKind::OrdinateX,
+                        Some(a) if a == "y" => d.kind = DimKind::OrdinateY,
+                        _ => {}
+                    }
+                    d
+                }
+                "arc_length" | "arclength" | "arc" => {
+                    let c = get_pt(v, &["c", "center"])?;
+                    let r = get_num(v, &["r", "radius"]).ok_or("arc length dimension needs r")?;
+                    let s = get_num(v, &["start"]).ok_or("arc length dimension needs start")?.to_radians();
+                    let e = get_num(v, &["end"]).ok_or("arc length dimension needs end")?.to_radians();
+                    Dimension::arc_length(c, c + V2::polar(r, s), c + V2::polar(r, e), at)
+                }
                 other => return Err(format!("unknown dimension kind \"{other}\"")),
             };
             d.text = v["text"].as_str().filter(|t| !t.trim().is_empty()).map(String::from);
@@ -488,6 +512,7 @@ pub fn rebuild_part(doc: &mut Document, spec_json: &Value) -> Result<Vec<u64>, S
         ids.push(doc.add_on(&layer, s));
     }
     doc.part = Some(PartRecord { spec: spec.to_json(), ids: ids.clone() });
+    doc.associate_all_dims();
     // Choose a larger sheet when the part no longer fits.
     let geo = ids
         .iter()
@@ -521,7 +546,11 @@ fn apply_one(doc: &mut Document, a: &Value, r: &mut Report) -> Result<(), String
     let op = a["op"].as_str().or_else(|| a["action"].as_str()).unwrap_or("").to_ascii_lowercase();
     match op.as_str() {
         "add" | "create" | "draw" => {
-            let shape = shape_from_json(a.get("shape").unwrap_or(a), doc)?;
+            let mut shape = shape_from_json(a.get("shape").unwrap_or(a), doc)?;
+            // New dimensions follow the geometry they measure.
+            if let Shape::Dim(d) = &mut shape {
+                doc.associate_dim(d);
+            }
             let layer = a["layer"].as_str().map(String::from).unwrap_or_else(|| doc.current_layer.clone());
             ensure_layer(doc, &layer);
             r.added.push(doc.add_on(&layer, shape));

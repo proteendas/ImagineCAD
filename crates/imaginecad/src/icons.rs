@@ -74,6 +74,9 @@ pub enum Icon {
     DimAngular,
     DimBaseline,
     DimContinue,
+    DimOrdinate,
+    DimArc,
+    QDim,
     Block,
     Insert,
     Area,
@@ -571,6 +574,38 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 ln(p, pos2(x, tl.y), pos2(x, bl.y), Stroke::new(1.0f32, crate::theme::TEXT_DIM));
             }
             ln(p, bl, br, s);
+        }
+        Icon::DimOrdinate => {
+            // Datum corner with three ordinate leaders.
+            ln(p, bl, br, s);
+            ln(p, bl, tl, s);
+            for k in [0.35, 0.7, 1.0] {
+                let x = bl.x + (br.x - bl.x) * k;
+                ln(p, pos2(x, bl.y - u * 0.2), pos2(x, tl.y + u * 0.5), thin);
+                p.circle_filled(pos2(x, tl.y + u * 0.35), u * 0.12, accent);
+            }
+        }
+        Icon::DimArc => {
+            p.add(Shape::line(arc_pts(pos2(c.x, bl.y), u * 1.0, PI * 0.15, PI * 0.85), s));
+            p.add(Shape::line(arc_pts(pos2(c.x, bl.y), u * 1.5, PI * 0.15, PI * 0.85), thin));
+            p.add(Shape::line(arc_pts(pos2(c.x, tl.y + u * 0.35), u * 0.35, PI * 0.2, PI * 0.8), Stroke::new(s.width, accent)));
+        }
+        Icon::QDim => {
+            ln(p, bl + vec2(0.0, -u * 0.6), br + vec2(0.0, -u * 0.6), s);
+            for k in [0.0, 0.4, 1.0] {
+                let x = bl.x + (br.x - bl.x) * k;
+                ln(p, pos2(x, tl.y + u * 0.3), pos2(x, bl.y), thin);
+            }
+            // lightning bolt = quick
+            p.add(Shape::line(
+                vec![
+                    c + vec2(u * 0.1, -u * 0.9),
+                    c + vec2(-u * 0.25, -u * 0.25),
+                    c + vec2(u * 0.2, -u * 0.25),
+                    c + vec2(-u * 0.15, u * 0.4),
+                ],
+                Stroke::new(s.width, accent),
+            ));
         }
         Icon::Block | Icon::Insert => {
             p.rect_stroke(

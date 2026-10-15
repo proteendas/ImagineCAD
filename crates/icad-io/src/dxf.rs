@@ -118,6 +118,35 @@ impl W {
             self.g(100, name);
         }
     }
+    /// ImagineCAD extended data: the exact shape, so it reads back losslessly.
+    fn xdata(&mut self, shape: &Shape) {
+        use base64::Engine as _;
+        let Ok(json) = serde_json::to_string(shape) else { return };
+        let b64 = base64::engine::general_purpose::STANDARD.encode(json);
+        self.g(1001, XDATA_APP);
+        for chunk in b64.as_bytes().chunks(250) {
+            self.g(1000, std::str::from_utf8(chunk).unwrap_or(""));
+        }
+    }
+}
+
+/// Registered application name of ImagineCAD's extended data.
+const XDATA_APP: &str = "IMAGINECAD";
+
+/// Shapes DXF 2000 has no entity for: written as an anonymous block of their
+/// graphics plus extended data holding the exact shape.
+fn needs_proxy(s: &Shape) -> bool {
+    matches!(s, Shape::Dim(d) if d.kind == DimKind::ArcLength)
+}
+
+/// The exact shape stored in ImagineCAD extended data, if present.
+fn xdata_shape(r: &Rec) -> Option<Shape> {
+    use base64::Engine as _;
+    let start = r.codes.iter().position(|(c, v)| *c == 1001 && v.trim() == XDATA_APP)?;
+    let b64: String =
+        r.codes[start + 1..].iter().take_while(|(c, _)| *c != 1001).filter(|(c, _)| *c == 1000).map(|(_, v)| v.trim()).collect();
+    let json = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    serde_json::from_slice(&json).ok()
 }
 
 /// Encode text for DXF: standard %% control codes for common symbols, `\U+XXXX` for the rest.
@@ -266,15 +295,30 @@ fn style_of(e: &Entity) -> Style {
 }
 
 /// Write one entity. `dim_no` numbers the anonymous dimension blocks.
-fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims: bool, dim_no: &mut usize) {
+/// Running numbers of the anonymous blocks written so far.
+#[derive(Default)]
+struct Counters {
+    dim: usize,
+    proxy: usize,
+}
+
+fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims: bool, n: &mut Counters) {
     let st = style_of(e);
     let layer = e.layer.as_str();
     let modern = w.new2000();
     let ctx = doc.ctx();
     match &e.shape {
+        // Block contents (explode_dims) draw proxies as plain graphics.
+        s if modern && !explode_dims && needs_proxy(s) => {
+            n.proxy += 1;
+            w.ent("INSERT", layer, owner, st, "AcDbBlockReference");
+            w.g(2, format!("*U{}", n.proxy));
+            w.pt(10, V2::ZERO);
+            w.xdata(s);
+        }
         Shape::Dim(d) if !explode_dims => {
-            *dim_no += 1;
-            write_dimension(w, doc, d, layer, owner, st, *dim_no);
+            n.dim += 1;
+            write_dimension(w, doc, d, layer, owner, st, n.dim);
         }
         Shape::Point { p } => {
             w.ent("POINT", layer, owner, st, "AcDbPoint");
@@ -455,6 +499,20 @@ fn write_dimension(w: &mut W, doc: &Document, d: &Dimension, layer: &str, owner:
             w.pt(15, tip);
             w.f(40, (d.loc.dist(d.p1) - r).max(0.0));
         }
+        DimKind::OrdinateX | DimKind::OrdinateY => {
+            w.pt(10, d.center.unwrap_or(V2::ZERO));
+            w.pt(11, d.loc);
+            w.g(70, 32 | 128 | 6 | if d.kind == DimKind::OrdinateX { 64 } else { 0 });
+            w.g(1, encode_text(&text));
+            if w.new2000() {
+                w.g(3, "Standard");
+                w.g(100, "AcDbOrdinateDimension");
+            }
+            w.pt(13, d.p1);
+            w.pt(14, d.loc);
+        }
+        // Written as a proxy (needs_proxy); reaching here means R12 or a block.
+        DimKind::ArcLength => {}
         DimKind::Angular => {
             let c = d.center.unwrap_or(V2::ZERO);
             w.pt(10, d.loc);
@@ -554,8 +612,12 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     if opts.include_sheet && doc.sheet.visible && doc.layer("TITLEBLOCK").is_none() {
         layers.push(Layer::new("TITLEBLOCK", 7, LineType::Continuous, 0.35));
     }
-    let dims: Vec<&Entity> =
-        if opts.explode_dimensions { vec![] } else { doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_))).collect() };
+    let dims: Vec<&Entity> = if opts.explode_dimensions {
+        vec![]
+    } else {
+        doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_)) && !needs_proxy(&e.shape)).collect()
+    };
+    let proxies: Vec<&Entity> = if modern { doc.entities.iter().filter(|e| needs_proxy(&e.shape)).collect() } else { vec![] };
 
     // ---------------- TABLES (written first so handles exist; HEADER prepended later)
     w.g(0, "SECTION");
@@ -621,10 +683,12 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
             table_start(&mut w, name, 0);
             w.g(0, "ENDTAB");
         }
-        let t = table_start(&mut w, "APPID", 1);
-        record(&mut w, "APPID", t, "AcDbRegAppTableRecord");
-        w.g(2, "ACAD");
-        w.g(70, 0);
+        let t = table_start(&mut w, "APPID", 2);
+        for app in ["ACAD", XDATA_APP] {
+            record(&mut w, "APPID", t, "AcDbRegAppTableRecord");
+            w.g(2, app);
+            w.g(70, 0);
+        }
         w.g(0, "ENDTAB");
 
         let t = table_start(&mut w, "DIMSTYLE", 1);
@@ -644,6 +708,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         let names: Vec<String> = ["*Model_Space".to_string(), "*Paper_Space".to_string()]
             .into_iter()
             .chain((1..=dims.len()).map(|i| format!("*D{i}")))
+            .chain((1..=proxies.len()).map(|i| format!("*U{i}")))
             .chain(doc.blocks.iter().map(|b| b.name.clone()))
             .collect();
         let t = table_start(&mut w, "BLOCK_RECORD", names.len());
@@ -712,12 +777,21 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         }
         block_end(&mut w, br, false);
     }
-    let mut nested_dim = 0usize;
+    for (i, e) in proxies.iter().enumerate() {
+        let name = format!("*U{}", i + 1);
+        let br = br_of(&name, &block_brs);
+        block_begin(&mut w, &name, br, V2::ZERO, 1, false);
+        for p in doc.prims_of(e) {
+            write_prim(&mut w, &p, "0", br, Style { color: Some(0), lt: None, lw: None });
+        }
+        block_end(&mut w, br, false);
+    }
+    let mut nested = Counters::default();
     for b in &doc.blocks {
         let br = br_of(&b.name, &block_brs);
         block_begin(&mut w, &b.name, br, b.base, 0, false);
         for e in &b.entities {
-            write_entity(&mut w, doc, e, br, true, &mut nested_dim);
+            write_entity(&mut w, doc, e, br, true, &mut nested);
         }
         block_end(&mut w, br, false);
     }
@@ -726,12 +800,12 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     // ---------------- ENTITIES
     w.g(0, "SECTION");
     w.g(2, "ENTITIES");
-    let mut dim_no = 0;
+    let mut counters = Counters::default();
     for e in &doc.entities {
         if matches!(e.shape, Shape::Image(_)) {
             continue;
         }
-        write_entity(&mut w, doc, e, msp_br, opts.explode_dimensions, &mut dim_no);
+        write_entity(&mut w, doc, e, msp_br, opts.explode_dimensions, &mut counters);
     }
     if opts.include_sheet && doc.sheet.visible {
         for (p, lw) in doc.sheet.prims() {
@@ -1016,6 +1090,9 @@ fn read_hatch(r: &Rec) -> Option<Shape> {
 
 fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::collections::BTreeSet<String>) -> Option<Shape> {
     let r = &recs[*k];
+    if let Some(s) = xdata_shape(r) {
+        return Some(s);
+    }
     match r.kind.as_str() {
         "LINE" => Some(Shape::Line { a: r.p(10), b: r.p(11) }),
         "CIRCLE" => Some(Shape::Circle { c: r.p(10), r: r.f(40) }),
@@ -1304,6 +1381,8 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
             doc.layers.push(Layer::new(&l, 7, LineType::Continuous, 0.25));
         }
     }
+    // Dimensions follow the geometry they measure.
+    doc.associate_all_dims();
     if !doc.entities.is_empty() {
         doc.current_layer = "0".into();
         let ext = doc.extents();
@@ -1349,6 +1428,15 @@ fn read_dimension(r: &Rec) -> Option<Shape> {
         }
         4 => Dimension::new(DimKind::Radius, r.p(10), r.p(15), tmid),
         5 => Dimension::angular(r.p(15), r.p(13), r.p(14), r.p(10)),
+        6 => {
+            // Flag 64 marks X ordinates; without it (some converters drop it) the
+            // axis follows the leader direction.
+            let mut d = Dimension::ordinate(r.p(10), r.p(13), r.p(14));
+            if r.i(70) & 64 != 0 {
+                d.kind = DimKind::OrdinateX;
+            }
+            d
+        }
         2 => {
             // Two-line angular: lines (13→14) and (15→10); arc point 16.
             let (a1, a2, b1, b2) = (r.p(13), r.p(14), r.p(15), r.p(10));
@@ -1483,6 +1571,29 @@ mod tests {
         assert!(kinds.contains(&"Rotated Dimension") && kinds.contains(&"Block Reference"));
         let dim = r.entities.iter().find_map(|e| if let Shape::Dim(d) = &e.shape { Some(d) } else { None }).unwrap();
         assert!((dim.measurement() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ordinate_and_arc_length_round_trip() {
+        let mut d = Document::new();
+        let arc = Shape::Arc { c: V2::new(50., 0.), r: 20., start: 0.0, end: std::f64::consts::FRAC_PI_2 };
+        d.add(arc);
+        let ord = Dimension::ordinate(V2::new(0., 0.), V2::new(70., 0.), V2::new(70., 30.));
+        let al = Dimension::arc_length(V2::new(50., 0.), V2::new(70., 0.), V2::new(50., 20.), V2::new(70., 20.));
+        d.add(Shape::Dim(ord.clone()));
+        d.add(Shape::Dim(al.clone()));
+        let s = write_dxf(&d, &DxfOptions::default());
+        assert!(s.contains("AcDbOrdinateDimension") && s.contains("IMAGINECAD") && s.contains("*U1"));
+        let r = read_dxf(&s).unwrap();
+        let dims: Vec<&Dimension> = r.entities.iter().filter_map(|e| if let Shape::Dim(d) = &e.shape { Some(d) } else { None }).collect();
+        assert_eq!(dims.len(), 2, "{:?}", r.entities.iter().map(|e| e.shape.type_name()).collect::<Vec<_>>());
+        let o = dims.iter().find(|d| d.is_ordinate()).unwrap();
+        assert_eq!((o.kind, o.measurement()), (DimKind::OrdinateX, 70.0));
+        let a = dims.iter().find(|d| d.kind == DimKind::ArcLength).unwrap();
+        assert!((a.measurement() - al.measurement()).abs() < 1e-9);
+        // Re-associated with the arc on reading.
+        assert!(a.assoc.is_some_and(|x| x.curve.is_some()));
+        assert!(r.blocks.iter().all(|b| !b.name.starts_with('*')));
     }
 
     #[test]

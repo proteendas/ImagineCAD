@@ -9,6 +9,7 @@ mod canvas;
 mod chat;
 mod cli;
 mod commands;
+mod commands_dim;
 mod commands_ext;
 mod dialogs;
 mod dialogs2;

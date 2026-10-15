@@ -1851,6 +1851,11 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::CANVAS)).show(ctx, |ui| self.canvas(ui));
         self.context_menu(ctx);
         self.dialogs(ctx);
+        // Associative dimensions follow edits made this frame.
+        let t = &mut self.tabs[self.active];
+        if t.doc.has_associative() {
+            t.doc.update_associative();
+        }
         let title = format!("ImagineCAD - {}", self.tabs[self.active].title());
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));

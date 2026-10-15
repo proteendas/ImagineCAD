@@ -55,6 +55,41 @@ pub enum DimKind {
     Diameter,
     /// Angle between the rays `center→p1` and `center→p2`.
     Angular,
+    /// X distance of `p1` from the datum `center` (vertical leader to `loc`).
+    OrdinateX,
+    /// Y distance of `p1` from the datum `center` (horizontal leader to `loc`).
+    OrdinateY,
+    /// Length of the arc around `center` from `p1` counter-clockwise to `p2`,
+    /// drawn at the radius of `loc`.
+    ArcLength,
+}
+
+/// A point of a dimension tied to a feature (snap point) of another entity.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GeomRef {
+    pub id: u64,
+    /// Index into that entity's `snap_points()`.
+    pub index: usize,
+}
+
+/// What an associative dimension follows. Radial and arc-length dimensions
+/// follow a whole circle or arc (`curve`); the others follow points.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DimAssoc {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p1: Option<GeomRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p2: Option<GeomRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub center: Option<GeomRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curve: Option<u64>,
+}
+
+impl DimAssoc {
+    pub fn is_empty(&self) -> bool {
+        self.p1.is_none() && self.p2.is_none() && self.center.is_none() && self.curve.is_none()
+    }
 }
 
 /// A dimension. For linear kinds `p1`/`p2` are the measured feature points;
@@ -72,15 +107,42 @@ pub struct Dimension {
     pub text: Option<String>,
     #[serde(default)]
     pub center: Option<V2>,
+    /// Associativity with the dimensioned geometry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assoc: Option<DimAssoc>,
 }
 
 impl Dimension {
     pub fn new(kind: DimKind, p1: V2, p2: V2, loc: V2) -> Self {
-        Self { kind, p1, p2, loc, text: None, center: None }
+        Self { kind, p1, p2, loc, text: None, center: None, assoc: None }
     }
 
     pub fn angular(center: V2, p1: V2, p2: V2, loc: V2) -> Self {
-        Self { kind: DimKind::Angular, p1, p2, loc, text: None, center: Some(center) }
+        Self { kind: DimKind::Angular, p1, p2, loc, text: None, center: Some(center), assoc: None }
+    }
+
+    /// Ordinate dimension of `feature` from `datum`; the axis follows the
+    /// leader direction (mostly vertical → X ordinate).
+    pub fn ordinate(datum: V2, feature: V2, leader_end: V2) -> Self {
+        let d = leader_end - feature;
+        let kind = if d.y.abs() >= d.x.abs() { DimKind::OrdinateX } else { DimKind::OrdinateY };
+        Self { kind, p1: feature, p2: feature, loc: leader_end, text: None, center: Some(datum), assoc: None }
+    }
+
+    /// Arc-length dimension of the arc around `c` from `a` counter-clockwise to `b`.
+    pub fn arc_length(c: V2, a: V2, b: V2, loc: V2) -> Self {
+        Self { kind: DimKind::ArcLength, p1: a, p2: b, loc, text: None, center: Some(c), assoc: None }
+    }
+
+    pub fn is_ordinate(&self) -> bool {
+        matches!(self.kind, DimKind::OrdinateX | DimKind::OrdinateY)
+    }
+
+    /// Start angle and counter-clockwise sweep of an arc-length dimension.
+    pub fn arc_span(&self) -> (f64, f64) {
+        let c = self.center.unwrap_or(V2::ZERO);
+        let s = norm_angle((self.p1 - c).angle());
+        (s, arc_sweep(s, norm_angle((self.p2 - c).angle())))
     }
 
     /// For angular dimensions: (vertex, start, end) of the measured CCW sector.
@@ -106,6 +168,9 @@ impl Dimension {
                 let (_, s, e) = self.sector();
                 deg(arc_sweep(s, e))
             }
+            DimKind::OrdinateX => (self.p1.x - self.center.unwrap_or(V2::ZERO).x).abs(),
+            DimKind::OrdinateY => (self.p1.y - self.center.unwrap_or(V2::ZERO).y).abs(),
+            DimKind::ArcLength => self.center.unwrap_or(V2::ZERO).dist(self.p1) * self.arc_span().1,
         }
     }
 
@@ -130,8 +195,8 @@ impl Dimension {
     /// Direction of the dimension line for linear kinds.
     pub fn direction(&self) -> V2 {
         match self.kind {
-            DimKind::Horizontal => V2::new(1.0, 0.0),
-            DimKind::Vertical => V2::new(0.0, 1.0),
+            DimKind::Horizontal | DimKind::OrdinateY => V2::new(1.0, 0.0),
+            DimKind::Vertical | DimKind::OrdinateX => V2::new(0.0, 1.0),
             _ => {
                 let d = (self.p2 - self.p1).norm();
                 if d == V2::ZERO {
@@ -256,6 +321,70 @@ impl Dimension {
                     va = VAlign::Top;
                 }
                 out.push(Prim::Text(Text::new(c + V2::polar(r + gap, mid), th, label).aligned(HAlign::Center, va).rotated(rot)));
+            }
+            DimKind::OrdinateX | DimKind::OrdinateY => {
+                // Leader from the feature (after the extension gap) to `loc`,
+                // jogged when the end is offset sideways; text beyond the end.
+                let x_axis = self.kind == DimKind::OrdinateX;
+                let along = if x_axis { V2::new(0.0, 1.0) } else { V2::new(1.0, 0.0) };
+                let side = (self.loc - self.p1).dot(along);
+                let dir = if side >= 0.0 { along } else { -along };
+                let total = side.abs();
+                let start = self.p1 + dir * (ds.ext_offset * s).min(total * 0.5);
+                let lateral = (self.loc - self.p1) - along * side;
+                if lateral.len() > 1e-9 {
+                    let j1 = self.p1 + dir * (total / 3.0);
+                    let j2 = j1 + lateral + dir * (total / 3.0);
+                    out.push(Prim::Poly(vec![start, j1, j2, self.loc], false));
+                } else {
+                    out.push(Prim::Line(start, self.loc));
+                }
+                let (h, rot) = match (x_axis, side >= 0.0) {
+                    (true, true) => (HAlign::Left, FRAC_PI_2),
+                    (true, false) => (HAlign::Right, FRAC_PI_2),
+                    (false, true) => (HAlign::Left, 0.0),
+                    (false, false) => (HAlign::Right, 0.0),
+                };
+                out.push(Prim::Text(Text::new(self.loc + dir * gap, th, label).aligned(h, VAlign::Middle).rotated(rot)));
+            }
+            DimKind::ArcLength => {
+                let c = self.center.unwrap_or(V2::ZERO);
+                let (st, sw) = self.arc_span();
+                let en = st + sw;
+                let r = self.loc.dist(c).max(1e-9);
+                for p in [self.p1, self.p2] {
+                    let u = (p - c).norm();
+                    let dp = p.dist(c);
+                    let (a, b) = if dp < r {
+                        (dp + ds.ext_offset * s, r + ds.ext_beyond * s)
+                    } else {
+                        (dp - ds.ext_offset * s, r - ds.ext_beyond * s)
+                    };
+                    out.push(Prim::Line(c + u * a, c + u * b));
+                }
+                out.push(Prim::Arc { c, r, start: st, end: norm_angle(en) });
+                let tan = |a: f64| V2::new(-a.sin(), a.cos());
+                out.push(arrow(c + V2::polar(r, st), -tan(st), ar));
+                out.push(arrow(c + V2::polar(r, en), tan(en), ar));
+                let mid = st + sw / 2.0;
+                let mut rot = norm_angle(mid - FRAC_PI_2);
+                let mut va = VAlign::Bottom;
+                let mut lift = gap;
+                if rot > FRAC_PI_2 + 1e-6 && rot <= 3.0 * FRAC_PI_2 + 1e-6 {
+                    rot = norm_angle(rot + PI);
+                    va = VAlign::Top;
+                    lift = -gap;
+                }
+                let t = Text::new(c + V2::polar(r + lift, mid), th, label).aligned(HAlign::Center, va).rotated(rot);
+                // Arc symbol drawn over the value (ISO 129).
+                let up = V2::polar(1.0, rot + FRAC_PI_2);
+                let base = if va == VAlign::Bottom { t.pos + up * (th * 1.25) } else { t.pos + up * (th * 0.25) };
+                let half = (tw / 2.0).min(th * 1.2).max(th * 0.5);
+                let sym_r = half / (0.9f64).sin();
+                let sym_c = base - up * (sym_r * 0.9f64.cos());
+                let a0 = rot + FRAC_PI_2;
+                out.push(Prim::Arc { c: sym_c, r: sym_r, start: norm_angle(a0 - 0.9), end: norm_angle(a0 + 0.9) });
+                out.push(Prim::Text(t));
             }
         }
         out
@@ -585,6 +714,8 @@ impl Shape {
                 DimKind::Radius => "Radial Dimension",
                 DimKind::Diameter => "Diametric Dimension",
                 DimKind::Angular => "Angular Dimension",
+                DimKind::OrdinateX | DimKind::OrdinateY => "Ordinate Dimension",
+                DimKind::ArcLength => "Arc Length Dimension",
             },
             Shape::Ellipse { .. } => "Ellipse",
             Shape::Spline { .. } => "Spline",
@@ -964,6 +1095,13 @@ impl Shape {
                         (DimKind::Vertical, true) => DimKind::Horizontal,
                         _ => DimKind::Aligned,
                     };
+                }
+                if d.is_ordinate() && (rot.abs() - FRAC_PI_2).abs() < 1e-6 {
+                    d.kind = if d.kind == DimKind::OrdinateX { DimKind::OrdinateY } else { DimKind::OrdinateX };
+                }
+                // A mirrored arc runs the other way round.
+                if d.kind == DimKind::ArcLength && x.is_mirror() {
+                    std::mem::swap(&mut d.p1, &mut d.p2);
                 }
             }
             Shape::Ellipse { c, major, start, end, .. } => {

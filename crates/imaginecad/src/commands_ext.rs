@@ -45,7 +45,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "LAYULK" => Box::new(LayerPick { op: LayOp::Unlock }),
         "LAYMCUR" => Box::new(LayerPick { op: LayOp::MakeCurrent }),
         "LAYISO" => Box::new(LayerPick { op: LayOp::Isolate }),
-        _ => return None,
+        other => return crate::commands_dim::create(other),
     };
     Some(c)
 }
@@ -481,10 +481,8 @@ impl Command for DimAngCmd {
     fn point(&mut self, cx: &mut Cx, p: V2) -> Flow {
         if let Some(d) = self.make(p) {
             cx.checkpoint();
-            let layer = dim_layer(cx);
             let m = d.measurement();
-            let id = cx.doc().add_on(&layer, Shape::Dim(d));
-            cx.mem.last_dim = Some(id);
+            cx.add_dim(d);
             cx.msg(format!("Dimension text = {}°", fmt(m)));
         }
         Flow::Done
@@ -563,9 +561,7 @@ impl Command for DimChainCmd {
         let Some(prev) = self.base_dim(cx) else { return Flow::Done };
         let d = self.next(cx, &prev, p);
         cx.checkpoint();
-        let layer = dim_layer(cx);
-        let id = cx.doc().add_on(&layer, Shape::Dim(d));
-        cx.mem.last_dim = Some(id);
+        cx.add_dim(d);
         Flow::Continue
     }
     fn preview(&self, _doc: &Document, _c: V2) -> Vec<Shape> {

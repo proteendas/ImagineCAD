@@ -116,10 +116,20 @@ Hatch patterns: `SOLID`, `ANSI31`–`ANSI38`, `NET`, `LINE`, `ANGLE`.
 | `DIMANGULAR` | `DAN` | two lines (pick on the legs to measure), or an arc |
 | `DIMRADIUS` / `DIMDIAMETER` | `DRA` / `DDI` | |
 | `DIMBASELINE` / `DIMCONTINUE` | `DBA` / `DCO` | from the last linear, aligned or angular dimension |
+| `DIMORDINATE` | `DOR` | feature point, then leader end (mostly vertical → X, horizontal → Y); **X**/**Y** force the axis, **D** sets the datum (default 0,0) |
+| `DIMARC` | `DAR` | arc length with the ISO arc symbol |
+| `QDIM` | | select geometry, then place the line: **C**ontinuous, **S**taggered, **B**aseline, **O**rdinate, **R**adius, **D**iameter. Above/below the selection gives horizontal dimensions, beside it vertical |
+| `DIMREASSOCIATE` / `DIMDISASSOCIATE` | `DRE` / `DDA` | tie dimensions to (or free them from) the geometry they measure |
 | `CENTERMARK` | `CM` | |
 | `DIMSTYLE` | `D` | text height, arrows, gaps, precision, LTSCALE |
 
 Dimension text override: leave empty for the measured value; `<>` inserts it (`2x <>`).
+
+**Associative dimensions.** A dimension placed on snap points (endpoints,
+centres, midpoints) or on a circle or arc is tied to that geometry. Move,
+stretch, scale or grip-edit the geometry and its dimensions update; delete
+it and the dimension stays where it is, no longer associated. Dimensions in
+opened DXF/DWG files and in Image to CAD results are associated automatically.
 
 ### Blocks and references
 

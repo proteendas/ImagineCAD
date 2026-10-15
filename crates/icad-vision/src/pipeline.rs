@@ -488,10 +488,26 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
                     pos = if pos >= center { get(pa).max(get(pb)) + min_off } else { get(pa).min(get(pb)) - min_off };
                 }
                 let loc = if ax { V2::new((pa.x + pb.x) / 2.0, pos) } else { V2::new(pos, (pa.y + pb.y) / 2.0) };
-                Dimension { kind: if ax { DimKind::Horizontal } else { DimKind::Vertical }, p1: pa, p2: pb, loc, text: None, center: None }
+                Dimension {
+                    kind: if ax { DimKind::Horizontal } else { DimKind::Vertical },
+                    p1: pa,
+                    p2: pb,
+                    loc,
+                    text: None,
+                    center: None,
+                    assoc: None,
+                }
             }
             SpanKind::Aligned => {
-                let d = Dimension { kind: DimKind::Aligned, p1: map(sp.a), p2: map(sp.b), loc: map(sp.line_pt), text: None, center: None };
+                let d = Dimension {
+                    kind: DimKind::Aligned,
+                    p1: map(sp.a),
+                    p2: map(sp.b),
+                    loc: map(sp.line_pt),
+                    text: None,
+                    center: None,
+                    assoc: None,
+                };
                 if (d.measurement() - l.value).abs() > 0.01 * l.value {
                     warnings.push(format!(
                         "Slanted dimension \"{}\" measures {:.2} mm in the result (slanted dimensions are not enforced yet)",
@@ -525,7 +541,7 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         let loc = if lc.dist(c) > r * 1.05 { lc } else { c + u * (r * 1.6 + extent * 0.03) };
         let kind = if l.kind == LabelKind::Diameter { DimKind::Diameter } else { DimKind::Radius };
         let want = if kind == DimKind::Diameter { l.value } else { l.value / 1.0 };
-        let dim = Dimension { kind, p1: c, p2: c + u * r, loc, text: None, center: None };
+        let dim = Dimension { kind, p1: c, p2: c + u * r, loc, text: None, center: None, assoc: None };
         if (dim.measurement() - want).abs() < (0.002 * want).max(0.01) {
             dims_applied += 1;
         }
@@ -654,6 +670,8 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
     if let Some(spec) = &conv.part {
         doc.part = Some(icad_core::document::PartRecord { spec: spec.to_json(), ids });
     }
+    // Dimensions follow the geometry they measure when it is edited.
+    doc.associate_all_dims();
     if let Some(t) = &conv.title {
         doc.sheet.title.title = t.to_uppercase();
     }

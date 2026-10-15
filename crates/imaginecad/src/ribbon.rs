@@ -303,6 +303,18 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
             small(ui, Icon::DimBaseline, "Baseline", "DIMBASELINE (DBA)", "DIMBASELINE", out);
             small(ui, Icon::DimContinue, "Continue", "DIMCONTINUE (DCO)", "DIMCONTINUE", out);
         });
+        column(ui, |ui| {
+            small(ui, Icon::DimOrdinate, "Ordinate", "DIMORDINATE (DOR) — X/Y distance from a datum", "DIMORDINATE", out);
+            small(ui, Icon::DimArc, "Arc Length", "DIMARC (DAR)", "DIMARC", out);
+            small(
+                ui,
+                Icon::QDim,
+                "Quick Dim",
+                "QDIM — dimension a selection at once (continuous, baseline, ordinate, radius…)",
+                "QDIM",
+                out,
+            );
+        });
         big(ui, Icon::DimStyle, "Dimension\nStyle", "DIMSTYLE (D) — text height, arrows, precision", "DIMSTYLE", out);
     });
     panel(ui, "Leaders & Marks", |ui| {

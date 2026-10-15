@@ -62,6 +62,9 @@ pub struct Memory {
     pub last_block: String,
     /// Layer visibility before LAYISO.
     pub layiso_backup: Vec<(String, bool)>,
+    /// Origin of ordinate dimensions.
+    pub ordinate_datum: V2,
+    pub qdim_mode: crate::commands_dim::QMode,
 }
 
 impl Default for Memory {
@@ -85,6 +88,8 @@ impl Default for Memory {
             measure_len: 10.0,
             last_block: String::new(),
             layiso_backup: vec![],
+            ordinate_datum: V2::ZERO,
+            qdim_mode: Default::default(),
         }
     }
 }
@@ -112,6 +117,15 @@ impl Cx<'_> {
     /// Take the pre-selection (noun-verb) if any.
     pub fn take_selection(&mut self) -> Vec<u64> {
         std::mem::take(&mut self.tab.selection)
+    }
+    /// Add a dimension on the dimension layer, associated with the geometry
+    /// it measures; it becomes the base for DIMBASELINE/DIMCONTINUE.
+    pub fn add_dim(&mut self, mut d: Dimension) -> u64 {
+        let layer = dim_layer(self);
+        self.tab.doc.associate_dim(&mut d);
+        let id = self.tab.doc.add_on(&layer, Shape::Dim(d));
+        self.mem.last_dim = Some(id);
+        id
     }
 }
 
@@ -260,6 +274,12 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("SELECTALL", ""),
     ("REGEN", "RE"),
     ("HELP", ""),
+    ("AICHAT", "CHAT"),
+    ("DIMORDINATE", "DOR"),
+    ("DIMARC", "DAR"),
+    ("QDIM", ""),
+    ("DIMREASSOCIATE", "DRE"),
+    ("DIMDISASSOCIATE", "DDA"),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {
@@ -921,10 +941,8 @@ impl Command for DimLinCmd {
         }
         if let Some(d) = self.dim(p) {
             cx.checkpoint();
-            let layer = dim_layer(cx);
             let m = d.measurement();
-            let id = cx.doc().add_on(&layer, Shape::Dim(d));
-            cx.mem.last_dim = Some(id);
+            cx.add_dim(d);
             cx.msg(format!("Dimension text = {}", cx.tab.doc.dimstyle.format(m)));
         }
         Flow::Done
@@ -1001,9 +1019,7 @@ impl Command for DimAlignCmd {
         }
         if let Some(d) = self.dim(p) {
             cx.checkpoint();
-            let layer = dim_layer(cx);
-            let id = cx.doc().add_on(&layer, Shape::Dim(d));
-            cx.mem.last_dim = Some(id);
+            cx.add_dim(d);
         }
         Flow::Done
     }
@@ -1064,8 +1080,7 @@ impl Command for DimRadCmd {
     fn point(&mut self, cx: &mut Cx, p: V2) -> Flow {
         if let Some(d) = self.dim(p) {
             cx.checkpoint();
-            let layer = dim_layer(cx);
-            cx.doc().add_on(&layer, Shape::Dim(d));
+            cx.add_dim(d);
         }
         Flow::Done
     }
