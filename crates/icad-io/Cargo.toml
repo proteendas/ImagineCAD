@@ -1,0 +1,12 @@
+[package]
+name = "icad-io"
+description = "ImagineCAD file formats: DXF, PDF, SVG and the native .icad format"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+icad-core.workspace = true
+miniz_oxide = "0.8"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "tiff", "webp"] }

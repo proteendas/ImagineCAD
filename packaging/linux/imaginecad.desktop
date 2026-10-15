@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ImagineCAD
+GenericName=2D CAD
+Comment=AI-assisted 2D CAD for mechanical drawings
+Exec=imaginecad %f
+Icon=imaginecad
+Terminal=false
+Categories=Graphics;Engineering;VectorGraphics;
+MimeType=image/vnd.dxf;image/vnd.dwg;image/x-dwg;application/x-imaginecad;image/png;image/jpeg;
+Keywords=CAD;drafting;DXF;DWG;mechanical;drawing;sketch;

@@ -1,0 +1,50 @@
+[package]
+name = "imaginecad"
+description = "ImagineCAD - AI-assisted 2D CAD for mechanical drawings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "imaginecad"
+
+[[bin]]
+name = "imaginecad"
+path = "src/main.rs"
+
+[dependencies]
+icad-core.workspace = true
+icad-io.workspace = true
+icad-vision.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+eframe = "0.31"
+rfd = "0.15"
+dirs = "5"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "tiff", "webp"] }
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.deb]
+name = "imaginecad"
+maintainer = "Proteen Das"
+copyright = "2026, Proteen Das"
+extended-description = "AI-assisted 2D CAD for mechanical engineering drawings with sketch-to-CAD conversion using free, local AI."
+section = "graphics"
+license-file = ["../../LICENSE", "0"]
+priority = "optional"
+assets = [
+    ["target/release/imaginecad", "usr/bin/", "755"],
+    ["../../packaging/linux/imaginecad.desktop", "usr/share/applications/", "644"],
+    ["../../assets/icon-256.png", "usr/share/icons/hicolor/256x256/apps/imaginecad.png", "644"],
+    ["../../dist/libredwg/dwg2dxf", "usr/lib/imaginecad/", "755"],
+    ["../../dist/libredwg/dxf2dwg", "usr/lib/imaginecad/", "755"],
+    ["../../dist/libredwg/LIBREDWG-COPYING.txt", "usr/share/doc/imaginecad/", "644"],
+    ["../../dist/libredwg/LIBREDWG-SOURCE.txt", "usr/share/doc/imaginecad/", "644"],
+    ["../../NOTICE", "usr/share/doc/imaginecad/", "644"],
+    ["../../dist/THIRD_PARTY_LICENSES.html", "usr/share/doc/imaginecad/", "644"],
+]

@@ -1,0 +1,10 @@
+[package]
+name = "icad-core"
+description = "ImagineCAD geometry, entities and document model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

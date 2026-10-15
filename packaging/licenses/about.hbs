@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>ImagineCAD — Third-Party Licenses</title>
+<style>
+body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#1d2733;background:#fff}
+h1{font-size:1.6rem}h2{font-size:1.15rem;margin-top:2rem;border-bottom:1px solid #dde3ea;padding-bottom:.3rem}
+pre{white-space:pre-wrap;background:#f5f7fa;padding:1rem;border-radius:6px;font-size:.8rem}
+ul.crates{columns:3;font-size:.85rem}
+</style></head><body>
+<h1>ImagineCAD — Third-Party Licenses</h1>
+<p>ImagineCAD is Copyright © 2026 Proteen Das and licensed under the GNU General Public License v3.
+It is built with the open-source components listed below, each under its own license.
+DWG support uses <a href="https://www.gnu.org/software/libredwg/">GNU LibreDWG</a> (GPL-3.0); its source code is
+available from <a href="https://ftp.gnu.org/gnu/libredwg/">ftp.gnu.org/gnu/libredwg</a>, with ImagineCAD's patch in
+<code>packaging/libredwg/</code> of the ImagineCAD source repository.</p>
+<h2>Overview</h2>
+<ul>
+{{#each overview}}<li><a href="#{{id}}">{{name}}</a> ({{count}})</li>{{/each}}
+</ul>
+{{#each licenses}}
+<h2 id="{{id}}">{{name}}</h2>
+<p>Used by:</p>
+<ul class="crates">{{#each used_by}}<li><a href="{{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}">{{crate.name}} {{crate.version}}</a></li>{{/each}}</ul>
+<pre>{{text}}</pre>
+{{/each}}
+</body></html>

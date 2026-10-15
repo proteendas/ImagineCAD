@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = ["crates/icad-core", "crates/icad-io", "crates/icad-vision", "crates/imaginecad"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "GPL-3.0-only"
+authors = ["Proteen Das"]
+repository = "https://github.com/imaginecad/imaginecad"
+rust-version = "1.81"
+
+[workspace.dependencies]
+icad-core = { path = "crates/icad-core" }
+icad-io = { path = "crates/icad-io" }
+icad-vision = { path = "crates/icad-vision" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# The vision pipeline is pixel-heavy; keep it fast even in debug builds.
+[profile.dev.package."*"]
+opt-level = 2
+[profile.dev.package.icad-vision]
+opt-level = 2

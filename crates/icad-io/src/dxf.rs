@@ -1,0 +1,1497 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Proteen Das
+
+//! DXF reader and writer.
+//!
+//! * **DXF 2000 (AC1015)**: full fidelity: LWPOLYLINE, ELLIPSE, SPLINE,
+//!   MTEXT, HATCH, XLINE/RAY, block INSERTs, lineweights and real DIMENSION
+//!   entities, with the handle/owner structure the format requires.
+//! * **R12 (AC1009)**: maximum compatibility; entities newer than R12 are
+//!   written as equivalent lines/polylines/solids/text.
+//!
+//! The reader understands R12 through current DXF for the entity set
+//! ImagineCAD supports, including blocks and hatches.
+
+use icad_core::curves::{eval_bspline, spline_bspline};
+use icad_core::document::Document;
+use icad_core::entity::*;
+use icad_core::geom::*;
+use icad_core::hatch::pattern_families;
+use icad_core::prim::*;
+use icad_core::style::*;
+use std::fmt::Write as _;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DxfVersion {
+    R12,
+    #[default]
+    R2000,
+}
+
+#[derive(Clone, Debug)]
+pub struct DxfOptions {
+    /// Include the sheet border and title block (layer `TITLEBLOCK`).
+    pub include_sheet: bool,
+    /// Write dimensions as plain lines/text instead of DIMENSION entities.
+    pub explode_dimensions: bool,
+    pub version: DxfVersion,
+}
+
+impl Default for DxfOptions {
+    fn default() -> Self {
+        Self { include_sheet: true, explode_dimensions: false, version: DxfVersion::R2000 }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct Style {
+    color: Option<i32>,
+    lt: Option<&'static str>,
+    /// Lineweight in 1/100 mm.
+    lw: Option<i32>,
+}
+
+struct W {
+    s: String,
+    v: DxfVersion,
+    next: u64,
+}
+
+impl W {
+    fn new2000(&self) -> bool {
+        self.v == DxfVersion::R2000
+    }
+    fn g(&mut self, code: i32, v: impl std::fmt::Display) {
+        let _ = write!(self.s, "{code:>3}\n{v}\n");
+    }
+    fn f(&mut self, code: i32, v: f64) {
+        let v = if v.is_finite() { v } else { 0.0 };
+        let mut t = format!("{:.10}", v);
+        while t.ends_with('0') {
+            t.pop();
+        }
+        if t.ends_with('.') {
+            t.push('0');
+        }
+        if t == "-0.0" {
+            t = "0.0".into();
+        }
+        self.g(code, t);
+    }
+    fn pt(&mut self, base: i32, p: V2) {
+        self.f(base, p.x);
+        self.f(base + 10, p.y);
+        self.f(base + 20, 0.0);
+    }
+    fn alloc(&mut self) -> u64 {
+        let h = self.next;
+        self.next += 1;
+        h
+    }
+    /// Entity header. In DXF 2000 also handle, owner and the AcDbEntity subclass.
+    fn ent(&mut self, kind: &str, layer: &str, owner: u64, st: Style, subclass: &str) {
+        self.g(0, kind);
+        if self.new2000() {
+            let h = self.alloc();
+            self.g(5, format!("{h:X}"));
+            self.g(330, format!("{owner:X}"));
+            self.g(100, "AcDbEntity");
+        }
+        self.g(8, layer);
+        if let Some(lt) = st.lt {
+            self.g(6, lt);
+        }
+        if let Some(c) = st.color {
+            self.g(62, c);
+        }
+        if self.new2000() {
+            if let Some(lw) = st.lw {
+                self.g(370, lw);
+            }
+            if !subclass.is_empty() {
+                self.g(100, subclass);
+            }
+        }
+    }
+    fn sub(&mut self, name: &str) {
+        if self.new2000() {
+            self.g(100, name);
+        }
+    }
+}
+
+/// Encode text for DXF: standard %% control codes for common symbols, `\U+XXXX` for the rest.
+pub fn encode_text(s: &str) -> String {
+    let mut o = String::new();
+    for c in s.chars() {
+        match c {
+            'Ø' | 'ø' | '⌀' | '∅' => o.push_str("%%c"),
+            '°' => o.push_str("%%d"),
+            '±' => o.push_str("%%p"),
+            c if (c as u32) < 128 => o.push(c),
+            c => {
+                let _ = write!(o, "\\U+{:04X}", c as u32);
+            }
+        }
+    }
+    o
+}
+
+pub fn decode_text(s: &str) -> String {
+    let mut o = s.replace("%%c", "Ø").replace("%%C", "Ø").replace("%%d", "°").replace("%%D", "°");
+    o = o.replace("%%p", "±").replace("%%P", "±").replace("%%u", "").replace("%%U", "");
+    let mut out = String::new();
+    let mut rest = o.as_str();
+    while let Some(i) = rest.find("\\U+") {
+        out.push_str(&rest[..i]);
+        let hex = rest.get(i + 3..i + 7).unwrap_or("");
+        match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) {
+            Some(c) if hex.len() == 4 => {
+                out.push(c);
+                rest = &rest[i + 7..];
+            }
+            _ => {
+                out.push_str("\\U+");
+                rest = &rest[i + 3..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn write_prim(w: &mut W, p: &Prim, layer: &str, owner: u64, st: Style) {
+    match p {
+        Prim::Line(a, b) => {
+            w.ent("LINE", layer, owner, st, "AcDbLine");
+            w.pt(10, *a);
+            w.pt(11, *b);
+        }
+        Prim::Poly(pts, closed) => write_polyline(w, pts, *closed, layer, owner, st),
+        Prim::Circle(c, r) => {
+            w.ent("CIRCLE", layer, owner, st, "AcDbCircle");
+            w.pt(10, *c);
+            w.f(40, *r);
+        }
+        Prim::Arc { c, r, start, end } => {
+            w.ent("ARC", layer, owner, st, "AcDbCircle");
+            w.pt(10, *c);
+            w.f(40, *r);
+            w.sub("AcDbArc");
+            w.f(50, deg(*start));
+            w.f(51, deg(*end));
+        }
+        Prim::Fill(pts) if pts.len() >= 3 => {
+            w.ent("SOLID", layer, owner, Style { lt: None, ..st }, "AcDbTrace");
+            // SOLID vertex order is 1-2-4-3.
+            let p4 = if pts.len() > 3 { pts[3] } else { pts[2] };
+            w.pt(10, pts[0]);
+            w.pt(11, pts[1]);
+            w.pt(12, p4);
+            w.pt(13, pts[2]);
+        }
+        Prim::Fill(_) | Prim::Image(_) => {}
+        Prim::Text(t) => write_text(w, t, layer, owner, st),
+    }
+}
+
+fn write_polyline(w: &mut W, pts: &[V2], closed: bool, layer: &str, owner: u64, st: Style) {
+    if w.new2000() {
+        w.ent("LWPOLYLINE", layer, owner, st, "AcDbPolyline");
+        w.g(90, pts.len());
+        w.g(70, if closed { 1 } else { 0 });
+        w.f(43, 0.0);
+        for p in pts {
+            w.f(10, p.x);
+            w.f(20, p.y);
+        }
+        return;
+    }
+    w.ent("POLYLINE", layer, owner, st, "");
+    w.g(66, 1);
+    w.pt(10, V2::ZERO);
+    w.g(70, if closed { 1 } else { 0 });
+    for p in pts {
+        w.g(0, "VERTEX");
+        w.g(8, layer);
+        w.pt(10, *p);
+    }
+    w.g(0, "SEQEND");
+    w.g(8, layer);
+}
+
+fn write_text(w: &mut W, t: &Text, layer: &str, owner: u64, st: Style) {
+    w.ent("TEXT", layer, owner, Style { lt: None, ..st }, "AcDbText");
+    w.pt(10, t.pos);
+    w.f(40, t.height);
+    w.g(1, encode_text(&t.content));
+    if t.rotation.abs() > 1e-9 {
+        w.f(50, deg(t.rotation));
+    }
+    let h = match t.halign {
+        HAlign::Left => 0,
+        HAlign::Center => 1,
+        HAlign::Right => 2,
+    };
+    let v = match t.valign {
+        VAlign::Baseline => 0,
+        VAlign::Bottom => 1,
+        VAlign::Middle => 2,
+        VAlign::Top => 3,
+    };
+    if h != 0 {
+        w.g(72, h);
+    }
+    if h != 0 || v != 0 {
+        w.pt(11, t.pos);
+    }
+    w.sub("AcDbText");
+    if v != 0 {
+        w.g(73, v);
+    }
+}
+
+fn style_of(e: &Entity) -> Style {
+    Style {
+        color: match e.color {
+            Color::ByLayer => None,
+            Color::Aci(c) => Some(c as i32),
+        },
+        lt: match e.linetype {
+            LtRef::ByLayer => None,
+            LtRef::Lt(l) => Some(l.name()),
+        },
+        lw: e.lineweight.map(|l| (l * 100.0).round() as i32),
+    }
+}
+
+/// Write one entity. `dim_no` numbers the anonymous dimension blocks.
+fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims: bool, dim_no: &mut usize) {
+    let st = style_of(e);
+    let layer = e.layer.as_str();
+    let modern = w.new2000();
+    let ctx = doc.ctx();
+    match &e.shape {
+        Shape::Dim(d) if !explode_dims => {
+            *dim_no += 1;
+            write_dimension(w, doc, d, layer, owner, st, *dim_no);
+        }
+        Shape::Point { p } => {
+            w.ent("POINT", layer, owner, st, "AcDbPoint");
+            w.pt(10, *p);
+        }
+        Shape::Insert(ins) if doc.block(&ins.name).is_some() => {
+            w.ent("INSERT", layer, owner, st, "AcDbBlockReference");
+            w.g(2, &ins.name);
+            w.pt(10, ins.pos);
+            w.f(41, ins.sx);
+            w.f(42, ins.sy);
+            w.f(43, 1.0);
+            w.f(50, deg(ins.rotation));
+        }
+        Shape::Ellipse { c, major, ratio, start, end } if modern => {
+            w.ent("ELLIPSE", layer, owner, st, "AcDbEllipse");
+            w.pt(10, *c);
+            w.pt(11, *major);
+            w.f(210, 0.0);
+            w.f(220, 0.0);
+            w.f(230, 1.0);
+            w.f(40, *ratio);
+            let full = icad_core::curves::is_full_ellipse(*start, *end);
+            w.f(41, if full { 0.0 } else { *start });
+            w.f(42, if full { std::f64::consts::TAU } else { *end });
+        }
+        Shape::Spline { pts, closed } if modern && pts.len() >= 2 => {
+            let (ctrl, knots) = spline_bspline(pts, *closed);
+            w.ent("SPLINE", layer, owner, st, "AcDbSpline");
+            w.f(210, 0.0);
+            w.f(220, 0.0);
+            w.f(230, 1.0);
+            w.g(70, 8);
+            w.g(71, 3);
+            w.g(72, knots.len());
+            w.g(73, ctrl.len());
+            w.g(74, 0);
+            w.f(42, 1e-10);
+            w.f(43, 1e-10);
+            for k in &knots {
+                w.f(40, *k);
+            }
+            for p in &ctrl {
+                w.pt(10, *p);
+            }
+        }
+        Shape::XLine { p, dir } | Shape::Ray { p, dir } if modern => {
+            let (kind, sub) = if matches!(e.shape, Shape::XLine { .. }) { ("XLINE", "AcDbXline") } else { ("RAY", "AcDbRay") };
+            w.ent(kind, layer, owner, st, sub);
+            w.pt(10, *p);
+            w.pt(11, dir.norm());
+        }
+        Shape::MText(m) if modern => {
+            w.ent("MTEXT", layer, owner, Style { lt: None, ..st }, "AcDbMText");
+            w.pt(10, m.pos);
+            w.f(40, m.height);
+            w.f(41, m.width.max(0.0));
+            w.g(71, m.attach.clamp(1, 9));
+            w.g(72, 1);
+            let text = encode_text(&m.content).replace('\n', "\\P");
+            let chunks: Vec<String> = text.chars().collect::<Vec<_>>().chunks(250).map(|c| c.iter().collect()).collect();
+            for (i, c) in chunks.iter().enumerate() {
+                w.g(if i + 1 == chunks.len() { 1 } else { 3 }, c);
+            }
+            if chunks.is_empty() {
+                w.g(1, "");
+            }
+            w.g(7, "Standard");
+            w.pt(11, V2::polar(1.0, m.rotation));
+            w.f(44, m.spacing);
+        }
+        Shape::Hatch(h) if modern => write_hatch(w, doc, h, layer, owner, st),
+        _ => {
+            for p in e.shape.prims(&ctx) {
+                write_prim(w, &p, layer, owner, st);
+            }
+        }
+    }
+}
+
+fn write_hatch(w: &mut W, doc: &Document, h: &Hatch, layer: &str, owner: u64, st: Style) {
+    w.ent("HATCH", layer, owner, Style { lt: None, ..st }, "AcDbHatch");
+    w.pt(10, V2::ZERO);
+    w.f(210, 0.0);
+    w.f(220, 0.0);
+    w.f(230, 1.0);
+    w.g(2, h.pattern.to_ascii_uppercase());
+    w.g(70, if h.is_solid() { 1 } else { 0 });
+    w.g(71, 0);
+    let loops: Vec<&Vec<V2>> = h.loops.iter().filter(|l| l.len() >= 3).collect();
+    w.g(91, loops.len());
+    for (i, l) in loops.iter().enumerate() {
+        w.g(92, if i == 0 { 3 } else { 2 });
+        w.g(72, 0);
+        w.g(73, 1);
+        w.g(93, l.len());
+        for p in l.iter() {
+            w.f(10, p.x);
+            w.f(20, p.y);
+        }
+        w.g(97, 0);
+    }
+    w.g(75, 0);
+    w.g(76, 1);
+    if !h.is_solid() {
+        let scale = h.scale * doc.ascale();
+        w.f(52, deg(h.angle));
+        w.f(41, scale);
+        w.g(77, 0);
+        let fams = pattern_families(&h.pattern);
+        w.g(78, fams.len());
+        for f in fams {
+            let a = rad(f.angle) + h.angle;
+            let n = V2::polar(1.0, a).perp();
+            let base = n * (f.shift * scale);
+            let off = n * (f.spacing * scale);
+            w.f(53, deg(a));
+            w.f(43, base.x);
+            w.f(44, base.y);
+            w.f(45, off.x);
+            w.f(46, off.y);
+            w.g(79, 0);
+        }
+    }
+    w.g(98, 0);
+}
+
+fn write_dimension(w: &mut W, doc: &Document, d: &Dimension, layer: &str, owner: u64, st: Style, n: usize) {
+    let ds = &doc.dimstyle;
+    let th = ds.text_height * doc.ascale();
+    w.ent("DIMENSION", layer, owner, st, "AcDbDimension");
+    w.g(2, format!("*D{n}"));
+    let text = d.text.clone().unwrap_or_default();
+    match d.kind {
+        DimKind::Horizontal | DimKind::Vertical | DimKind::Aligned => {
+            let (_, q2) = d.dim_line_points();
+            let dir = d.direction();
+            let mut ang = dir.angle();
+            if ang > std::f64::consts::FRAC_PI_2 + 1e-6 || ang <= -std::f64::consts::FRAC_PI_2 + 1e-6 {
+                ang += std::f64::consts::PI;
+            }
+            let up = V2::polar(1.0, ang + std::f64::consts::FRAC_PI_2);
+            w.pt(10, q2);
+            w.pt(11, d.loc + up * (ds.text_gap * doc.ascale() + th / 2.0));
+            let ty = if d.kind == DimKind::Aligned { 1 } else { 0 };
+            w.g(70, 32 | 128 | ty);
+            w.g(1, encode_text(&text));
+            if w.new2000() {
+                w.g(3, "Standard");
+                w.g(100, "AcDbAlignedDimension");
+            }
+            w.pt(13, d.p1);
+            w.pt(14, d.p2);
+            if d.kind != DimKind::Aligned {
+                w.f(50, if d.kind == DimKind::Vertical { 90.0 } else { 0.0 });
+                w.sub("AcDbRotatedDimension");
+            }
+        }
+        DimKind::Radius | DimKind::Diameter => {
+            let r = d.p1.dist(d.p2);
+            let mut u = (d.loc - d.p1).norm();
+            if u == V2::ZERO {
+                u = (d.p2 - d.p1).norm();
+            }
+            let tip = d.p1 + u * r;
+            if d.kind == DimKind::Diameter {
+                w.pt(10, d.p1 - u * r);
+            } else {
+                w.pt(10, d.p1);
+            }
+            w.pt(11, d.loc);
+            w.g(70, 32 | 128 | if d.kind == DimKind::Diameter { 3 } else { 4 });
+            w.g(1, encode_text(&text));
+            if w.new2000() {
+                w.g(3, "Standard");
+                w.g(100, if d.kind == DimKind::Diameter { "AcDbDiametricDimension" } else { "AcDbRadialDimension" });
+            }
+            w.pt(15, tip);
+            w.f(40, (d.loc.dist(d.p1) - r).max(0.0));
+        }
+        DimKind::Angular => {
+            let c = d.center.unwrap_or(V2::ZERO);
+            w.pt(10, d.loc);
+            w.pt(11, d.loc);
+            w.g(70, 32 | 128 | 5);
+            w.g(1, encode_text(&text));
+            if w.new2000() {
+                w.g(3, "Standard");
+                w.g(100, "AcDb3PointAngularDimension");
+            }
+            w.pt(13, d.p1);
+            w.pt(14, d.p2);
+            w.pt(15, c);
+        }
+    }
+}
+
+fn lt_entry(w: &mut W, name: &str, desc: &str, pat: &[f64], table: u64) {
+    w.g(0, "LTYPE");
+    if w.new2000() {
+        let h = w.alloc();
+        w.g(5, format!("{h:X}"));
+        w.g(330, format!("{table:X}"));
+        w.g(100, "AcDbSymbolTableRecord");
+        w.g(100, "AcDbLinetypeTableRecord");
+    }
+    w.g(2, name);
+    w.g(70, 0);
+    w.g(3, desc);
+    w.g(72, 65);
+    w.g(73, pat.len());
+    w.f(40, pat.iter().map(|x| x.abs()).sum::<f64>());
+    for x in pat {
+        w.f(49, *x);
+        if w.new2000() {
+            w.g(74, 0);
+        }
+    }
+}
+
+/// Conventional fixed handles of the symbol tables (what DWG-derived files use).
+fn table_handle(name: &str) -> u64 {
+    match name {
+        "BLOCK_RECORD" => 0x1,
+        "LAYER" => 0x2,
+        "STYLE" => 0x3,
+        "LTYPE" => 0x5,
+        "VIEW" => 0x6,
+        "UCS" => 0x7,
+        "VPORT" => 0x8,
+        "APPID" => 0x9,
+        _ => 0xA, // DIMSTYLE
+    }
+}
+
+fn table_start(w: &mut W, name: &str, count: usize) -> u64 {
+    w.g(0, "TABLE");
+    w.g(2, name);
+    let h = if w.new2000() {
+        let h = table_handle(name);
+        w.g(5, format!("{h:X}"));
+        w.g(330, 0);
+        w.g(100, "AcDbSymbolTable");
+        h
+    } else {
+        0
+    };
+    w.g(70, count);
+    h
+}
+
+fn record(w: &mut W, kind: &str, table: u64, subclass: &str) -> u64 {
+    w.g(0, kind);
+    let h = if w.new2000() {
+        let h = w.alloc();
+        w.g(if kind == "DIMSTYLE" { 105 } else { 5 }, format!("{h:X}"));
+        w.g(330, format!("{table:X}"));
+        w.g(100, "AcDbSymbolTableRecord");
+        w.g(100, subclass);
+        h
+    } else {
+        0
+    };
+    h
+}
+
+/// Serialise a document to DXF text.
+pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
+    let mut w = W { s: String::with_capacity(128 * 1024), v: opts.version, next: 0x20 };
+    let modern = w.new2000();
+    let ds = &doc.dimstyle;
+    let sc = doc.ascale();
+    let ext = if opts.include_sheet && doc.sheet.visible { doc.extents().union(&doc.sheet.bounds()) } else { doc.extents() };
+    let ext = if ext.is_empty() { BBox::from_pts(V2::ZERO, V2::new(100.0, 100.0)) } else { ext };
+
+    let mut layers = doc.layers.clone();
+    if opts.include_sheet && doc.sheet.visible && doc.layer("TITLEBLOCK").is_none() {
+        layers.push(Layer::new("TITLEBLOCK", 7, LineType::Continuous, 0.35));
+    }
+    let dims: Vec<&Entity> =
+        if opts.explode_dimensions { vec![] } else { doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_))).collect() };
+
+    // ---------------- TABLES (written first so handles exist; HEADER prepended later)
+    w.g(0, "SECTION");
+    w.g(2, "TABLES");
+    if modern {
+        let t = table_start(&mut w, "VPORT", 1);
+        record(&mut w, "VPORT", t, "AcDbViewportTableRecord");
+        w.g(2, "*ACTIVE");
+        w.g(70, 0);
+        w.f(10, 0.0);
+        w.f(20, 0.0);
+        w.f(11, 1.0);
+        w.f(21, 1.0);
+        w.pt(12, ext.center());
+        w.f(40, ext.height().max(1.0) * 1.1);
+        w.f(41, (ext.width() / ext.height().max(1e-9)).clamp(0.2, 5.0));
+        w.g(0, "ENDTAB");
+    }
+    let ltypes: Vec<LineType> = LineType::ALL.to_vec();
+    let t = table_start(&mut w, "LTYPE", ltypes.len() + if modern { 2 } else { 0 });
+    if modern {
+        lt_entry(&mut w, "ByBlock", "", &[], t);
+        lt_entry(&mut w, "ByLayer", "", &[], t);
+    }
+    for lt in ltypes {
+        lt_entry(&mut w, lt.name(), lt.description(), lt.pattern(), t);
+    }
+    w.g(0, "ENDTAB");
+
+    let t = table_start(&mut w, "LAYER", layers.len());
+    for l in &layers {
+        record(&mut w, "LAYER", t, "AcDbLayerTableRecord");
+        w.g(2, &l.name);
+        w.g(70, if l.locked { 4 } else { 0 });
+        let c = l.color.max(1) as i32;
+        w.g(62, if l.visible { c } else { -c });
+        w.g(6, l.linetype.name());
+        if modern {
+            w.g(290, if l.plot { 1 } else { 0 });
+            w.g(370, (l.lineweight * 100.0).round() as i32);
+        }
+    }
+    w.g(0, "ENDTAB");
+
+    let t = table_start(&mut w, "STYLE", 1);
+    record(&mut w, "STYLE", t, "AcDbTextStyleTableRecord");
+    w.g(2, if modern { "Standard" } else { "STANDARD" });
+    w.g(70, 0);
+    w.f(40, 0.0);
+    w.f(41, 1.0);
+    w.f(50, 0.0);
+    w.g(71, 0);
+    w.f(42, 2.5);
+    w.g(3, "txt");
+    w.g(4, "");
+    w.g(0, "ENDTAB");
+
+    let mut msp_br = 0;
+    let mut psp_br = 0;
+    let mut block_brs: Vec<(String, u64)> = vec![];
+    if modern {
+        for name in ["VIEW", "UCS"] {
+            table_start(&mut w, name, 0);
+            w.g(0, "ENDTAB");
+        }
+        let t = table_start(&mut w, "APPID", 1);
+        record(&mut w, "APPID", t, "AcDbRegAppTableRecord");
+        w.g(2, "ACAD");
+        w.g(70, 0);
+        w.g(0, "ENDTAB");
+
+        let t = table_start(&mut w, "DIMSTYLE", 1);
+        w.g(100, "AcDbDimStyleTable");
+        record(&mut w, "DIMSTYLE", t, "AcDbDimStyleTableRecord");
+        w.g(2, "Standard");
+        w.g(70, 0);
+        w.f(40, sc);
+        w.f(41, ds.arrow_size);
+        w.f(42, ds.ext_offset);
+        w.f(44, ds.ext_beyond);
+        w.f(140, ds.text_height);
+        w.f(147, ds.text_gap);
+        w.g(271, ds.decimals);
+        w.g(0, "ENDTAB");
+
+        let names: Vec<String> = ["*Model_Space".to_string(), "*Paper_Space".to_string()]
+            .into_iter()
+            .chain((1..=dims.len()).map(|i| format!("*D{i}")))
+            .chain(doc.blocks.iter().map(|b| b.name.clone()))
+            .collect();
+        let t = table_start(&mut w, "BLOCK_RECORD", names.len());
+        for n in names {
+            let h = record(&mut w, "BLOCK_RECORD", t, "AcDbBlockTableRecord");
+            w.g(2, &n);
+            match n.as_str() {
+                "*Model_Space" => msp_br = h,
+                "*Paper_Space" => psp_br = h,
+                _ => block_brs.push((n, h)),
+            }
+        }
+        w.g(0, "ENDTAB");
+    }
+    w.g(0, "ENDSEC");
+
+    // ---------------- BLOCKS
+    w.g(0, "SECTION");
+    w.g(2, "BLOCKS");
+    let br_of = |name: &str, brs: &[(String, u64)]| brs.iter().find(|(n, _)| n == name).map(|(_, h)| *h).unwrap_or(0);
+    let block_begin = |w: &mut W, name: &str, br: u64, base: V2, flags: i32, paper: bool| {
+        w.g(0, "BLOCK");
+        if w.new2000() {
+            let h = w.alloc();
+            w.g(5, format!("{h:X}"));
+            w.g(330, format!("{br:X}"));
+            w.g(100, "AcDbEntity");
+            if paper {
+                w.g(67, 1);
+            }
+        }
+        w.g(8, "0");
+        w.sub("AcDbBlockBegin");
+        w.g(2, name);
+        w.g(70, flags);
+        w.pt(10, base);
+        w.g(3, name);
+        w.g(1, "");
+    };
+    let block_end = |w: &mut W, br: u64, paper: bool| {
+        w.g(0, "ENDBLK");
+        if w.new2000() {
+            let h = w.alloc();
+            w.g(5, format!("{h:X}"));
+            w.g(330, format!("{br:X}"));
+            w.g(100, "AcDbEntity");
+            if paper {
+                w.g(67, 1);
+            }
+        }
+        w.g(8, "0");
+        w.sub("AcDbBlockEnd");
+    };
+    if modern {
+        block_begin(&mut w, "*Model_Space", msp_br, V2::ZERO, 0, false);
+        block_end(&mut w, msp_br, false);
+        block_begin(&mut w, "*Paper_Space", psp_br, V2::ZERO, 0, true);
+        block_end(&mut w, psp_br, true);
+    }
+    for (i, e) in dims.iter().enumerate() {
+        let name = format!("*D{}", i + 1);
+        let br = br_of(&name, &block_brs);
+        block_begin(&mut w, &name, br, V2::ZERO, 1, false);
+        for p in doc.prims_of(e) {
+            write_prim(&mut w, &p, "0", br, Style { color: Some(0), lt: None, lw: None });
+        }
+        block_end(&mut w, br, false);
+    }
+    let mut nested_dim = 0usize;
+    for b in &doc.blocks {
+        let br = br_of(&b.name, &block_brs);
+        block_begin(&mut w, &b.name, br, b.base, 0, false);
+        for e in &b.entities {
+            write_entity(&mut w, doc, e, br, true, &mut nested_dim);
+        }
+        block_end(&mut w, br, false);
+    }
+    w.g(0, "ENDSEC");
+
+    // ---------------- ENTITIES
+    w.g(0, "SECTION");
+    w.g(2, "ENTITIES");
+    let mut dim_no = 0;
+    for e in &doc.entities {
+        if matches!(e.shape, Shape::Image(_)) {
+            continue;
+        }
+        write_entity(&mut w, doc, e, msp_br, opts.explode_dimensions, &mut dim_no);
+    }
+    if opts.include_sheet && doc.sheet.visible {
+        for (p, lw) in doc.sheet.prims() {
+            let st = Style { lw: Some((lw * 100.0).round() as i32), ..Style::default() };
+            write_prim(&mut w, &p, "TITLEBLOCK", msp_br, st);
+        }
+    }
+    w.g(0, "ENDSEC");
+
+    // ---------------- OBJECTS (DXF 2000)
+    if modern {
+        let (root, group) = (0xC, 0xD);
+        w.g(0, "SECTION");
+        w.g(2, "OBJECTS");
+        w.g(0, "DICTIONARY");
+        w.g(5, format!("{root:X}"));
+        w.g(330, 0);
+        w.g(100, "AcDbDictionary");
+        w.g(281, 1);
+        w.g(3, "ACAD_GROUP");
+        w.g(350, format!("{group:X}"));
+        w.g(0, "DICTIONARY");
+        w.g(5, format!("{group:X}"));
+        w.g(330, format!("{root:X}"));
+        w.g(100, "AcDbDictionary");
+        w.g(281, 1);
+        w.g(0, "ENDSEC");
+    }
+    w.g(0, "EOF");
+
+    // ---------------- HEADER (+ CLASSES) prepended.
+    let mut h = W { s: String::new(), v: opts.version, next: 0 };
+    h.g(0, "SECTION");
+    h.g(2, "HEADER");
+    h.g(9, "$ACADVER");
+    h.g(1, if modern { "AC1015" } else { "AC1009" });
+    if modern {
+        h.g(9, "$HANDSEED");
+        h.g(5, format!("{:X}", w.next + 1));
+        h.g(9, "$INSUNITS");
+        h.g(70, 4);
+        h.g(9, "$MEASUREMENT");
+        h.g(70, 1);
+        h.g(9, "$LWDISPLAY");
+        h.g(290, 1);
+    }
+    h.g(9, "$EXTMIN");
+    h.pt(10, ext.min);
+    h.g(9, "$EXTMAX");
+    h.pt(10, ext.max);
+    h.g(9, "$LIMMIN");
+    h.f(10, ext.min.x);
+    h.f(20, ext.min.y);
+    h.g(9, "$LIMMAX");
+    h.f(10, ext.max.x);
+    h.f(20, ext.max.y);
+    h.g(9, "$LTSCALE");
+    h.f(40, doc.ltscale * sc);
+    h.g(9, "$DIMSCALE");
+    h.f(40, sc);
+    h.g(9, "$DIMTXT");
+    h.f(40, ds.text_height);
+    h.g(9, "$DIMASZ");
+    h.f(40, ds.arrow_size);
+    h.g(9, "$DIMEXO");
+    h.f(40, ds.ext_offset);
+    h.g(9, "$DIMEXE");
+    h.f(40, ds.ext_beyond);
+    h.g(9, "$DIMGAP");
+    h.f(40, ds.text_gap);
+    h.g(9, "$DIMDEC");
+    h.g(70, ds.decimals);
+    h.g(9, "$CLAYER");
+    h.g(8, &doc.current_layer);
+    h.g(0, "ENDSEC");
+    h.s + &w.s
+}
+
+// ---------------------------------------------------------------- reading
+
+struct Pair {
+    code: i32,
+    val: String,
+}
+
+fn pairs(src: &str) -> Vec<Pair> {
+    let mut lines = src.lines();
+    let mut out = Vec::new();
+    while let (Some(c), Some(v)) = (lines.next(), lines.next()) {
+        if let Ok(code) = c.trim().parse::<i32>() {
+            out.push(Pair { code, val: v.trim_end_matches('\r').to_string() });
+        }
+    }
+    out
+}
+
+/// Collected group codes of one record.
+#[derive(Default, Clone)]
+struct Rec {
+    kind: String,
+    codes: Vec<(i32, String)>,
+}
+
+impl Rec {
+    fn s(&self, c: i32) -> Option<&str> {
+        self.codes.iter().find(|(k, _)| *k == c).map(|(_, v)| v.trim())
+    }
+    fn f(&self, c: i32) -> f64 {
+        self.s(c).and_then(|v| v.parse().ok()).unwrap_or(0.0)
+    }
+    fn f_or(&self, c: i32, d: f64) -> f64 {
+        self.s(c).and_then(|v| v.parse().ok()).unwrap_or(d)
+    }
+    fn i(&self, c: i32) -> i64 {
+        self.s(c).and_then(|v| v.parse().ok()).unwrap_or(0)
+    }
+    fn has(&self, c: i32) -> bool {
+        self.s(c).is_some()
+    }
+    fn p(&self, base: i32) -> V2 {
+        V2::new(self.f(base), self.f(base + 10))
+    }
+    fn all(&self, c: i32) -> Vec<f64> {
+        self.codes.iter().filter(|(k, _)| *k == c).filter_map(|(_, v)| v.trim().parse().ok()).collect()
+    }
+}
+
+/// Sequential reader over a record's group codes (for HATCH boundaries etc.).
+struct Cur<'a> {
+    c: &'a [(i32, String)],
+    i: usize,
+}
+
+impl Cur<'_> {
+    /// Advance to the next occurrence of `code` and return its value.
+    fn next(&mut self, code: i32) -> Option<f64> {
+        while self.i < self.c.len() {
+            let (k, v) = &self.c[self.i];
+            self.i += 1;
+            if *k == code {
+                return v.trim().parse().ok();
+            }
+        }
+        None
+    }
+    /// Read `code` only if it is the very next pair.
+    fn peek_take(&mut self, code: i32) -> Option<f64> {
+        if self.i < self.c.len() && self.c[self.i].0 == code {
+            self.i += 1;
+            return self.c[self.i - 1].1.trim().parse().ok();
+        }
+        None
+    }
+}
+
+/// Polyline vertices with bulges, tessellated.
+fn bulge_points(verts: &[(V2, f64)], closed: bool) -> Vec<V2> {
+    let mut out = vec![];
+    let n = verts.len();
+    for i in 0..n {
+        let (p, b) = verts[i];
+        out.push(p);
+        let last = i + 1 == n;
+        if last && !closed {
+            break;
+        }
+        let q = verts[(i + 1) % n].0;
+        if b.abs() > 1e-9 {
+            let theta = 4.0 * b.atan();
+            let l = p.dist(q);
+            let m = p.mid(q);
+            let nrm = (q - p).norm().perp();
+            let c = m + nrm * (l / 2.0 / (theta / 2.0).tan());
+            let a0 = (p - c).angle();
+            let r = c.dist(p);
+            let steps = ((theta.abs() / 0.1).ceil() as usize).clamp(2, 128);
+            for k in 1..steps {
+                out.push(c + V2::polar(r, a0 + theta * k as f64 / steps as f64));
+            }
+        }
+    }
+    out
+}
+
+fn read_hatch(r: &Rec) -> Option<Shape> {
+    let mut cur = Cur { c: &r.codes, i: 0 };
+    let n = cur.next(91)? as usize;
+    let mut loops = vec![];
+    for _ in 0..n.min(10_000) {
+        let flags = cur.next(92)? as i64;
+        let mut pts: Vec<V2> = vec![];
+        if flags & 2 != 0 {
+            let bulge = cur.next(72)? != 0.0;
+            let closed = cur.next(73).unwrap_or(1.0) != 0.0;
+            let nv = cur.next(93)? as usize;
+            let mut verts = vec![];
+            for _ in 0..nv {
+                let x = cur.next(10)?;
+                let y = cur.next(20)?;
+                let b = if bulge { cur.peek_take(42).unwrap_or(0.0) } else { 0.0 };
+                verts.push((V2::new(x, y), b));
+            }
+            pts = bulge_points(&verts, closed);
+        } else {
+            let ne = cur.next(93)? as usize;
+            for _ in 0..ne {
+                let ty = cur.next(72)? as i64;
+                match ty {
+                    1 => {
+                        let a = V2::new(cur.next(10)?, cur.next(20)?);
+                        let b = V2::new(cur.next(11)?, cur.next(21)?);
+                        if pts.last().is_none_or(|l| l.dist(a) > 1e-9) {
+                            pts.push(a);
+                        }
+                        pts.push(b);
+                    }
+                    2 => {
+                        let c = V2::new(cur.next(10)?, cur.next(20)?);
+                        let rr = cur.next(40)?;
+                        let (s, e) = (rad(cur.next(50)?), rad(cur.next(51)?));
+                        let ccw = cur.next(73).unwrap_or(1.0) != 0.0;
+                        let arc = if ccw { arc_points(c, rr, s, e, rr * 0.002) } else { arc_points(c, rr, -s, -e, rr * 0.002) };
+                        let arc: Vec<V2> = if ccw { arc } else { arc.into_iter().map(|p| V2::new(p.x, 2.0 * c.y - p.y)).collect() };
+                        pts.extend(arc);
+                    }
+                    3 => {
+                        let c = V2::new(cur.next(10)?, cur.next(20)?);
+                        let major = V2::new(cur.next(11)?, cur.next(21)?);
+                        let ratio = cur.next(40)?;
+                        let (s, e) = (rad(cur.next(50)?), rad(cur.next(51)?));
+                        let ccw = cur.next(73).unwrap_or(1.0) != 0.0;
+                        let mut ps = icad_core::curves::ellipse_points(c, major, ratio, s, e, major.len() * 0.002);
+                        if !ccw {
+                            ps.reverse();
+                        }
+                        pts.extend(ps);
+                    }
+                    4 => {
+                        let degree = cur.next(94)? as usize;
+                        let nk = {
+                            let _ = cur.next(73);
+                            let _ = cur.next(74);
+                            cur.next(95)? as usize
+                        };
+                        let nc = cur.next(96)? as usize;
+                        let knots: Vec<f64> = (0..nk).filter_map(|_| cur.next(40)).collect();
+                        let ctrl: Vec<V2> = (0..nc).filter_map(|_| Some(V2::new(cur.next(10)?, cur.next(20)?))).collect();
+                        if ctrl.len() >= 2 && knots.len() >= ctrl.len() {
+                            let (t0, t1) = (knots[degree.min(knots.len() - 1)], knots[knots.len() - 1 - degree.min(knots.len() - 1)]);
+                            for k in 0..=(nc * 8) {
+                                let t = t0 + (t1 - t0) * k as f64 / (nc * 8) as f64;
+                                pts.push(eval_bspline(&ctrl, &knots, degree, t));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Skip source-object references.
+        if let Some(ns) = cur.next(97) {
+            for _ in 0..ns as usize {
+                let _ = cur.peek_take(330);
+            }
+        }
+        if pts.len() >= 3 {
+            loops.push(pts);
+        }
+    }
+    if loops.is_empty() {
+        return None;
+    }
+    let pattern = r.s(2).unwrap_or("SOLID").to_string();
+    let solid = r.i(70) & 1 != 0;
+    Some(Shape::Hatch(Hatch {
+        loops,
+        pattern: if solid { "SOLID".into() } else { pattern },
+        scale: r.f_or(41, 1.0).max(1e-6),
+        angle: rad(r.f(52)),
+    }))
+}
+
+fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::collections::BTreeSet<String>) -> Option<Shape> {
+    let r = &recs[*k];
+    match r.kind.as_str() {
+        "LINE" => Some(Shape::Line { a: r.p(10), b: r.p(11) }),
+        "CIRCLE" => Some(Shape::Circle { c: r.p(10), r: r.f(40) }),
+        "ARC" => Some(Shape::Arc { c: r.p(10), r: r.f(40), start: norm_angle(rad(r.f(50))), end: norm_angle(rad(r.f(51))) }),
+        "LWPOLYLINE" => {
+            let mut verts: Vec<(V2, f64)> = vec![];
+            let mut x = None;
+            for (c, v) in &r.codes {
+                let val: f64 = v.trim().parse().unwrap_or(0.0);
+                match *c {
+                    10 => x = Some(val),
+                    20 => {
+                        if let Some(xx) = x.take() {
+                            verts.push((V2::new(xx, val), 0.0));
+                        }
+                    }
+                    42 => {
+                        if let Some(l) = verts.last_mut() {
+                            l.1 = val;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let closed = r.i(70) & 1 != 0;
+            let pts =
+                if verts.iter().any(|v| v.1.abs() > 1e-9) { bulge_points(&verts, closed) } else { verts.iter().map(|v| v.0).collect() };
+            Some(Shape::Polyline { pts, closed })
+        }
+        "POLYLINE" => {
+            let closed = r.i(70) & 1 != 0;
+            let mut verts = vec![];
+            let mut j = *k + 1;
+            while j < recs.len() && recs[j].kind == "VERTEX" {
+                verts.push((recs[j].p(10), recs[j].f(42)));
+                j += 1;
+            }
+            if j < recs.len() && recs[j].kind == "SEQEND" {
+                j += 1;
+            }
+            *k = j - 1;
+            Some(Shape::Polyline { pts: bulge_points(&verts, closed), closed })
+        }
+        "TEXT" | "ATTRIB" => {
+            let h = match r.i(72) {
+                1 | 4 => HAlign::Center,
+                2 => HAlign::Right,
+                _ => HAlign::Left,
+            };
+            let v = match r.i(73) {
+                1 => VAlign::Bottom,
+                2 => VAlign::Middle,
+                3 => VAlign::Top,
+                _ => VAlign::Baseline,
+            };
+            let pos = if (h != HAlign::Left || v != VAlign::Baseline) && r.has(11) { r.p(11) } else { r.p(10) };
+            Some(Shape::Text(Text {
+                pos,
+                height: r.f(40).max(1e-6),
+                rotation: norm_angle(rad(r.f(50))),
+                content: decode_text(r.s(1).unwrap_or("")),
+                halign: h,
+                valign: v,
+            }))
+        }
+        "MTEXT" => {
+            let mut content: String = r.codes.iter().filter(|(c, _)| *c == 3).map(|(_, v)| v.as_str()).collect::<Vec<_>>().join("");
+            content.push_str(r.s(1).unwrap_or(""));
+            let content = strip_mtext(&decode_text(&content));
+            let rot = if r.has(11) { r.p(11).angle() } else { r.f(50) };
+            Some(Shape::MText(MText {
+                pos: r.p(10),
+                height: r.f(40).max(1e-6),
+                width: r.f(41).max(0.0),
+                rotation: norm_angle(rot),
+                content,
+                attach: r.i(71).clamp(1, 9) as u8,
+                spacing: r.f_or(44, 1.0),
+            }))
+        }
+        "DIMENSION" => read_dimension(r),
+        "ELLIPSE" => Some(Shape::Ellipse {
+            c: r.p(10),
+            major: r.p(11),
+            ratio: r.f_or(40, 1.0).clamp(1e-6, 1.0),
+            start: r.f_or(41, 0.0),
+            end: r.f_or(42, std::f64::consts::TAU),
+        }),
+        "SPLINE" => {
+            let closed = r.i(70) & 1 != 0;
+            let fx = r.all(11);
+            let fy = r.all(21);
+            let pts: Vec<V2> = if fx.len() >= 2 {
+                fx.iter().zip(fy.iter()).map(|(x, y)| V2::new(*x, *y)).collect()
+            } else {
+                let ctrl: Vec<V2> = r.all(10).iter().zip(r.all(20).iter()).map(|(x, y)| V2::new(*x, *y)).collect();
+                let knots = r.all(40);
+                let degree = r.i(71).max(1) as usize;
+                if ctrl.len() < 2 || knots.len() < ctrl.len() {
+                    return None;
+                }
+                let (t0, t1) = (knots[degree.min(knots.len() - 1)], knots[knots.len() - 1 - degree.min(knots.len() - 1)]);
+                let n = (ctrl.len() * 3).clamp(4, 400);
+                (0..=n).map(|i| eval_bspline(&ctrl, &knots, degree, t0 + (t1 - t0) * i as f64 / n as f64)).collect()
+            };
+            Some(Shape::Spline { pts, closed })
+        }
+        "POINT" => Some(Shape::Point { p: r.p(10) }),
+        "XLINE" => Some(Shape::XLine { p: r.p(10), dir: r.p(11).norm() }),
+        "RAY" => Some(Shape::Ray { p: r.p(10), dir: r.p(11).norm() }),
+        "HATCH" => read_hatch(r),
+        "LEADER" => {
+            let pts: Vec<V2> = r.all(10).iter().zip(r.all(20).iter()).map(|(x, y)| V2::new(*x, *y)).collect();
+            (pts.len() >= 2).then_some(Shape::Leader(Leader { pts, text: String::new() }))
+        }
+        "SOLID" | "TRACE" => {
+            let (a, b, c, d) = (r.p(10), r.p(11), r.p(12), r.p(13));
+            let mut pts = vec![a, b, d, c];
+            pts.dedup_by(|x, y| x.dist(*y) < 1e-12);
+            (pts.len() >= 3).then_some(Shape::Hatch(Hatch { loops: vec![pts], pattern: "SOLID".into(), scale: 1.0, angle: 0.0 }))
+        }
+        "INSERT" => {
+            let name = r.s(2).unwrap_or("").to_string();
+            if !blocks.iter().any(|b| b.eq_ignore_ascii_case(&name)) {
+                warn.insert(format!("INSERT of missing block {name}"));
+                return None;
+            }
+            // Skip attribute entities that follow an INSERT.
+            if r.i(66) == 1 {
+                let mut j = *k + 1;
+                while j < recs.len() && recs[j].kind == "ATTRIB" {
+                    j += 1;
+                }
+                if j < recs.len() && recs[j].kind == "SEQEND" {
+                    j += 1;
+                }
+                *k = j - 1;
+            }
+            Some(Shape::Insert(Insert { name, pos: r.p(10), sx: r.f_or(41, 1.0), sy: r.f_or(42, 1.0), rotation: norm_angle(rad(r.f(50))) }))
+        }
+        "VERTEX" | "SEQEND" | "ATTDEF" | "VIEWPORT" => None,
+        other => {
+            warn.insert(other.to_string());
+            None
+        }
+    }
+}
+
+fn apply_props(e: &mut Entity, r: &Rec) {
+    let c = r.i(62);
+    if (1..=255).contains(&c) {
+        e.color = Color::Aci(c as u8);
+    }
+    if let Some(lt) = r.s(6) {
+        if !lt.eq_ignore_ascii_case("BYLAYER") {
+            if let Some(l) = LineType::from_name(lt) {
+                e.linetype = LtRef::Lt(l);
+            }
+        }
+    }
+    let lw = r.i(370);
+    if lw > 0 {
+        e.lineweight = Some(lw as f64 / 100.0);
+    }
+}
+
+/// Parse a DXF file (R12 through current versions) into a new document.
+pub fn read_dxf(src: &str) -> Result<Document, String> {
+    let ps = pairs(src);
+    if ps.is_empty() {
+        return Err("Not a DXF file".into());
+    }
+    let mut doc = Document::new();
+    let mut warn = std::collections::BTreeSet::new();
+
+    let mut i = 0;
+    let mut section = String::new();
+    let mut table_layers: Vec<Layer> = Vec::new();
+    let mut recs: Vec<Rec> = Vec::new();
+    let mut block_recs: Vec<(String, V2, Vec<Rec>)> = Vec::new();
+    while i < ps.len() {
+        let p = &ps[i];
+        if p.code == 0 && p.val == "SECTION" {
+            section = ps.get(i + 1).map(|x| x.val.clone()).unwrap_or_default();
+            i += 2;
+            continue;
+        }
+        if p.code == 0 && p.val == "ENDSEC" {
+            section.clear();
+            i += 1;
+            continue;
+        }
+        if p.code == 0 && matches!(section.as_str(), "ENTITIES" | "TABLES" | "BLOCKS") {
+            let mut r = Rec { kind: p.val.clone(), codes: vec![] };
+            i += 1;
+            while i < ps.len() && ps[i].code != 0 {
+                r.codes.push((ps[i].code, ps[i].val.clone()));
+                i += 1;
+            }
+            match section.as_str() {
+                "TABLES" if r.kind == "LAYER" => {
+                    if let Some(name) = r.s(2) {
+                        let c = r.i(62);
+                        let mut l = Layer::new(
+                            name,
+                            (c.unsigned_abs().clamp(1, 255)) as u8,
+                            r.s(6).and_then(LineType::from_name).unwrap_or_default(),
+                            0.25,
+                        );
+                        let lw = r.i(370);
+                        if lw > 0 {
+                            l.lineweight = lw as f64 / 100.0;
+                        }
+                        l.visible = c >= 0;
+                        l.locked = r.i(70) & 4 != 0;
+                        if r.has(290) {
+                            l.plot = r.i(290) != 0;
+                        }
+                        table_layers.push(l);
+                    }
+                }
+                "BLOCKS" => match r.kind.as_str() {
+                    "BLOCK" => block_recs.push((r.s(2).unwrap_or("").to_string(), r.p(10), vec![])),
+                    "ENDBLK" => {}
+                    _ => {
+                        if let Some(b) = block_recs.last_mut() {
+                            b.2.push(r);
+                        }
+                    }
+                },
+                "ENTITIES" => recs.push(r),
+                _ => {}
+            }
+            continue;
+        }
+        i += 1;
+    }
+
+    for l in table_layers {
+        if let Some(ex) = doc.layer_mut(&l.name) {
+            *ex = l;
+        } else {
+            doc.layers.push(l);
+        }
+    }
+
+    // Named (non-anonymous) blocks become block definitions.
+    let block_names: Vec<String> = block_recs.iter().filter(|b| !b.0.starts_with('*') && !b.0.is_empty()).map(|b| b.0.clone()).collect();
+    for (name, base, brecs) in &block_recs {
+        if name.starts_with('*') || name.is_empty() {
+            continue;
+        }
+        let mut ents = vec![];
+        let mut k = 0;
+        while k < brecs.len() {
+            if let Some(shape) = read_shape(brecs, &mut k, &block_names, &mut warn) {
+                let layer = brecs[k].s(8).unwrap_or("0").to_string();
+                let id = doc.alloc_id();
+                let mut e = Entity { id, layer, color: Color::ByLayer, linetype: LtRef::ByLayer, lineweight: None, shape };
+                apply_props(&mut e, &brecs[k]);
+                ents.push(e);
+            }
+            k += 1;
+        }
+        doc.define_block(BlockDef { name: name.clone(), base: *base, entities: ents, description: String::new() });
+    }
+
+    let mut k = 0;
+    while k < recs.len() {
+        let layer = recs[k].s(8).unwrap_or("0").to_string();
+        if let Some(shape) = read_shape(&recs, &mut k, &block_names, &mut warn) {
+            if doc.layer(&layer).is_none() {
+                doc.layers.push(Layer::new(&layer, 7, LineType::Continuous, 0.25));
+            }
+            let id = doc.add_on(&layer, shape);
+            let e = doc.get_mut(id).unwrap();
+            apply_props(e, &recs[k]);
+        }
+        k += 1;
+    }
+    // Layers referenced only inside blocks.
+    let missing: Vec<String> =
+        doc.blocks.iter().flat_map(|b| b.entities.iter().map(|e| e.layer.clone())).filter(|l| doc.layer(l).is_none()).collect();
+    for l in missing {
+        if doc.layer(&l).is_none() {
+            doc.layers.push(Layer::new(&l, 7, LineType::Continuous, 0.25));
+        }
+    }
+    if !doc.entities.is_empty() {
+        doc.current_layer = "0".into();
+        let ext = doc.extents();
+        doc.sheet.fit_to(&ext);
+        doc.sheet.visible = false;
+    }
+    if !warn.is_empty() {
+        eprintln!("DXF import: skipped {warn:?}");
+    }
+    Ok(doc)
+}
+
+fn read_dimension(r: &Rec) -> Option<Shape> {
+    let ty = r.i(70) & 7;
+    let text = r.s(1).map(decode_text).filter(|t| !t.is_empty() && t != "<>");
+    let tmid = r.p(11);
+    let mut d = match ty {
+        0 | 1 => {
+            let p1 = r.p(13);
+            let p2 = r.p(14);
+            let q = r.p(10);
+            let kind = if ty == 1 {
+                DimKind::Aligned
+            } else {
+                let a = norm_angle(rad(r.f(50)));
+                if a.abs() < 1e-3 || (a - std::f64::consts::PI).abs() < 1e-3 {
+                    DimKind::Horizontal
+                } else if (a - std::f64::consts::FRAC_PI_2).abs() < 1e-3 || (a - 3.0 * std::f64::consts::FRAC_PI_2).abs() < 1e-3 {
+                    DimKind::Vertical
+                } else {
+                    DimKind::Aligned
+                }
+            };
+            let mut d = Dimension::new(kind, p1, p2, q);
+            let dir = d.direction();
+            d.loc = q + dir * (tmid - q).dot(dir);
+            d
+        }
+        3 => {
+            let a = r.p(10);
+            let b = r.p(15);
+            Dimension::new(DimKind::Diameter, a.mid(b), b, tmid)
+        }
+        4 => Dimension::new(DimKind::Radius, r.p(10), r.p(15), tmid),
+        5 => Dimension::angular(r.p(15), r.p(13), r.p(14), r.p(10)),
+        2 => {
+            // Two-line angular: lines (13→14) and (15→10); arc point 16.
+            let (a1, a2, b1, b2) = (r.p(13), r.p(14), r.p(15), r.p(10));
+            let (c, _, _) = line_line(a1, a2, b1, b2)?;
+            Dimension::angular(c, if a2.dist(c) > a1.dist(c) { a2 } else { a1 }, if b2.dist(c) > b1.dist(c) { b2 } else { b1 }, r.p(16))
+        }
+        _ => return None,
+    };
+    d.text = text;
+    Some(Shape::Dim(d))
+}
+
+fn strip_mtext(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' | '}' => {}
+            '\\' => match chars.next() {
+                Some('P') => out.push('\n'),
+                Some('~') => out.push(' '),
+                Some('\\') => out.push('\\'),
+                Some(_) => {
+                    for d in chars.by_ref() {
+                        if d == ';' {
+                            break;
+                        }
+                    }
+                }
+                None => {}
+            },
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> Document {
+        let mut d = Document::new();
+        d.add(Shape::Line { a: V2::new(0., 0.), b: V2::new(100., 0.) });
+        d.add(Shape::Circle { c: V2::new(50., 25.), r: 10. });
+        d.add(Shape::Arc { c: V2::new(0., 0.), r: 5., start: 0.0, end: 1.5 });
+        d.add(Shape::Polyline { pts: vec![V2::new(0., 0.), V2::new(10., 0.), V2::new(10., 10.)], closed: true });
+        d.add(Shape::Text(Text::new(V2::new(1., 2.), 3.5, "Ø20 ±0.1")));
+        d.add(Shape::Dim(Dimension::new(DimKind::Horizontal, V2::new(0., 0.), V2::new(100., 0.), V2::new(50., -15.))));
+        d.add(Shape::Dim(Dimension::angular(V2::ZERO, V2::new(10., 0.), V2::new(0., 10.), V2::new(7., 7.))));
+        d.add(Shape::Ellipse { c: V2::new(80., 60.), major: V2::new(20., 0.), ratio: 0.5, start: 0.0, end: std::f64::consts::TAU });
+        d.add(Shape::Spline { pts: vec![V2::new(0., 50.), V2::new(10., 60.), V2::new(20., 50.), V2::new(30., 60.)], closed: false });
+        d.add(Shape::Point { p: V2::new(5., 5.) });
+        d.add(Shape::MText(MText::new(V2::new(0., 100.), 3.5, 60.0, "NOTES:\n1. Break all edges")));
+        d.add(Shape::Hatch(Hatch {
+            loops: vec![vec![V2::new(0., 0.), V2::new(10., 0.), V2::new(10., 10.), V2::new(0., 10.)]],
+            pattern: "ANSI31".into(),
+            scale: 1.0,
+            angle: 0.0,
+        }));
+        d.define_block(BlockDef {
+            name: "WASHER".into(),
+            base: V2::ZERO,
+            entities: vec![Entity {
+                id: 999,
+                layer: "0".into(),
+                color: Color::ByLayer,
+                linetype: LtRef::ByLayer,
+                lineweight: None,
+                shape: Shape::Circle { c: V2::ZERO, r: 4.0 },
+            }],
+            description: String::new(),
+        });
+        d.add(Shape::Insert(Insert::new("WASHER", V2::new(120., 20.))));
+        d
+    }
+
+    #[test]
+    fn round_trip_r2000() {
+        let d = sample();
+        let s = write_dxf(&d, &DxfOptions::default());
+        assert!(s.contains("AC1015") && s.contains("ELLIPSE") && s.contains("SPLINE") && s.contains("HATCH") && s.contains("MTEXT"));
+        let r = read_dxf(&s).unwrap();
+        let kinds: Vec<&str> = r.entities.iter().map(|e| e.shape.type_name()).collect();
+        for k in [
+            "Line",
+            "Circle",
+            "Arc",
+            "Polyline",
+            "Text",
+            "Rotated Dimension",
+            "Angular Dimension",
+            "Ellipse",
+            "Spline",
+            "Point",
+            "MText",
+            "Hatch",
+            "Block Reference",
+        ] {
+            assert!(kinds.contains(&k), "missing {k} in {kinds:?}");
+        }
+        assert!(r.block("WASHER").is_some());
+        let ang = r
+            .entities
+            .iter()
+            .find_map(|e| if let Shape::Dim(d) = &e.shape { (d.kind == DimKind::Angular).then_some(d) } else { None })
+            .unwrap();
+        assert!((ang.measurement() - 90.0).abs() < 1e-6);
+        // Spline passes through the same fit points after B-spline round trip.
+        let sp = r.entities.iter().find_map(|e| if let Shape::Spline { pts, .. } = &e.shape { Some(pts.clone()) } else { None }).unwrap();
+        assert!(sp.iter().any(|p| p.dist(V2::new(10., 60.)) < 1e-6));
+    }
+
+    /// Writes sample files for external validation when ICAD_DXF_OUT is set.
+    #[test]
+    fn dump_samples_for_validation() {
+        if let Ok(dir) = std::env::var("ICAD_DXF_OUT") {
+            let d = sample();
+            std::fs::write(format!("{dir}/sample2000.dxf"), write_dxf(&d, &DxfOptions::default())).unwrap();
+            std::fs::write(format!("{dir}/sample12.dxf"), write_dxf(&d, &DxfOptions { version: DxfVersion::R12, ..Default::default() }))
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn round_trip_r12() {
+        let d = sample();
+        let s = write_dxf(&d, &DxfOptions { version: DxfVersion::R12, ..Default::default() });
+        assert!(s.contains("AC1009") && s.contains("%%c20 %%p0.1") && !s.contains("LWPOLYLINE"));
+        let r = read_dxf(&s).unwrap();
+        let kinds: Vec<&str> = r.entities.iter().map(|e| e.shape.type_name()).collect();
+        assert!(kinds.contains(&"Rotated Dimension") && kinds.contains(&"Block Reference"));
+        let dim = r.entities.iter().find_map(|e| if let Shape::Dim(d) = &e.shape { Some(d) } else { None }).unwrap();
+        assert!((dim.measurement() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn bulged_polyline_becomes_arc_points() {
+        // Semicircle from (0,0) to (10,0) with bulge 1.
+        let pts = bulge_points(&[(V2::new(0., 0.), 1.0), (V2::new(10., 0.), 0.0)], false);
+        assert!(pts.len() > 10);
+        for p in &pts {
+            assert!((p.dist(V2::new(5., 0.)) - 5.0).abs() < 1e-9);
+        }
+    }
+}

@@ -1,0 +1,173 @@
+name: Release
+
+# Push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`) to build
+# the macOS, Windows and Linux installers and publish them as a GitHub Release.
+# Run it manually (Actions → Release → Run workflow) to build the installers as
+# downloadable artifacts without publishing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build LibreDWG (universal, patched)
+        run: packaging/libredwg/build-libredwg.sh dist/libredwg universal
+      - name: DWG round-trip test
+        env:
+          IMAGINECAD_LIBREDWG: ${{ github.workspace }}/dist/libredwg
+        run: cargo test -p icad-io --test dwg_roundtrip
+      - name: Third-party licenses
+        run: |
+          cargo install cargo-about --locked --features cli
+          cargo about generate packaging/licenses/about.hbs -o dist/THIRD_PARTY_LICENSES.html
+      - name: Import signing certificate (optional)
+        if: ${{ env.MACOS_CERTIFICATE != '' }}
+        env:
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import cert.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm cert.p12
+      - name: Build universal .app and .dmg
+        env:
+          UNIVERSAL: "1"
+          LIBREDWG_DIR: dist/libredwg
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: packaging/macos/build-dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+
+  windows:
+    runs-on: windows-latest
+    env:
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Set up MSYS2 (for LibreDWG)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: make patch curl tar xz mingw-w64-x86_64-gcc
+      - name: Build LibreDWG (static, patched)
+        shell: msys2 {0}
+        run: packaging/libredwg/build-libredwg.sh dist/libredwg
+      - name: DWG round-trip test
+        shell: pwsh
+        run: |
+          $env:IMAGINECAD_LIBREDWG = "$PWD\dist\libredwg"
+          cargo test -p icad-io --test dwg_roundtrip
+      - name: Build
+        run: cargo build --release -p imaginecad
+      - name: Third-party licenses
+        run: |
+          cargo install cargo-about --locked --features cli
+          cargo about generate packaging/licenses/about.hbs -o dist/THIRD_PARTY_LICENSES.html
+      - name: Sign executables (optional)
+        if: ${{ env.WINDOWS_CERTIFICATE != '' }}
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1).FullName
+          & $signtool sign /f cert.pfx /p $env:WINDOWS_CERTIFICATE_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 target\release\imaginecad.exe dist\libredwg\dwg2dxf.exe dist\libredwg\dxf2dwg.exe
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build installer and portable zip
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=$version /DSourceDir=$PWD packaging\windows\imaginecad.iss
+          New-Item -ItemType Directory -Force portable\libredwg | Out-Null
+          Copy-Item target\release\imaginecad.exe, README.md, LICENSE, NOTICE, dist\THIRD_PARTY_LICENSES.html portable\
+          Copy-Item dist\libredwg\* portable\libredwg\
+          Compress-Archive -Path portable\* -DestinationPath "dist\ImagineCAD-$version-windows-x64-portable.zip"
+      - name: Sign installer (optional)
+        if: ${{ env.WINDOWS_CERTIFICATE != '' }}
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+        run: |
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1).FullName
+          & $signtool sign /f cert.pfx /p $env:WINDOWS_CERTIFICATE_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 (Get-ChildItem dist\*-setup.exe).FullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.zip
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - name: Build LibreDWG (static, patched)
+        run: packaging/libredwg/build-libredwg.sh dist/libredwg
+      - name: DWG round-trip test
+        env:
+          IMAGINECAD_LIBREDWG: ${{ github.workspace }}/dist/libredwg
+        run: cargo test -p icad-io --test dwg_roundtrip
+      - name: Third-party licenses
+        run: |
+          cargo install cargo-about --locked --features cli
+          cargo about generate packaging/licenses/about.hbs -o dist/THIRD_PARTY_LICENSES.html
+      - name: Build .deb and .tar.gz
+        env:
+          LIBREDWG_DIR: dist/libredwg
+        run: packaging/linux/build-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+
+  publish:
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: cd artifacts && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

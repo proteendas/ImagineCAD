@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>ImagineCAD</string>
+  <key>CFBundleDisplayName</key><string>ImagineCAD</string>
+  <key>CFBundleIdentifier</key><string>com.imaginecad.app</string>
+  <key>CFBundleVersion</key><string>__VERSION__</string>
+  <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+  <key>CFBundleExecutable</key><string>imaginecad</string>
+  <key>CFBundleIconFile</key><string>icon.icns</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Proteen Das. Licensed under GPL-3.0.</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>ImagineCAD Drawing</string>
+      <key>CFBundleTypeExtensions</key><array><string>icad</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>DWG Drawing</string>
+      <key>CFBundleTypeExtensions</key><array><string>dwg</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>DXF Drawing</string>
+      <key>CFBundleTypeExtensions</key><array><string>dxf</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+    </dict>
+  </array>
+</dict>
+</plist>

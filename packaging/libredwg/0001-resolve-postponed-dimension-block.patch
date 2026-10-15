@@ -1,0 +1,11 @@
+--- a/src/in_dxf.c	2024-02-26 15:13:23
++++ b/src/in_dxf.c	2026-10-15 20:01:05
+@@ -12821,7 +12821,7 @@
+           continue;
+         }
+       // TODO find field type => dxf code
+-      if (strEQc (field, "block_header"))
++      if (strEQc (field, "block_header") || strEQc (field, "block"))
+         hdl = dwg_find_tablehandle_silent (dwg, p.value.s, "BLOCK");
+       else if (strEQc (field, "style"))
+         {
