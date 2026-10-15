@@ -6,6 +6,7 @@
 //! ```text
 //! imaginecad convert sketch.jpg -o part.dxf [--no-ai] [--model qwen2.5vl:7b] ...
 //! imaginecad export part.icad -o part.pdf
+//! imaginecad ask part.icad "make the bore 12 mm" -o part.icad
 //! ```
 
 use icad_vision::llm::Provider;
@@ -17,6 +18,8 @@ USAGE:
   imaginecad [FILE]                      Start the editor (optionally opening a drawing or sketch image)
   imaginecad convert IMAGE -o OUT [opts] Convert a sketch image to CAD (OUT: .dxf .dwg .pdf .svg .icad)
   imaginecad export DRAWING -o OUT       Convert a drawing between formats (.icad/.dxf/.dwg → .dxf/.dwg/.pdf/.svg/.icad)
+  imaginecad ask DRAWING \"CHANGE\" -o OUT  Let the AI edit a drawing as described (or answer a question about it);
+                                         takes the same AI options as convert
   imaginecad --version | --help
 
 CONVERT OPTIONS:
@@ -53,6 +56,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         }
         "convert" => Some(convert(&args[1..])),
         "export" => Some(export(&args[1..])),
+        "ask" => Some(ask(&args[1..])),
         _ => None,
     }
 }
@@ -71,42 +75,8 @@ fn convert(args: &[String]) -> i32 {
         return 2;
     };
     let mut opts = crate::settings::Settings::load().convert;
-    if args.iter().any(|a| a == "--no-ai") {
-        opts.ai.provider = Provider::Disabled;
-    }
-    if args.iter().any(|a| a == "--no-ocr") {
-        opts.ai.use_tesseract = false;
-    }
-    if let Some(u) = take(args, "--ollama-url") {
-        opts.ai.ollama_url = u;
-        opts.ai.provider = Provider::Ollama;
-    }
-    if let Some(m) = take(args, "--model") {
-        opts.ai.ollama_model = m;
-        opts.ai.provider = Provider::Ollama;
-    }
-    if let Some(u) = take(args, "--openai-url") {
-        opts.ai.openai_url = u;
-        opts.ai.provider = Provider::OpenAiCompatible;
-    }
-    if let Some(m) = take(args, "--openai-model") {
-        opts.ai.openai_model = m;
-    }
-    if let Some(k) = crate::secrets::load() {
-        opts.ai.api_key = k;
-    }
-    if let Some(k) = take(args, "--api-key") {
-        // Any provider's key: detect the provider and pick a vision model.
-        match icad_vision::providers::detect(&k, take(args, "--openai-url").as_deref()) {
-            Ok(d) => {
-                eprintln!("AI: {} · {}", d.vendor, d.model);
-                opts.ai.apply_detected(&d, &k);
-            }
-            Err(e) => {
-                eprintln!("API key: {e}");
-                return 1;
-            }
-        }
+    if let Err(code) = ai_options(args, &mut opts.ai) {
+        return code;
     }
     if let Some(s) = take(args, "--size").and_then(|s| s.parse().ok()) {
         opts.fallback_size_mm = s;
@@ -157,6 +127,91 @@ fn export(args: &[String]) -> i32 {
         Err(e) => {
             eprintln!("cannot open {input}: {e}");
             1
+        }
+    }
+}
+
+/// AI engine from the saved settings, adjusted by command-line options.
+fn ai_options(args: &[String], ai: &mut icad_vision::llm::AiSettings) -> Result<(), i32> {
+    if args.iter().any(|a| a == "--no-ai") {
+        ai.provider = Provider::Disabled;
+    }
+    if args.iter().any(|a| a == "--no-ocr") {
+        ai.use_tesseract = false;
+    }
+    if let Some(u) = take(args, "--ollama-url") {
+        ai.ollama_url = u;
+        ai.provider = Provider::Ollama;
+    }
+    if let Some(m) = take(args, "--model") {
+        ai.ollama_model = m;
+        ai.provider = Provider::Ollama;
+    }
+    if let Some(u) = take(args, "--openai-url") {
+        ai.openai_url = u;
+        ai.provider = Provider::OpenAiCompatible;
+    }
+    if let Some(m) = take(args, "--openai-model") {
+        ai.openai_model = m;
+    }
+    if let Some(k) = crate::secrets::load() {
+        ai.api_key = k;
+    }
+    if let Some(k) = take(args, "--api-key") {
+        // Any provider's key: detect the provider and pick a vision model.
+        match icad_vision::providers::detect(&k, take(args, "--openai-url").as_deref()) {
+            Ok(d) => {
+                eprintln!("AI: {} · {}", d.vendor, d.model);
+                ai.apply_detected(&d, &k);
+            }
+            Err(e) => {
+                eprintln!("API key: {e}");
+                return Err(1);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn ask(args: &[String]) -> i32 {
+    let usage = "usage: imaginecad ask DRAWING \"describe the change\" -o OUT";
+    let positional = |i: usize| args.get(i).filter(|a| !a.starts_with('-'));
+    let (Some(input), Some(message)) = (positional(0), positional(1)) else {
+        eprintln!("{usage}");
+        return 2;
+    };
+    let out = out_path(args);
+    let mut ai = crate::settings::Settings::load().convert.ai;
+    if let Err(code) = ai_options(args, &mut ai) {
+        return code;
+    }
+    let mut doc = match icad_io::open(std::path::Path::new(input.as_str())) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("cannot open {input}: {e}");
+            return 1;
+        }
+    };
+    let turn = icad_vision::llm::Turn { user: true, text: message.to_string() };
+    let answer = match icad_vision::assistant::ask(&ai, &[turn], &doc, &[]) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("AI: {e}");
+            return 1;
+        }
+    };
+    println!("{}", answer.reply);
+    let r = icad_vision::assistant::apply(&mut doc, &answer.actions);
+    eprintln!("{} change(s) applied", r.applied);
+    for e in &r.errors {
+        eprintln!("  skipped: {e}");
+    }
+    match out {
+        Some(out) => write(&doc, &out),
+        None if r.applied == 0 => 0,
+        None => {
+            eprintln!("add -o OUT to save the changed drawing");
+            0
         }
     }
 }

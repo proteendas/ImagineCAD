@@ -48,6 +48,8 @@ pub struct Settings {
     pub dxf_r12: bool,
     pub polar: bool,
     pub polar_angle: f64,
+    /// AI chat panel open.
+    pub show_chat: bool,
 }
 
 impl Default for Settings {
@@ -71,6 +73,7 @@ impl Default for Settings {
             dxf_r12: false,
             polar: true,
             polar_angle: 15.0,
+            show_chat: false,
         }
     }
 }

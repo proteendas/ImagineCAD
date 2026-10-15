@@ -47,6 +47,7 @@ pub struct App {
     /// Self-screenshot hook (docs / visual tests): IMAGINECAD_SCREENSHOT=out.png,
     /// optional IMAGINECAD_RUN="CMD;CMD" executed first (see `screenshot_hook`).
     pub shot: Option<(PathBuf, u32)>,
+    pub chat: crate::chat::ChatPanel,
 }
 
 impl App {
@@ -84,6 +85,7 @@ impl App {
             images: canvas::ImageCache::default(),
             polar_hit: None,
             shot: std::env::var_os("IMAGINECAD_SCREENSHOT").map(|p| (PathBuf::from(p), 0)),
+            chat: Default::default(),
         };
         app.new_drawing();
         if let Some(p) = open {
@@ -293,6 +295,7 @@ impl App {
                 }
             }
             "AISETTINGS" => self.dlg.ai_settings = true,
+            "AICHAT" | "CHAT" | "ASSISTANT" => self.settings.show_chat = !self.settings.show_chat,
             "AIHELP" => self.dlg.ai_help = true,
             "LAYER" | "LA" => self.dlg.layers = true,
             "PROPERTIES" | "PR" | "PROPS" => {
@@ -547,6 +550,8 @@ impl App {
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     if modifiers.command {
                         match key {
+                            // In a text box these undo the typing, not the drawing.
+                            Key::Z | Key::Y if typing_elsewhere => false,
                             Key::Z if modifiers.shift => self.app_command("REDO", &[]),
                             Key::Z => self.app_command("UNDO", &[]),
                             Key::Y => self.app_command("REDO", &[]),
@@ -1842,6 +1847,7 @@ impl eframe::App for App {
         self.status_bar(ctx);
         self.command_line(ctx);
         self.properties(ctx);
+        self.chat_panel(ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::CANVAS)).show(ctx, |ui| self.canvas(ui));
         self.context_menu(ctx);
         self.dialogs(ctx);

@@ -148,6 +148,26 @@ Mechanical template layers: `0`, `OUTLINE` (0.50), `HIDDEN`, `CENTER`,
 
 `DIST` (`DI`), `AREA` (`AA`, points or **O**bject), `ID`, `LIST` (`LI`).
 
+## AI Chat
+
+**AI → AI Chat** (`AICHAT`) opens a chat panel beside the drawing. Describe a
+change in plain language and the AI makes it:
+
+- "Change the company name to ACME ENGINEERING and the material to C45"
+- "Make the 1390 mm segment 1400 mm" (a shaft or plate created by Image to CAD
+  is regenerated from its parameters, with every dimension updated)
+- "Add a 10 mm hole at the centre of the plate and dimension it"
+- "Put the selected lines on layer HIDDEN"
+- "What is the overall length?" (questions are answered without changes)
+
+The AI sees the drawing's entities, layers, title block and selection. Select
+objects first to refer to "this" or "these". Each answer is applied as **one
+undo step**: press **Ctrl+Z** or the message's **Undo** button to revert it.
+Manual editing works alongside the chat at all times.
+
+The chat uses the engine chosen in **AI Settings** (any cloud key, Ollama or a
+local server). From a terminal: `imaginecad ask part.icad "make the bore 12 mm" -o part.icad`.
+
 ## Sheet, scale and title block
 
 **Annotate → Title Block** (or click the scale in the status bar): paper size,

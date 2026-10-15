@@ -359,6 +359,9 @@ fn ai(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
     panel(ui, "Sketch to CAD", |ui| {
         big(ui, Icon::ImageToCad, "Image to\nCAD", "IMAGETOCAD — upload a photo/scan of a hand-drawn mechanical sketch", "IMAGETOCAD", out);
     });
+    panel(ui, "Assistant", |ui| {
+        big(ui, Icon::Chat, "AI\nChat", "AICHAT — describe changes in plain language and the AI edits the drawing", "AICHAT", out);
+    });
     panel(ui, "AI Engine", |ui| {
         big(
             ui,

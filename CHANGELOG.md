@@ -4,6 +4,16 @@ All notable changes to ImagineCAD are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **AI Chat** panel (`AICHAT`, AI tab): describe changes in plain language and the AI edits the drawing — add, change, move, copy, rotate, scale, mirror and delete objects, layers, title block, sheet and dimension style. Parts created by Image to CAD are regenerated from their parameters. Each answer is one undo step; questions are answered without changes. Works with every AI engine.
+- `imaginecad ask DRAWING "CHANGE" -o OUT`: the same from the command line.
+- Drawings remember the parametric part they were generated from (`.icad`).
+
+### Changed
+- Ctrl+Z / Ctrl+Y in a text box undo the typing, not the drawing.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added

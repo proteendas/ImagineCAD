@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 pub enum AiMsg {
     Progress(f32, String),
-    Done(Result<Conversion, String>),
+    Done(Box<Result<Conversion, String>>),
 }
 
 pub struct AiDialog {
@@ -115,7 +115,7 @@ impl AiDialog {
                 ctx2.request_repaint();
             };
             let r = icad_vision::convert(&bytes, &opts, &mut prog);
-            let _ = tx.send(AiMsg::Done(r));
+            let _ = tx.send(AiMsg::Done(Box::new(r)));
             ctx.request_repaint();
         });
     }
@@ -129,7 +129,7 @@ impl AiDialog {
                     self.stage = s;
                 }
                 AiMsg::Done(r) => {
-                    self.result = Some(r);
+                    self.result = Some(*r);
                     self.rx = None;
                     return;
                 }

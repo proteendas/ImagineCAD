@@ -39,6 +39,7 @@ pub enum Icon {
     SelectAll,
     ImageToCad,
     AiSettings,
+    Chat,
     Pdf,
     Dxf,
     Dwg,
@@ -338,6 +339,22 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 ln(p, c + d * u * 0.6, c + d * u * 0.95, Stroke::new(s.width * 1.4, col));
             }
             p.circle_filled(c, u * 0.18, accent);
+        }
+        Icon::Chat => {
+            // Speech bubble with three dots.
+            let b = Rect::from_min_max(tl + vec2(0.0, u * 0.15), br - vec2(0.0, u * 0.55));
+            p.rect_stroke(b, u * 0.35, s, eframe::egui::StrokeKind::Middle);
+            p.add(Shape::line(
+                vec![
+                    b.left_bottom() + vec2(u * 0.45, 0.0),
+                    b.left_bottom() + vec2(u * 0.25, u * 0.5),
+                    b.left_bottom() + vec2(u * 0.95, 0.0),
+                ],
+                s,
+            ));
+            for k in [-1.0, 0.0, 1.0] {
+                p.circle_filled(b.center() + vec2(k * u * 0.45, 0.0), u * 0.12, accent);
+            }
         }
         Icon::Pdf | Icon::Dxf | Icon::Dwg | Icon::Svg => {
             let pr = page(p, r, thin);

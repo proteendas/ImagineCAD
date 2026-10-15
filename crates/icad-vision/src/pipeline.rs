@@ -63,6 +63,8 @@ pub struct Conversion {
     pub switched_model: Option<String>,
     /// Description of the AI part reconstruction, when one was used.
     pub reconstructed: Option<String>,
+    /// The reconstructed part, kept with the drawing so it can be regenerated.
+    pub part: Option<crate::parts::PartSpec>,
 }
 
 fn yes() -> bool {
@@ -120,6 +122,7 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
                             dims_applied: dims,
                             switched_model: r.switched_model,
                             reconstructed: Some(desc),
+                            part: Some(spec),
                         });
                     }
                 }
@@ -574,6 +577,7 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         dims_applied,
         switched_model: None,
         reconstructed: None,
+        part: None,
     })
 }
 
@@ -646,8 +650,9 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
     ] {
         doc.ensure_layer(l);
     }
-    for (layer, shape) in &conv.shapes {
-        doc.add_on(layer, shape.clone());
+    let ids: Vec<u64> = conv.shapes.iter().map(|(layer, shape)| doc.add_on(layer, shape.clone())).collect();
+    if let Some(spec) = &conv.part {
+        doc.part = Some(icad_core::document::PartRecord { spec: spec.to_json(), ids });
     }
     if let Some(t) = &conv.title {
         doc.sheet.title.title = t.to_uppercase();

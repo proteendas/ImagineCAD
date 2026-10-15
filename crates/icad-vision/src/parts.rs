@@ -127,6 +127,25 @@ impl PartSpec {
         None
     }
 
+    /// The `part` object in the same form `from_json` reads.
+    pub fn to_json(&self) -> Value {
+        match self {
+            PartSpec::Shaft { segments, keyways, chamfers, total_length } => serde_json::json!({
+                "type": "shaft",
+                "total_length": total_length,
+                "segments": segments.iter().map(|s| serde_json::json!({"length": s.length, "diameter": s.diameter})).collect::<Vec<_>>(),
+                "keyways": keyways.iter().map(|k| serde_json::json!({"start": k.start, "length": k.length, "width": k.width})).collect::<Vec<_>>(),
+                "chamfers": chamfers.iter().map(|c| serde_json::json!({"at": c.at, "size": c.size})).collect::<Vec<_>>(),
+            }),
+            PartSpec::Plate { width, height, holes } => serde_json::json!({
+                "type": "plate",
+                "width": width,
+                "height": height,
+                "holes": holes.iter().map(|h| serde_json::json!({"x": h.x, "y": h.y, "diameter": h.diameter})).collect::<Vec<_>>(),
+            }),
+        }
+    }
+
     pub fn describe(&self) -> String {
         match self {
             PartSpec::Shaft { segments, keyways, chamfers, .. } => {

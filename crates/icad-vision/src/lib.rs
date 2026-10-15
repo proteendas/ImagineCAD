@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Proteen Das
 
 //! ImagineCAD sketch-to-CAD conversion.
+pub mod assistant;
 pub mod beautify;
 pub mod fit;
 pub mod labels;

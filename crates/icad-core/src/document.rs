@@ -28,6 +28,19 @@ pub struct Document {
     /// Block definitions.
     #[serde(default)]
     pub blocks: Vec<BlockDef>,
+    /// Parametric part the drawing was generated from, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<PartRecord>,
+}
+
+/// A parametric part (shaft, plate) and the entities generated from it, so the
+/// drawing can be regenerated when its parameters change.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PartRecord {
+    /// The part description (`{"type": "shaft", "segments": [...]}` …).
+    pub spec: serde_json::Value,
+    /// Entities generated from it.
+    pub ids: Vec<u64>,
 }
 
 fn one() -> f64 {
@@ -87,6 +100,7 @@ impl Document {
             ltscale: 1.0,
             next_id: 1,
             blocks: vec![],
+            part: None,
         }
     }
 

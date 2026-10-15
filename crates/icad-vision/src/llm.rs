@@ -400,13 +400,21 @@ fn image_unsupported(code: u16, body: &str) -> bool {
 }
 
 fn openai_request(s: &AiSettings, model: &str, b64: &str, w: u32, h: u32) -> Result<String, (u16, String)> {
-    let mut body = json!({
-        "model": model,
-        "messages": [{"role": "user", "content": [
-            {"type": "text", "text": prompt(w, h)},
-            {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{b64}")}}
-        ]}],
-    });
+    openai_post(
+        s,
+        json!({
+            "model": model,
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": prompt(w, h)},
+                {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{b64}")}}
+            ]}],
+        }),
+    )
+}
+
+/// POST a chat-completions body to the OpenAI-compatible endpoint; returns the
+/// answer text, or the HTTP status and body on failure.
+fn openai_post(s: &AiSettings, mut body: Value) -> Result<String, (u16, String)> {
     // Local servers: deterministic sampling. Cloud models may reject
     // non-default temperatures, so leave theirs alone.
     if s.api_key.is_empty() {
@@ -433,6 +441,119 @@ fn openai_request(s: &AiSettings, model: &str, b64: &str, w: u32, h: u32) -> Res
         return Err((0, err.to_string()));
     }
     Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
+}
+
+/// POST a Messages API body to Anthropic; returns the answer text.
+fn anthropic_post(s: &AiSettings, mut body: Value) -> Result<String, String> {
+    let mut req = agent(s.timeout_secs)
+        .post(&format!("{}/messages", crate::providers::anthropic_base()))
+        .set("x-api-key", &s.api_key)
+        .set("anthropic-version", "2023-06-01");
+    // Server-side refusal fallback on the models that support it.
+    if ["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5"].contains(&s.anthropic_model.as_str()) {
+        body["fallbacks"] = json!("default");
+        req = req.set("anthropic-beta", "server-side-fallback-2026-07-01");
+    }
+    let v: Value = req
+        .send_json(body)
+        .map_err(|e| match e {
+            ureq::Error::Status(code, r) => format!("Anthropic API error {code}: {}", short(&r.into_string().unwrap_or_default())),
+            e => format!("Anthropic API request failed: {e}"),
+        })?
+        .into_json()
+        .map_err(|e| e.to_string())?;
+    if v["stop_reason"] == "refusal" {
+        return Err("The model declined this request.".into());
+    }
+    Ok(v["content"]
+        .as_array()
+        .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text").and_then(|b| b["text"].as_str()))
+        .unwrap_or("")
+        .to_string())
+}
+
+/// One message of a text conversation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Turn {
+    pub user: bool,
+    pub text: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChatAnswer {
+    pub text: String,
+    /// Set when the configured model had no credit and a free one answered.
+    pub switched_model: Option<String>,
+}
+
+/// Claude models that take adaptive thinking.
+fn adaptive_thinking(model: &str) -> bool {
+    ["claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"]
+        .iter()
+        .any(|p| model.starts_with(p))
+}
+
+/// Send a text conversation (oldest first, ending with the user's message) to
+/// the configured model and return its answer.
+pub fn chat(s: &AiSettings, system: &str, turns: &[Turn]) -> Result<ChatAnswer, String> {
+    if s.provider == Provider::Disabled {
+        return Err("AI is off. Choose a model in AI Settings.".into());
+    }
+    if s.model().trim().is_empty() {
+        return Err("No AI model is selected. Choose one in AI Settings.".into());
+    }
+    let role = |t: &Turn| if t.user { "user" } else { "assistant" };
+    let text = match s.provider {
+        Provider::Disabled => unreachable!(),
+        Provider::Ollama => {
+            let mut messages = vec![json!({"role": "system", "content": system})];
+            messages.extend(turns.iter().map(|t| json!({"role": role(t), "content": t.text})));
+            let v: Value = agent(s.timeout_secs)
+                .post(&format!("{}/api/chat", s.ollama_url.trim_end_matches('/')))
+                .send_json(json!({
+                    "model": s.ollama_model,
+                    "stream": false,
+                    "format": "json",
+                    "options": {"temperature": 0.2, "num_ctx": 16384},
+                    "messages": messages,
+                }))
+                .map_err(|e| format!("Ollama request failed: {e}. Is Ollama running and is `{}` pulled?", s.ollama_model))?
+                .into_json()
+                .map_err(|e| e.to_string())?;
+            v["message"]["content"].as_str().unwrap_or("").to_string()
+        }
+        Provider::Anthropic => {
+            let mut body = json!({
+                "model": s.anthropic_model,
+                "max_tokens": 16000,
+                "system": system,
+                "messages": turns.iter().map(|t| json!({"role": role(t), "content": t.text})).collect::<Vec<_>>(),
+            });
+            if adaptive_thinking(&s.anthropic_model) {
+                body["thinking"] = json!({"type": "adaptive"});
+            }
+            anthropic_post(s, body)?
+        }
+        Provider::OpenAiCompatible => {
+            let mut messages = vec![json!({"role": "system", "content": system})];
+            messages.extend(turns.iter().map(|t| json!({"role": role(t), "content": t.text})));
+            let body = |model: &str| json!({"model": model, "messages": messages});
+            match openai_post(s, body(&s.openai_model)) {
+                Ok(t) => t,
+                Err((402, err)) => {
+                    // Not enough credit: answer with a free model when the provider has one.
+                    let ids = crate::providers::vision_models(&s.openai_url, &s.api_key).unwrap_or_default();
+                    let Some(free) = crate::providers::free_vision(&ids).filter(|m| *m != s.openai_model) else {
+                        return Err(format!("The AI account has no credit for `{}` (402: {}).", s.openai_model, short(&err)));
+                    };
+                    let t = openai_post(s, body(&free)).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
+                    return Ok(ChatAnswer { text: t, switched_model: Some(free) });
+                }
+                Err((code, err)) => return Err(format!("AI request failed ({code}): {}", short(&err))),
+            }
+        }
+    };
+    Ok(ChatAnswer { text, switched_model: None })
 }
 
 /// The provider's error message (from a JSON body when possible), shortened.
@@ -471,41 +592,17 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                 .map_err(|e| e.to_string())?;
             v["message"]["content"].as_str().unwrap_or("").to_string()
         }
-        Provider::Anthropic => {
-            let mut body = json!({
+        Provider::Anthropic => anthropic_post(
+            s,
+            json!({
                 "model": s.anthropic_model,
                 "max_tokens": 16000,
                 "messages": [{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
                     {"type": "text", "text": prompt(sw, sh)}
                 ]}],
-            });
-            let mut req = agent(s.timeout_secs)
-                .post(&format!("{}/messages", crate::providers::anthropic_base()))
-                .set("x-api-key", &s.api_key)
-                .set("anthropic-version", "2023-06-01");
-            // Server-side refusal fallback on the models that support it.
-            if ["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5"].contains(&s.anthropic_model.as_str()) {
-                body["fallbacks"] = json!("default");
-                req = req.set("anthropic-beta", "server-side-fallback-2026-07-01");
-            }
-            let v: Value = req
-                .send_json(body)
-                .map_err(|e| match e {
-                    ureq::Error::Status(code, r) => format!("Anthropic API error {code}: {}", r.into_string().unwrap_or_default()),
-                    e => format!("Anthropic API request failed: {e}"),
-                })?
-                .into_json()
-                .map_err(|e| e.to_string())?;
-            if v["stop_reason"] == "refusal" {
-                return Err("The model declined this request.".into());
-            }
-            v["content"]
-                .as_array()
-                .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text").and_then(|b| b["text"].as_str()))
-                .unwrap_or("")
-                .to_string()
-        }
+            }),
+        )?,
         Provider::OpenAiCompatible => match openai_request(s, &s.openai_model, &b64, sw, sh) {
             Ok(t) => t,
             Err((code, body)) if image_unsupported(code, &body) => {

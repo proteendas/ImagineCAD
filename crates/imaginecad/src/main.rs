@@ -6,6 +6,7 @@
 
 mod app;
 mod canvas;
+mod chat;
 mod cli;
 mod commands;
 mod commands_ext;
