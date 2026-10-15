@@ -26,7 +26,7 @@ tar -xf "$WORK/libredwg.tar.xz" -C "$WORK"
 
 build_one() { # $1 = arch flag ('' or -arch X), $2 = install prefix
   local src="$WORK/build-$(basename "$2")"
-  rm -rf "$src" && cp -R "$WORK/libredwg-$VERSION" "$src"
+  rm -rf "$src" && cp -pR "$WORK/libredwg-$VERSION" "$src" # -p: keep timestamps so make does not rerun autotools
   (cd "$src" && for p in "$HERE"/*.patch; do patch -p1 < "$p"; done)
   local ldflags=""
   case "$(uname -s)" in MINGW*|MSYS*) ldflags="-static" ;; esac
