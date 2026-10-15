@@ -115,8 +115,10 @@ pub struct LlmReading {
     pub title: Option<String>,
     /// Parametric part description, when the model recognised one.
     pub part: Option<crate::parts::PartSpec>,
-    /// Set when the configured model could not read images and another was used.
+    /// Set when the configured model could not be used and another was used instead.
     pub switched_model: Option<String>,
+    /// Why the model was switched (for the user).
+    pub switch_reason: Option<String>,
     pub raw: String,
 }
 
@@ -272,6 +274,11 @@ fn openai_request(s: &AiSettings, model: &str, b64: &str, w: u32, h: u32) -> Res
     if s.api_key.is_empty() {
         body["temperature"] = json!(0);
     }
+    // OpenRouter reserves credit for the model's whole output limit when none is
+    // given, which fails with 402 on a small balance; the answer needs far less.
+    if s.openai_url.contains("openrouter.ai") {
+        body["max_tokens"] = json!(8192);
+    }
     let mut req = agent(s.timeout_secs).post(&format!("{}/chat/completions", s.openai_url.trim_end_matches('/')));
     if !s.api_key.is_empty() {
         req = req.set("Authorization", &format!("Bearer {}", s.api_key));
@@ -301,6 +308,7 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
     let (png, sw, sh) = send_png(img)?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     let mut switched_model = None;
+    let mut switch_reason = None;
     let raw = match s.provider {
         Provider::Disabled => return Err("AI disabled".into()),
         Provider::Ollama => {
@@ -374,6 +382,24 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                 };
                 let t = openai_request(s, &alt, &b64, sw, sh).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
                 switched_model = Some(alt);
+                switch_reason = Some("it cannot read images".to_string());
+                t
+            }
+            Err((402, body)) => {
+                // Not enough credit for a paid model: use a free vision model when the
+                // provider has one (OpenRouter `:free` models need no credit).
+                let ids = crate::providers::vision_models(&s.openai_url, &s.api_key).unwrap_or_default();
+                let Some(free) = crate::providers::free_vision(&ids).filter(|m| *m != s.openai_model) else {
+                    return Err(format!(
+                        "The AI account has no credit for `{}` (402: {}). Add credit with the provider{}, or choose a free model in AI Settings.",
+                        s.openai_model,
+                        short(&body),
+                        if s.openai_url.contains("openrouter.ai") { " (openrouter.ai/settings/credits)" } else { "" }
+                    ));
+                };
+                let t = openai_request(s, &free, &b64, sw, sh).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
+                switched_model = Some(free);
+                switch_reason = Some(format!("the account has no credit for it ({})", short(&body)));
                 t
             }
             Err((code, body)) => return Err(format!("AI request failed ({code}): {}", short(&body))),
@@ -382,7 +408,7 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
     let v = extract_json(&raw).ok_or_else(|| format!("Model did not return JSON: {}", raw.chars().take(200).collect::<String>()))?;
     let (labels, title) = labels_from_json(&v, img.width() as f64, img.height() as f64, sw as f64, sh as f64);
     let part = crate::parts::PartSpec::from_json(&v);
-    Ok(LlmReading { labels, title, part, switched_model, raw })
+    Ok(LlmReading { labels, title, part, switched_model, switch_reason, raw })
 }
 
 #[cfg(test)]

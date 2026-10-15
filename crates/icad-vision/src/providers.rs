@@ -139,7 +139,29 @@ pub const VENDORS: &[Vendor] = &[
 ];
 
 /// Words in model ids that indicate non-chat or non-vision models.
+/// Free OpenRouter vision models, best first.
+const FREE_PREFER: &[&str] = &[
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3.5-super-vl:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "qwen/qwen2.5-vl-72b-instruct:free",
+];
+
+/// A free (`:free`) model from a list of vision models.
+pub fn free_vision(vision: &[String]) -> Option<String> {
+    let free: Vec<String> = vision.iter().filter(|m| m.ends_with(":free")).cloned().collect();
+    choose_model(&free, FREE_PREFER, None).or_else(|| free.iter().find(|m| usable(m)).cloned())
+}
+
+/// OpenRouter key info: true when the account cannot pay for paid models.
+fn no_credit(info: &Value) -> bool {
+    let d = &info["data"];
+    d["is_free_tier"] == true || d["limit_remaining"].as_f64().is_some_and(|x| x <= 0.0)
+}
+
 const EXCLUDE: &[&str] = &[
+    "safety",
+    "guard",
     "embed",
     "audio",
     "realtime",
@@ -364,14 +386,22 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
                 Err(e) => errors.push(format!("{}: {e}", v.name)),
             },
             Api::OpenAi => {
+                let mut free_only = false;
                 if let Some(url) = v.validate {
-                    if let Err(e) = agent(10).get(url).set("Authorization", &format!("Bearer {key}")).call().map_err(http_err) {
-                        errors.push(format!("{}: {e}", v.name));
-                        continue;
+                    match agent(10).get(url).set("Authorization", &format!("Bearer {key}")).call().map_err(http_err) {
+                        Ok(r) => free_only = r.into_json::<Value>().is_ok_and(|info| no_credit(&info)),
+                        Err(e) => {
+                            errors.push(format!("{}: {e}", v.name));
+                            continue;
+                        }
                     }
                 }
                 match list_openai(v.base, key) {
-                    Ok((ids, raw)) => match choose_model(&filter_vision(&ids, &raw), v.prefer, Some(&raw)) {
+                    Ok((ids, raw)) => match free_only
+                        .then(|| free_vision(&filter_vision(&ids, &raw)))
+                        .flatten()
+                        .or_else(|| choose_model(&filter_vision(&ids, &raw), v.prefer, Some(&raw)))
+                    {
                         Some(model) => {
                             return Ok(Detected {
                                 vendor: v.name.into(),
@@ -417,6 +447,19 @@ mod tests {
         let v = filter_vision(&ids, &raw);
         assert!(!v.contains(&"z-ai/glm-5.3".to_string()) && v.len() == 2);
         assert_eq!(choose_model(&v, VENDORS[1].prefer, Some(&raw)).as_deref(), Some("google/gemini-2.5-flash"));
+    }
+
+    #[test]
+    fn no_credit_falls_back_to_free_vision_model() {
+        let v: Vec<String> = ["google/gemini-2.5-flash", "nvidia/nemotron-3.5-content-safety:free", "google/gemma-4-31b-it:free"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(free_vision(&v).as_deref(), Some("google/gemma-4-31b-it:free"));
+        assert_eq!(free_vision(&v[..2]), None, "safety classifiers are not drawing readers");
+        assert!(no_credit(&serde_json::json!({"data": {"is_free_tier": true, "limit_remaining": null}})));
+        assert!(no_credit(&serde_json::json!({"data": {"is_free_tier": false, "limit_remaining": 0}})));
+        assert!(!no_credit(&serde_json::json!({"data": {"is_free_tier": false, "limit_remaining": null}})));
     }
 
     #[test]

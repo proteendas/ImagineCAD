@@ -21,6 +21,8 @@ All notable changes to ImagineCAD are documented here. The format follows
 ### Fixed
 - AI requests failing with `404` when the selected model cannot read images (for example a text-only OpenRouter model). Only vision models are offered now, and a text-only model is replaced automatically by a vision model from the same provider.
 - AI error messages now include the provider's explanation, not only the status code.
+- OpenRouter `402` (not enough credit): requests cap the reply length so a small balance suffices, keys without credit get a free (`:free`) vision model at setup, and a 402 switches to a free vision model automatically.
+- Windows release build of LibreDWG failing on newer MinGW GCC warnings; macOS/Windows LibreDWG builds no longer need autotools.
 - Arrows and some symbols showed as empty boxes in the interface.
 - Slender parts were placed on sheets too small for their dimensions.
 - Linux build failure (`ACCOUNT` unused) under `-D warnings`.

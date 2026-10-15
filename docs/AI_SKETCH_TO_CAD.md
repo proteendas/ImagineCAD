@@ -40,6 +40,11 @@ image, for example OpenRouter's `404 No endpoints found that support image
 input`), ImagineCAD picks a vision model from the same provider, retries once,
 and saves that model in AI Settings.
 
+OpenRouter keys without credit are set up with a free vision model (ids ending
+in `:free`, for example `google/gemma-4-31b-it:free`). If a paid model answers
+`402` (not enough credit), ImagineCAD switches to a free vision model the same
+way. Free models are rate-limited by OpenRouter.
+
 | Provider | Key looks like | Default model choice |
 |---|---|---|
 | Anthropic | `sk-ant-…` | `claude-opus-5-5` (or the newest vision model on the account) |

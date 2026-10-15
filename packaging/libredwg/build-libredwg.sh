@@ -30,7 +30,9 @@ build_one() { # $1 = arch flag ('' or -arch X), $2 = install prefix
   (cd "$src" && for p in "$HERE"/*.patch; do patch -p1 < "$p"; done)
   local ldflags=""
   case "$(uname -s)" in MINGW*|MSYS*) ldflags="-static" ;; esac
-  (cd "$src" && CFLAGS="-O2 $1" LDFLAGS="$ldflags $1" ./configure --disable-shared --enable-static \
+  # --disable-werror: newer compilers (e.g. MinGW GCC's -Walloc-size) must not
+  # turn LibreDWG's warnings into build failures.
+  (cd "$src" && CFLAGS="-O2 $1" LDFLAGS="$ldflags $1" ./configure --disable-shared --enable-static --disable-werror \
       --disable-bindings --disable-python --disable-docs --prefix="$2" ${3:-} >/dev/null \
    && make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" >/dev/null && make install >/dev/null)
 }

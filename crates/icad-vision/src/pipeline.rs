@@ -88,7 +88,8 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
             Ok(r) => {
                 let used = match &r.switched_model {
                     Some(m) => {
-                        warnings.push(format!("{} cannot read images, so {m} was used instead.", opts.ai.describe()));
+                        let why = r.switch_reason.as_deref().unwrap_or("it could not be used");
+                        warnings.push(format!("{} was not used because {why}; {m} was used instead.", opts.ai.describe()));
                         m.clone()
                     }
                     None => model,
