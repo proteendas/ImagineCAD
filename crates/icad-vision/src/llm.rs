@@ -12,7 +12,7 @@
 use crate::labels::{parse, Label};
 use base64::Engine as _;
 use icad_core::geom::*;
-use image::{GrayImage, Luma};
+use image::GrayImage;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -110,13 +110,13 @@ impl AiSettings {
     }
 }
 
-/// Side of the square image sent to the model. Using a padded 1000×1000 image
-/// makes absolute-pixel and 0–1000-normalised coordinate conventions coincide.
-const SIDE: u32 = 1000;
-
 pub struct LlmReading {
     pub labels: Vec<Label>,
     pub title: Option<String>,
+    /// Parametric part description, when the model recognised one.
+    pub part: Option<crate::parts::PartSpec>,
+    /// Set when the configured model could not read images and another was used.
+    pub switched_model: Option<String>,
     pub raw: String,
 }
 
@@ -145,32 +145,42 @@ pub fn openai_models(url: &str, key: &str) -> Result<Vec<String>, String> {
     Ok(v["data"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect()).unwrap_or_default())
 }
 
-pub fn prompt() -> String {
+pub fn prompt(w: u32, h: u32) -> String {
     format!(
-        "You are reading a hand-drawn mechanical engineering sketch. The image is {SIDE}x{SIDE} pixels \
-(origin top-left). List EVERY dimension value written on the drawing, e.g. 50, 12.5, Ø20, 2xØ8, R5, M6, 45°. \
-For each give the exact text as written and the tight bounding box of that text as [x1, y1, x2, y2] in pixels \
-of this image. Do not invent values; ignore letters that are not dimensions. If a part name/title is written, \
-return it. Answer with JSON only, no prose:\n\
-{{\"title\": \"PART NAME or null\", \"dimensions\": [{{\"text\": \"Ø20\", \"bbox\": [x1, y1, x2, y2]}}]}}"
+        "You are an expert mechanical draftsman reading a photo of a hand-drawn engineering sketch ({w}x{h} pixels).\n\
+1. List EVERY dimension value written on the drawing (e.g. 50, 12.5, Ø20, 2xØ8, R5, M6, 45°, 2.5x45°). Ignore values that \
+are crossed out or scribbled over. For each give the exact text and its bounding box [x1, y1, x2, y2] normalised to \
+0-1000 on each axis (x relative to the image width, y relative to the height, origin top-left).\n\
+2. Describe the part parametrically in \"part\" when possible, using only the written values:\n\
+ - Turned shaft/axle drawn in side view (stepped cylinder along a centre line): {{\"type\": \"shaft\", \"total_length\": T or null, \
+\"segments\": [{{\"length\": L, \"diameter\": D}} ... from left to right], \"keyways\": [{{\"start\": distance from the left end, \
+\"length\": L, \"width\": W or 0 if not written}}], \"chamfers\": [{{\"at\": boundary index (0 = left end, k = between segment k-1 and k, \
+n = right end), \"size\": C}}]}}. Each segment is a stretch of constant diameter: if one length dimension covers several \
+diameters (e.g. 50 + rest + 50), split it so every segment has its own length and diameter. The segment lengths must add up to \
+the written total length when one is given.\n\
+ - Rectangular plate: {{\"type\": \"plate\", \"width\": W, \"height\": H, \"holes\": [{{\"x\": X, \"y\": Y, \"diameter\": D}}]}} \
+(hole positions from the bottom-left corner).\n\
+ - Anything else: null.\n\
+3. The part title if one is written.\n\
+Answer with JSON only, no prose:\n\
+{{\"title\": \"TITLE or null\", \"part\": {{...}} or null, \"dimensions\": [{{\"text\": \"Ø20\", \"bbox\": [x1, y1, x2, y2]}}]}}"
     )
 }
 
-/// Pad the image to a white square and scale to SIDE. Returns png bytes and
-/// the factor/offset to map back: original = (p - off) / k.
-fn square_png(img: &GrayImage) -> Result<(Vec<u8>, f64, V2), String> {
+/// Longest side of the image sent to the model.
+const SEND_MAX: u32 = 2000;
+
+/// PNG of the image (aspect preserved, longest side ≤ SEND_MAX).
+fn send_png(img: &GrayImage) -> Result<(Vec<u8>, u32, u32), String> {
     let (w, h) = (img.width(), img.height());
-    let side = w.max(h);
-    let mut sq = GrayImage::from_pixel(side, side, Luma([255]));
-    let (ox, oy) = ((side - w) / 2, (side - h) / 2);
-    image::imageops::overlay(&mut sq, img, ox as i64, oy as i64);
-    let sq = image::imageops::resize(&sq, SIDE, SIDE, image::imageops::FilterType::Triangle);
+    let k = (SEND_MAX as f64 / w.max(h) as f64).min(1.0);
+    let (nw, nh) = (((w as f64 * k).round() as u32).max(1), ((h as f64 * k).round() as u32).max(1));
+    let small = if k < 1.0 { image::imageops::resize(img, nw, nh, image::imageops::FilterType::Triangle) } else { img.clone() };
     let mut bytes = Vec::new();
-    image::DynamicImage::ImageLuma8(sq)
+    image::DynamicImage::ImageLuma8(small)
         .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
-    let k = SIDE as f64 / side as f64;
-    Ok((bytes, k, V2::new(ox as f64 * k, oy as f64 * k)))
+    Ok((bytes, nw, nh))
 }
 
 /// Extract the first JSON object from a model reply (tolerates code fences / prose).
@@ -200,9 +210,21 @@ fn bbox_of(v: &Value) -> Option<[f64; 4]> {
 }
 
 /// Convert a model's JSON answer into labels in y-up processed-image pixels.
-pub fn labels_from_json(v: &Value, img_w: f64, img_h: f64, k: f64, off: V2) -> (Vec<Label>, Option<String>) {
+/// Boxes may be normalised 0–1000 (as requested), 0–1, or absolute pixels of
+/// the sent image (some models insist); the convention is detected per reply.
+pub fn labels_from_json(v: &Value, img_w: f64, img_h: f64, sent_w: f64, sent_h: f64) -> (Vec<Label>, Option<String>) {
     let title = v["title"].as_str().map(str::trim).filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("null")).map(String::from);
     let list = v["dimensions"].as_array().or_else(|| v["labels"].as_array()).cloned().unwrap_or_default();
+    let boxes: Vec<[f64; 4]> = list.iter().filter_map(bbox_of).collect();
+    let all_unit = !boxes.is_empty() && boxes.iter().all(|b| b.iter().all(|x| *x <= 1.0));
+    let absolute = boxes.iter().any(|b| b[0].max(b[2]) > 1000.0 || b[1].max(b[3]) > 1000.0);
+    let (sx, sy) = if all_unit {
+        (img_w, img_h)
+    } else if absolute {
+        (img_w / sent_w, img_h / sent_h)
+    } else {
+        (img_w / 1000.0, img_h / 1000.0)
+    };
     let mut out = vec![];
     for d in list {
         let text = match d.get("text").or_else(|| d.get("value")) {
@@ -211,14 +233,11 @@ pub fn labels_from_json(v: &Value, img_w: f64, img_h: f64, k: f64, off: V2) -> (
             _ => continue,
         };
         let Some((kind, value)) = parse(&text) else { continue };
-        let Some(mut b) = bbox_of(&d) else { continue };
-        if b.iter().all(|x| *x <= 1.0) {
-            b.iter_mut().for_each(|x| *x *= SIDE as f64);
-        }
-        let x0 = (b[0].min(b[2]) - off.x) / k;
-        let x1 = (b[0].max(b[2]) - off.x) / k;
-        let y0 = (b[1].min(b[3]) - off.y) / k;
-        let y1 = (b[1].max(b[3]) - off.y) / k;
+        let Some(b) = bbox_of(&d) else { continue };
+        let x0 = b[0].min(b[2]) * sx;
+        let x1 = b[0].max(b[2]) * sx;
+        let y0 = b[1].min(b[3]) * sy;
+        let y1 = b[1].max(b[3]) * sy;
         if x1 < 0.0 || y1 < 0.0 || x0 > img_w || y0 > img_h {
             continue;
         }
@@ -233,10 +252,55 @@ pub fn labels_from_json(v: &Value, img_w: f64, img_h: f64, k: f64, off: V2) -> (
     (out, title)
 }
 
+/// True when a provider error says the model cannot take image input.
+fn image_unsupported(code: u16, body: &str) -> bool {
+    let b = body.to_ascii_lowercase();
+    (code == 404 || code == 400 || code == 422)
+        && (b.contains("image") || b.contains("vision") || b.contains("modalit") || b.contains("multimodal") || b.contains("no endpoints"))
+}
+
+fn openai_request(s: &AiSettings, model: &str, b64: &str, w: u32, h: u32) -> Result<String, (u16, String)> {
+    let mut body = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": prompt(w, h)},
+            {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{b64}")}}
+        ]}],
+    });
+    // Local servers: deterministic sampling. Cloud models may reject
+    // non-default temperatures, so leave theirs alone.
+    if s.api_key.is_empty() {
+        body["temperature"] = json!(0);
+    }
+    let mut req = agent(s.timeout_secs).post(&format!("{}/chat/completions", s.openai_url.trim_end_matches('/')));
+    if !s.api_key.is_empty() {
+        req = req.set("Authorization", &format!("Bearer {}", s.api_key));
+    }
+    let v: Value = match req.send_json(body) {
+        Ok(r) => r.into_json().map_err(|e| (0, e.to_string()))?,
+        Err(ureq::Error::Status(code, r)) => return Err((code, r.into_string().unwrap_or_default())),
+        Err(e) => return Err((0, e.to_string())),
+    };
+    if let Some(err) = v.get("error") {
+        return Err((0, err.to_string()));
+    }
+    Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
+}
+
+/// The provider's error message (from a JSON body when possible), shortened.
+fn short(body: &str) -> String {
+    let msg = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().or_else(|| v["message"].as_str()).map(String::from))
+        .unwrap_or_else(|| body.to_string());
+    msg.chars().take(300).collect()
+}
+
 /// Ask the configured vision model for dimension labels.
 pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String> {
-    let (png, k, off) = square_png(img)?;
+    let (png, sw, sh) = send_png(img)?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    let mut switched_model = None;
     let raw = match s.provider {
         Provider::Disabled => return Err("AI disabled".into()),
         Provider::Ollama => {
@@ -245,7 +309,7 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                 "stream": false,
                 "format": "json",
                 "options": {"temperature": 0, "num_ctx": 8192},
-                "messages": [{"role": "user", "content": prompt(), "images": [b64]}],
+                "messages": [{"role": "user", "content": prompt(sw, sh), "images": [b64]}],
             });
             let v: Value = agent(s.timeout_secs)
                 .post(&format!("{}/api/chat", s.ollama_url.trim_end_matches('/')))
@@ -261,7 +325,7 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                 "max_tokens": 16000,
                 "messages": [{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
-                    {"type": "text", "text": prompt()}
+                    {"type": "text", "text": prompt(sw, sh)}
                 ]}],
             });
             let mut req = agent(s.timeout_secs)
@@ -290,30 +354,35 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                 .unwrap_or("")
                 .to_string()
         }
-        Provider::OpenAiCompatible => {
-            let mut body = json!({
-                "model": s.openai_model,
-                "messages": [{"role": "user", "content": [
-                    {"type": "text", "text": prompt()},
-                    {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{b64}")}}
-                ]}],
-            });
-            // Local servers: deterministic sampling. Cloud models may reject
-            // non-default temperatures, so leave theirs alone.
-            if s.api_key.is_empty() {
-                body["temperature"] = json!(0);
+        Provider::OpenAiCompatible => match openai_request(s, &s.openai_model, &b64, sw, sh) {
+            Ok(t) => t,
+            Err((code, body)) if image_unsupported(code, &body) => {
+                // The configured model cannot read images: pick a vision model
+                // from the same provider and try once more.
+                let ids = crate::providers::vision_models(&s.openai_url, &s.api_key).unwrap_or_default();
+                let vendors = crate::providers::VENDORS;
+                let prefer: Vec<&str> = match vendors.iter().find(|v| s.openai_url.starts_with(v.base)) {
+                    Some(v) => v.prefer.to_vec(),
+                    None => vendors.iter().flat_map(|v| v.prefer.iter().copied()).collect(),
+                };
+                let Some(alt) = crate::providers::choose_model(&ids, &prefer, None).filter(|m| *m != s.openai_model) else {
+                    return Err(format!(
+                        "`{}` cannot read images and no vision model was found ({code}: {}).",
+                        s.openai_model,
+                        short(&body)
+                    ));
+                };
+                let t = openai_request(s, &alt, &b64, sw, sh).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
+                switched_model = Some(alt);
+                t
             }
-            let mut req = agent(s.timeout_secs).post(&format!("{}/chat/completions", s.openai_url.trim_end_matches('/')));
-            if !s.api_key.is_empty() {
-                req = req.set("Authorization", &format!("Bearer {}", s.api_key));
-            }
-            let v: Value = req.send_json(body).map_err(|e| format!("AI request failed: {e}"))?.into_json().map_err(|e| e.to_string())?;
-            v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string()
-        }
+            Err((code, body)) => return Err(format!("AI request failed ({code}): {}", short(&body))),
+        },
     };
     let v = extract_json(&raw).ok_or_else(|| format!("Model did not return JSON: {}", raw.chars().take(200).collect::<String>()))?;
-    let (labels, title) = labels_from_json(&v, img.width() as f64, img.height() as f64, k, off);
-    Ok(LlmReading { labels, title, raw })
+    let (labels, title) = labels_from_json(&v, img.width() as f64, img.height() as f64, sw as f64, sh as f64);
+    let part = crate::parts::PartSpec::from_json(&v);
+    Ok(LlmReading { labels, title, part, switched_model, raw })
 }
 
 #[cfg(test)]
@@ -324,13 +393,17 @@ mod tests {
     fn parses_model_reply_and_maps_coordinates() {
         let reply = "```json\n{\"title\": \"BRACKET\", \"dimensions\": [{\"text\": \"Ø20\", \"bbox\": [100, 300, 160, 330]}, {\"text\": \"abc\", \"bbox\": [0,0,1,1]}]}\n```";
         let v = extract_json(reply).unwrap();
-        // Image 2000×1000 padded to 2000×2000 → k = 0.5, y offset 250 in model space.
-        let (labels, title) = labels_from_json(&v, 2000.0, 1000.0, 0.5, V2::new(0.0, 250.0));
+        // Normalised 0–1000 boxes on a 2000×1000 image.
+        let (labels, title) = labels_from_json(&v, 2000.0, 1000.0, 2000.0, 1000.0);
         assert_eq!(title.as_deref(), Some("BRACKET"));
         assert_eq!(labels.len(), 1);
         let b = labels[0].bbox;
         assert!((b.min.x - 200.0).abs() < 1e-9 && (b.max.x - 320.0).abs() < 1e-9);
-        // Top-left y 300..330 → (y - 250) / 0.5 = 100..160 → y-up 840..900.
-        assert!((b.min.y - 840.0).abs() < 1e-9 && (b.max.y - 900.0).abs() < 1e-9);
+        // y 300..330 ‰ of 1000 px → 300..330 px from the top → y-up 670..700.
+        assert!((b.min.y - 670.0).abs() < 1e-9 && (b.max.y - 700.0).abs() < 1e-9);
+        // Absolute pixel boxes (any coordinate > 1000) are detected too.
+        let abs = serde_json::json!({"dimensions": [{"text": "50", "bbox": [1500, 100, 1600, 150]}]});
+        let (l, _) = labels_from_json(&abs, 1000.0, 500.0, 2000.0, 1000.0);
+        assert!((l[0].bbox.min.x - 750.0).abs() < 1e-9);
     }
 }

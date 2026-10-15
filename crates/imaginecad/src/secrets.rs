@@ -9,7 +9,9 @@
 
 use std::path::PathBuf;
 
+#[cfg(any(target_os = "macos", windows))]
 const SERVICE: &str = "ImagineCAD";
+#[cfg(any(target_os = "macos", windows))]
 const ACCOUNT: &str = "ai-api-key";
 
 fn file() -> Option<PathBuf> {
@@ -67,7 +69,6 @@ pub fn delete() {
     if let Some(f) = file() {
         let _ = std::fs::remove_file(f);
     }
-    let _ = SERVICE;
 }
 
 /// Mask a key for display: `sk-ant-…a1b2`.

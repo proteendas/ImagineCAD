@@ -29,12 +29,23 @@ pub struct ConvertOptions {
     pub fallback_size_mm: f64,
     /// Add centre lines to circles.
     pub center_marks: bool,
+    /// Let the AI describe the whole part (shaft / plate) and build it exactly.
+    #[serde(default = "yes")]
+    pub reconstruct_parts: bool,
     pub ai: AiSettings,
 }
 
 impl Default for ConvertOptions {
     fn default() -> Self {
-        Self { max_dim: 1600, snap_deg: 7.0, tolerance: 1.0, fallback_size_mm: 100.0, center_marks: true, ai: AiSettings::default() }
+        Self {
+            max_dim: 1600,
+            snap_deg: 7.0,
+            tolerance: 1.0,
+            fallback_size_mm: 100.0,
+            center_marks: true,
+            reconstruct_parts: true,
+            ai: AiSettings::default(),
+        }
     }
 }
 
@@ -48,6 +59,14 @@ pub struct Conversion {
     pub mm_per_px: f64,
     pub labels_found: usize,
     pub dims_applied: usize,
+    /// The model actually used when the configured one could not read images.
+    pub switched_model: Option<String>,
+    /// Description of the AI part reconstruction, when one was used.
+    pub reconstructed: Option<String>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 pub type Progress<'a> = &'a mut dyn FnMut(f32, &str);
@@ -60,13 +79,46 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
     let mut warnings = vec![];
     let mut labels: Vec<Label> = vec![];
     let mut title = None;
+    let mut switched: Option<String> = None;
 
     if opts.ai.provider != Provider::Disabled {
         let model = opts.ai.describe();
         progress(0.08, &format!("Reading dimensions with AI ({model}) — this can take a minute"));
         match llm::read_labels(&opts.ai, &gray.to_image()) {
             Ok(r) => {
-                log.push(format!("AI ({model}) read {} dimension label(s)", r.labels.len()));
+                let used = match &r.switched_model {
+                    Some(m) => {
+                        warnings.push(format!("{} cannot read images, so {m} was used instead.", opts.ai.describe()));
+                        m.clone()
+                    }
+                    None => model,
+                };
+                log.push(format!("AI ({used}) read {} dimension label(s)", r.labels.len()));
+                // A parametric description of the whole part beats tracing pencil strokes.
+                if opts.reconstruct_parts {
+                    if let Some(spec) = r.part.clone() {
+                        progress(0.9, "Building the part from the AI description");
+                        let desc = spec.describe();
+                        log.push(format!("AI recognised the part: {desc}"));
+                        log.push("Drawing generated from the written dimensions (exact); sketch tracing skipped.".into());
+                        warnings.extend(spec.check());
+                        let shapes = spec.build();
+                        let dims = shapes.iter().filter(|(_, s)| matches!(s, Shape::Dim(_))).count();
+                        progress(1.0, "Done");
+                        return Ok(Conversion {
+                            shapes,
+                            title: r.title,
+                            log,
+                            warnings,
+                            mm_per_px: 0.0,
+                            labels_found: r.labels.len(),
+                            dims_applied: dims,
+                            switched_model: r.switched_model,
+                            reconstructed: Some(desc),
+                        });
+                    }
+                }
+                switched = r.switched_model.clone();
                 labels.extend(r.labels);
                 title = r.title;
             }
@@ -101,6 +153,7 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
     }
     let mut conv = convert_gray(&gray, labels, opts, progress)?;
     conv.title = title;
+    conv.switched_model = switched;
     log.append(&mut conv.log);
     conv.log = log;
     warnings.append(&mut conv.warnings);
@@ -506,7 +559,17 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         dims_applied
     ));
     progress(1.0, "Done");
-    Ok(Conversion { shapes, title: None, log, warnings, mm_per_px: s, labels_found: labels.len(), dims_applied })
+    Ok(Conversion {
+        shapes,
+        title: None,
+        log,
+        warnings,
+        mm_per_px: s,
+        labels_found: labels.len(),
+        dims_applied,
+        switched_model: None,
+        reconstructed: None,
+    })
 }
 
 /// Number of significant enclosed background regions ("holes") per ink
@@ -594,7 +657,7 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
         .filter(|e| doc.is_visible(e) && !e.shape.is_annotation())
         .fold(BBox::empty(), |b, e| b.union(&doc.entity_bbox(e)));
     if !geo_box.is_empty() {
-        doc.sheet.fit_to(&geo_box.expand(geo_box.width().max(geo_box.height()) * 0.12));
+        doc.sheet.fit_to(&icad_core::sheet::fit_margin(&geo_box));
         doc.sheet.visible = true;
     }
 }

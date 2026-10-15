@@ -16,6 +16,14 @@ All notable changes to ImagineCAD are documented here. The format follows
 - Licensing: GPL-3.0 with commercial dual licensing by Proteen Das; CLA, trademark policy, NOTICE, third-party license report bundled with installers; legal notices in About and `--version`.
 - New ImagineCAD logo.
 - Release pipeline: LibreDWG built and DWG-tested on every platform, optional macOS signing/notarisation and Windows code signing, SHA-256 checksums.
+- Image to CAD **part reconstruction**: shafts (steps, keyways, chamfers) and plates (holes) recognised by the AI are drawn exactly from the written dimensions, with a scale-aware dimension layout.
+
+### Fixed
+- AI requests failing with `404` when the selected model cannot read images (for example a text-only OpenRouter model). Only vision models are offered now, and a text-only model is replaced automatically by a vision model from the same provider.
+- AI error messages now include the provider's explanation, not only the status code.
+- Arrows and some symbols showed as empty boxes in the interface.
+- Slender parts were placed on sheets too small for their dimensions.
+- Linux build failure (`ACCOUNT` unused) under `-D warnings`.
 
 ## [0.1.0] - 2026-10-15
 

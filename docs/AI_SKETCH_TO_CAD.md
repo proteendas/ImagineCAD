@@ -32,7 +32,13 @@ The first time you use Image to CAD, a **Connect an AI model** dialog opens
 
 Paste a key and click **Detect provider & model**. ImagineCAD recognises the
 provider from the key, verifies it by listing that provider's models, and picks
-the best vision-capable model. You can choose a different model before saving.
+the best vision-capable model. Only models that accept images are offered.
+You can choose a different model before saving.
+
+If the configured model turns out to be text-only (the provider rejects the
+image, for example OpenRouter's `404 No endpoints found that support image
+input`), ImagineCAD picks a vision model from the same provider, retries once,
+and saves that model in AI Settings.
 
 | Provider | Key looks like | Default model choice |
 |---|---|---|
@@ -66,7 +72,8 @@ accepts `--api-key` (auto-detected the same way).
 
 ## How it works
 
-1. **Reading values (AI).** The image, padded to a 1000 × 1000 square, is sent with a strict JSON prompt; the model returns each dimension text (`50`, `12.5`, `Ø20`, `2x Ø8`, `R5`, `M6`, `45°`) and its bounding box. AI is used only to read text; geometry never depends on it.
+1. **Reading values (AI).** The image (aspect ratio kept, longest side at most 2000 px) is sent with a strict JSON prompt. The model returns each dimension text (`50`, `12.5`, `Ø20`, `2x Ø8`, `R5`, `M6`, `45°`) and its bounding box, ignoring crossed-out values.
+   - **Part reconstruction.** When the model recognises a turned **shaft** (stepped diameters, keyways, chamfers) or a rectangular **plate** with holes, it also returns the part's parameters. ImagineCAD then builds the drawing directly from the written dimensions. It is exact by construction, with every length, diameter, keyway and chamfer dimensioned, laid out for the sheet scale, and on a sheet sized for slender parts (for example A3 at 1:10 for a 2.8 m shaft). Steps 2–5 are skipped. Turn this off with **Let AI rebuild shafts and plates exactly from the written dimensions** in the Image to CAD dialog.
 2. **Vectorising (computer vision).** Adaptive thresholding, removal of handwriting and specks, Zhang–Suen thinning, skeleton tracing, Douglas–Peucker lines and least-squares circle/arc fits.
 3. **Part vs. annotation.** Components that enclose real area are the part. For each label the pipeline finds its dimension line, extension lines (following them through outline crossings) and arrowheads; leader arrows decide which hole a Ø/R value belongs to.
 4. **Beautification.** Snap angles, merge strokes, align coordinates, weld endpoints, close T-junctions.
@@ -83,6 +90,7 @@ accepts `--api-key` (auto-detected the same way).
 
 - Horizontal/vertical dimensions are enforced exactly; slanted and angular values are drawn but not yet enforced.
 - One view per conversion works best.
+- Part reconstruction covers shafts and rectangular plates. Keyway widths that are not written on the sketch are drawn at a nominal width; check them.
 - Hatching, threads and surface-finish symbols are not recognised.
 
 ## Command line

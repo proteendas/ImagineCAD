@@ -163,6 +163,14 @@ pub fn parse_scale(s: &str) -> Option<f64> {
     (v.is_finite() && v > 0.0).then_some(v)
 }
 
+/// `content` plus the margin left for dimensions when fitting a sheet to it.
+pub fn fit_margin(content: &BBox) -> BBox {
+    let (big, small) = (content.width().max(content.height()), content.width().min(content.height()));
+    // Slender parts get a margin from both sides instead of one tied to their length.
+    let m = if big > 4.0 * small { 0.06 * big + 0.25 * small } else { 0.12 * big };
+    content.expand(m)
+}
+
 impl Sheet {
     /// Paper width × height in mm, honouring orientation.
     pub fn paper_mm(&self) -> (f64, f64) {
@@ -221,7 +229,12 @@ impl Sheet {
                 if fill > 0.92 {
                     continue;
                 }
-                let cost = pi as f64 * 1.0 + s.log10().abs() * 3.0 + if fill < 0.3 { 3.0 } else { 0.0 };
+                let mut cost = pi as f64 * 1.0 + s.log10().abs() * 3.0 + if fill < 0.3 { 3.0 } else { 0.0 };
+                // Long slender parts (shafts) need room across for their dimensions.
+                let (big, small) = (content.width().max(content.height()), content.width().min(content.height()));
+                if big > 4.0 * small && small / s < 50.0 {
+                    cost += 2.0;
+                }
                 if best.is_none_or(|b| cost < b.0) {
                     best = Some((cost, *paper, s));
                 }
@@ -328,7 +341,7 @@ impl Sheet {
         out.push((text(c(62.5), y0 + 54.0, 6.0, &tb.company, HAlign::Center, VAlign::Middle), 0.5));
         out.push((text(c(126.2), y0 + 60.0 - 1.2, 1.8, "GENERAL TOLERANCES", HAlign::Left, VAlign::Top), 0.18));
         for (i, part) in split_two(&tb.tolerance).iter().enumerate() {
-            out.push((text(c(126.5), y0 + 52.5 - i as f64 * 3.5, 2.2, part, HAlign::Left, VAlign::Middle), 0.18));
+            out.push((text(c(126.5), y0 + 54.4 - i as f64 * 3.3, 2.2, part, HAlign::Left, VAlign::Middle), 0.18));
         }
         out
     }

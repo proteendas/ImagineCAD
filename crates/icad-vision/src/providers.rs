@@ -234,6 +234,38 @@ pub fn list_anthropic(key: &str) -> Result<(Vec<String>, Vec<String>), String> {
     Ok((ids, vision))
 }
 
+/// Whether a model entry's metadata says it accepts images: `Some(bool)` when
+/// the provider publishes modalities/capabilities, `None` when unknown.
+fn meta_vision(m: &Value) -> Option<bool> {
+    if let Some(a) = m["architecture"]["input_modalities"].as_array() {
+        return Some(a.iter().any(|x| x == "image"));
+    }
+    if let Some(b) = m["capabilities"]["vision"].as_bool() {
+        return Some(b);
+    }
+    if let Some(b) = m["capabilities"]["image_input"]["supported"].as_bool() {
+        return Some(b);
+    }
+    None
+}
+
+/// Models of an OpenAI-compatible endpoint that can read images. Uses the
+/// provider's metadata when published; otherwise returns every usable model.
+pub fn vision_models(base: &str, key: &str) -> Result<Vec<String>, String> {
+    let (ids, raw) = list_openai(base, key)?;
+    Ok(filter_vision(&ids, &raw))
+}
+
+fn filter_vision(ids: &[String], raw: &Value) -> Vec<String> {
+    let arr = raw.as_array().cloned().unwrap_or_default();
+    let known: Vec<(String, bool)> =
+        arr.iter().filter_map(|m| Some((m["id"].as_str()?.trim_start_matches("models/").to_string(), meta_vision(m)?))).collect();
+    if known.is_empty() {
+        return ids.iter().filter(|i| usable(i)).cloned().collect();
+    }
+    known.into_iter().filter(|(id, v)| *v && usable(id)).map(|(id, _)| id).collect()
+}
+
 fn usable(id: &str) -> bool {
     let l = id.to_ascii_lowercase();
     !EXCLUDE.iter().any(|x| l.contains(x))
@@ -304,20 +336,21 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
     }
     if let Some(base) = custom_base.filter(|b| !b.trim().is_empty()) {
         let (ids, raw) = list_openai(base, key).map_err(|e| format!("{base}: {e}"))?;
-        let model = choose_model(&ids, &[], Some(&raw)).ok_or("The server lists no vision-capable model.")?;
+        let vision = filter_vision(&ids, &raw);
+        let model = choose_model(&vision, &[], Some(&raw)).ok_or("The server lists no vision-capable model.")?;
         return Ok(Detected {
             vendor: "Custom endpoint".into(),
             provider: Provider::OpenAiCompatible,
             base_url: base.into(),
             model,
-            models: ids,
+            models: vision,
         });
     }
     let mut errors = vec![];
     for v in candidates(key) {
         match v.api {
             Api::Anthropic => match list_anthropic(key) {
-                Ok((ids, vision)) => {
+                Ok((_, vision)) => {
                     let model =
                         choose_model(&vision, v.prefer, None).or_else(|| vision.first().cloned()).ok_or("No vision model available.")?;
                     return Ok(Detected {
@@ -325,7 +358,7 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
                         provider: Provider::Anthropic,
                         base_url: v.base.into(),
                         model,
-                        models: ids,
+                        models: vision,
                     });
                 }
                 Err(e) => errors.push(format!("{}: {e}", v.name)),
@@ -338,14 +371,14 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
                     }
                 }
                 match list_openai(v.base, key) {
-                    Ok((ids, raw)) => match choose_model(&ids, v.prefer, Some(&raw)) {
+                    Ok((ids, raw)) => match choose_model(&filter_vision(&ids, &raw), v.prefer, Some(&raw)) {
                         Some(model) => {
                             return Ok(Detected {
                                 vendor: v.name.into(),
                                 provider: Provider::OpenAiCompatible,
                                 base_url: v.base.into(),
                                 model,
-                                models: ids,
+                                models: filter_vision(&ids, &raw),
                             })
                         }
                         None => errors.push(format!("{}: key works, but this provider offers no vision model", v.name)),
@@ -371,6 +404,19 @@ mod tests {
         assert_eq!(candidates("sk-proj-123")[0].name, "OpenAI");
         let unknown: Vec<&str> = candidates("0123456789abcdef").iter().map(|v| v.name).collect();
         assert!(unknown.contains(&"Mistral") && unknown.contains(&"Together AI"));
+    }
+
+    #[test]
+    fn text_only_models_are_filtered_out() {
+        let raw = serde_json::json!([
+            {"id": "z-ai/glm-5.3", "architecture": {"input_modalities": ["text"]}},
+            {"id": "z-ai/glm-5.3-flash", "architecture": {"input_modalities": ["text", "image", "video"]}},
+            {"id": "google/gemini-2.5-flash", "architecture": {"input_modalities": ["file", "image", "text"]}}
+        ]);
+        let ids: Vec<String> = ["z-ai/glm-5.3", "z-ai/glm-5.3-flash", "google/gemini-2.5-flash"].iter().map(|s| s.to_string()).collect();
+        let v = filter_vision(&ids, &raw);
+        assert!(!v.contains(&"z-ai/glm-5.3".to_string()) && v.len() == 2);
+        assert_eq!(choose_model(&v, VENDORS[1].prefer, Some(&raw)).as_deref(), Some("google/gemini-2.5-flash"));
     }
 
     #[test]

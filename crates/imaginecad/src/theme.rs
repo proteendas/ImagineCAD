@@ -36,6 +36,14 @@ pub const WARN: Color32 = Color32::from_rgb(255, 196, 64);
 pub const ERR: Color32 = Color32::from_rgb(255, 110, 100);
 
 pub fn apply(ctx: &egui::Context) {
+    // The UI font lacks arrows and block symbols (→ ● ▏ ⇄ …); fall back to the
+    // bundled monospace font for those instead of drawing empty boxes.
+    let mut fonts = egui::FontDefinitions::default();
+    if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        prop.push("Hack".to_owned());
+    }
+    ctx.set_fonts(fonts);
+
     let mut v = egui::Visuals::dark();
     v.panel_fill = PANEL;
     v.window_fill = Color32::from_rgb(52, 60, 74);

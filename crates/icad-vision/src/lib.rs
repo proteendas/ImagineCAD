@@ -7,6 +7,7 @@ pub mod fit;
 pub mod labels;
 pub mod llm;
 pub mod ocr;
+pub mod parts;
 pub mod pipeline;
 pub mod providers;
 pub mod raster;

@@ -435,7 +435,12 @@ impl App {
         std::thread::spawn(move || {
             let r = match ai.provider {
                 Provider::Ollama => llm::ollama_models(&ai.ollama_url),
-                Provider::OpenAiCompatible => llm::openai_models(&ai.openai_url, &ai.api_key),
+                // Only offer models that accept images; fall back to the full list when the
+                // server publishes no capability metadata.
+                Provider::OpenAiCompatible => match icad_vision::providers::vision_models(&ai.openai_url, &ai.api_key) {
+                    Ok(m) if !m.is_empty() => Ok(m),
+                    _ => llm::openai_models(&ai.openai_url, &ai.api_key),
+                },
                 Provider::Anthropic => icad_vision::providers::list_anthropic(&ai.api_key).map(|r| r.0),
                 Provider::Disabled => Ok(vec![]),
             };
@@ -583,6 +588,16 @@ impl App {
         let Some(mut d) = self.dlg.ai.take() else { return };
         d.ensure_texture(ctx);
         d.poll();
+        // The AI switched to a vision-capable model after the configured one rejected the
+        // image: remember it so the next conversion uses it straight away.
+        if let Some(Ok(Conversion { switched_model: Some(m), .. })) = &d.result {
+            if self.settings.convert.ai.openai_model != *m {
+                self.settings.convert.ai.openai_model = m.clone();
+                self.settings.save();
+                d.opts.ai.openai_model = m.clone();
+                self.log.push(format!("AI Settings: model set to {m}, which can read images."));
+            }
+        }
         let mut open = d.open;
         let mut action: Option<&str> = None;
         let mut open_settings = false;
@@ -642,6 +657,8 @@ impl App {
                             ui.end_row();
                         });
                         ui.checkbox(&mut d.opts.center_marks, "Add centre lines to holes");
+                        ui.checkbox(&mut d.opts.reconstruct_parts, "Let AI rebuild shafts and plates exactly from the written dimensions")
+                            .on_hover_text("When the AI recognises a turned shaft or a rectangular plate, the part is drawn from its dimensions instead of traced from the sketch.");
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(format!("AI engine: {}", d.opts.ai.describe())).color(theme::AI_ACCENT));
@@ -677,6 +694,9 @@ impl App {
                                 ))
                                 .color(Color32::from_rgb(90, 210, 120)),
                             );
+                            if let Some(p) = &c.reconstructed {
+                                ui.label(RichText::new(format!("Rebuilt from dimensions: {p}")).size(12.0).color(theme::AI_ACCENT));
+                            }
                             for l in &c.log {
                                 ui.label(RichText::new(format!("• {l}")).size(11.5).color(theme::TEXT_DIM));
                             }
