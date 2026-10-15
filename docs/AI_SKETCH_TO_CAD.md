@@ -33,7 +33,10 @@ The first time you use Image to CAD, a **Connect an AI model** dialog opens
 Paste a key and click **Detect provider & model**. ImagineCAD recognises the
 provider from the key, verifies it by listing that provider's models, and picks
 the best vision-capable model. Only models that accept images are offered.
-You can choose a different model before saving.
+You can choose a different model before saving, or later in **AI Settings**:
+the model dropdown is searchable, marks each model **FREE** or **PAID** where
+the provider publishes prices (OpenRouter does; OpenAI and Anthropic APIs are
+paid; local models are free), and has a *Free only* filter.
 
 If the configured model turns out to be text-only (the provider rejects the
 image, for example OpenRouter's `404 No endpoints found that support image

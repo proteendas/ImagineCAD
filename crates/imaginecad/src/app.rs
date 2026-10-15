@@ -45,7 +45,7 @@ pub struct App {
     /// Angle (degrees) while the cursor is snapped by polar tracking.
     pub polar_hit: Option<f64>,
     /// Self-screenshot hook (docs / visual tests): IMAGINECAD_SCREENSHOT=out.png,
-    /// optional IMAGINECAD_RUN="CMD;CMD" executed first.
+    /// optional IMAGINECAD_RUN="CMD;CMD" executed first (see `screenshot_hook`).
     pub shot: Option<(PathBuf, u32)>,
 }
 
@@ -1366,7 +1366,9 @@ impl App {
                 }
             }
         }
-        if frame == 30 {
+        // IMAGINECAD_SCREENSHOT_FRAMES: frames to wait (e.g. for a model list to load).
+        let at = std::env::var("IMAGINECAD_SCREENSHOT_FRAMES").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+        if frame == at {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
         ctx.request_repaint();

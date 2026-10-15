@@ -203,7 +203,60 @@ pub struct Detected {
     pub provider: Provider,
     pub base_url: String,
     pub model: String,
-    pub models: Vec<String>,
+    pub models: Vec<ModelInfo>,
+}
+
+/// Whether using a model costs money, as far as the provider tells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cost {
+    Free,
+    Paid,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelInfo {
+    pub id: String,
+    pub cost: Cost,
+}
+
+impl ModelInfo {
+    pub fn new(id: impl Into<String>, cost: Cost) -> Self {
+        Self { id: id.into(), cost }
+    }
+}
+
+/// Price tier of `id` on the endpoint `base`, from the listing `raw` when it
+/// publishes prices (OpenRouter), otherwise from what is known of the provider.
+pub fn model_cost(base: &str, id: &str, raw: &Value) -> Cost {
+    if id.ends_with(":free") {
+        return Cost::Free;
+    }
+    let entry = raw.as_array().and_then(|a| a.iter().find(|m| m["id"].as_str().map(|i| i.trim_start_matches("models/")) == Some(id)));
+    if let Some(p) = entry.map(|m| &m["pricing"]).filter(|p| p.is_object()) {
+        let num = |k: &str| p[k].as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| p[k].as_f64());
+        if let (Some(a), Some(b)) = (num("prompt"), num("completion")) {
+            return if a == 0.0 && b == 0.0 { Cost::Free } else { Cost::Paid };
+        }
+    }
+    let b = base.to_ascii_lowercase();
+    if b.contains("localhost") || b.contains("127.0.0.1") || b.contains("[::1]") {
+        Cost::Free
+    } else if b.contains("api.openai.com") || b.contains("anthropic.com") || b.contains("api.x.ai") {
+        Cost::Paid
+    } else {
+        Cost::Unknown
+    }
+}
+
+/// Vision models of an OpenAI-compatible endpoint with their price tier.
+pub fn vision_models_priced(base: &str, key: &str) -> Result<Vec<ModelInfo>, String> {
+    let (ids, raw) = list_openai(base, key)?;
+    Ok(priced(base, &filter_vision(&ids, &raw), &raw))
+}
+
+fn priced(base: &str, ids: &[String], raw: &Value) -> Vec<ModelInfo> {
+    ids.iter().map(|id| ModelInfo::new(id.clone(), model_cost(base, id, raw))).collect()
 }
 
 fn agent(secs: u64) -> ureq::Agent {
@@ -365,7 +418,7 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
             provider: Provider::OpenAiCompatible,
             base_url: base.into(),
             model,
-            models: vision,
+            models: priced(base, &vision, &raw),
         });
     }
     let mut errors = vec![];
@@ -380,7 +433,7 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
                         provider: Provider::Anthropic,
                         base_url: v.base.into(),
                         model,
-                        models: vision,
+                        models: vision.into_iter().map(|id| ModelInfo::new(id, Cost::Paid)).collect(),
                     });
                 }
                 Err(e) => errors.push(format!("{}: {e}", v.name)),
@@ -408,7 +461,7 @@ pub fn detect(key: &str, custom_base: Option<&str>) -> Result<Detected, String> 
                                 provider: Provider::OpenAiCompatible,
                                 base_url: v.base.into(),
                                 model,
-                                models: filter_vision(&ids, &raw),
+                                models: priced(v.base, &filter_vision(&ids, &raw), &raw),
                             })
                         }
                         None => errors.push(format!("{}: key works, but this provider offers no vision model", v.name)),
@@ -460,6 +513,23 @@ mod tests {
         assert!(no_credit(&serde_json::json!({"data": {"is_free_tier": true, "limit_remaining": null}})));
         assert!(no_credit(&serde_json::json!({"data": {"is_free_tier": false, "limit_remaining": 0}})));
         assert!(!no_credit(&serde_json::json!({"data": {"is_free_tier": false, "limit_remaining": null}})));
+    }
+
+    #[test]
+    fn price_tags() {
+        let raw = serde_json::json!([
+            {"id": "google/gemini-2.5-flash", "pricing": {"prompt": "0.0000003", "completion": "0.0000025"}},
+            {"id": "google/gemma-4-31b-it:free", "pricing": {"prompt": "0", "completion": "0"}},
+            {"id": "acme/promo", "pricing": {"prompt": "0", "completion": "0"}},
+            {"id": "acme/unpriced"}
+        ]);
+        let or = "https://openrouter.ai/api/v1";
+        assert_eq!(model_cost(or, "google/gemini-2.5-flash", &raw), Cost::Paid);
+        assert_eq!(model_cost(or, "google/gemma-4-31b-it:free", &raw), Cost::Free);
+        assert_eq!(model_cost(or, "acme/promo", &raw), Cost::Free);
+        assert_eq!(model_cost(or, "acme/unpriced", &raw), Cost::Unknown);
+        assert_eq!(model_cost("https://api.openai.com/v1", "gpt-5", &Value::Null), Cost::Paid);
+        assert_eq!(model_cost("http://localhost:1234/v1", "qwen2.5-vl", &Value::Null), Cost::Free);
     }
 
     #[test]

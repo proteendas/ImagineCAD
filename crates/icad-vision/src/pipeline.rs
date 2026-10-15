@@ -95,6 +95,10 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
                     None => model,
                 };
                 log.push(format!("AI ({used}) read {} dimension label(s)", r.labels.len()));
+                if r.cut_off {
+                    warnings
+                        .push("The AI answer was cut off; values after the cut are missing. Check the drawing, or convert again.".into());
+                }
                 // A parametric description of the whole part beats tracing pencil strokes.
                 if opts.reconstruct_parts {
                     if let Some(spec) = r.part.clone() {

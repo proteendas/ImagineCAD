@@ -12,6 +12,7 @@ use eframe::egui::{self, vec2, Color32, RichText};
 use icad_core::sheet::{parse_scale, scale_label, PaperSize, Projection, STANDARD_SCALES};
 use icad_core::style::{aci_name, Layer, LineType, ACI_NAMES, LINEWEIGHTS};
 use icad_vision::llm::{self, Provider};
+use icad_vision::providers::{Cost, ModelInfo};
 use icad_vision::{Conversion, ConvertOptions};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -146,8 +147,62 @@ pub struct AiSetup {
     pub rx: Option<Receiver<Result<icad_vision::providers::Detected, String>>>,
     pub result: Option<Result<icad_vision::providers::Detected, String>>,
     pub model: String,
+    pub filter: ModelFilter,
     /// Open the Image-to-CAD dialog when finished.
     pub then_convert: bool,
+}
+
+/// Search text and free-only switch of a model dropdown.
+#[derive(Default)]
+pub struct ModelFilter {
+    pub text: String,
+    pub free_only: bool,
+}
+
+/// A FREE / PAID badge (nothing when the provider does not say).
+fn cost_tag(ui: &mut egui::Ui, cost: Cost) {
+    let (t, c) = match cost {
+        Cost::Free => ("FREE", Color32::from_rgb(40, 140, 80)),
+        Cost::Paid => ("PAID", Color32::from_rgb(176, 112, 28)),
+        Cost::Unknown => return,
+    };
+    ui.label(RichText::new(format!(" {t} ")).size(10.5).strong().color(Color32::WHITE).background_color(c));
+}
+
+/// Model dropdown with search, a free-only filter and FREE/PAID badges.
+fn model_picker(ui: &mut egui::Ui, id: &str, model: &mut String, models: &[ModelInfo], f: &mut ModelFilter) {
+    let current = models.iter().find(|m| m.id == *model).map(|m| m.cost);
+    let shown = if model.is_empty() { "Choose a model…".to_string() } else { model.clone() };
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(shown)
+        .width(340.0)
+        .height(380.0)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show_ui(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut f.text).hint_text("Search models").desired_width(190.0));
+                ui.checkbox(&mut f.free_only, "Free only");
+            });
+            ui.separator();
+            let q = f.text.to_ascii_lowercase();
+            let mut shown = 0;
+            for m in models.iter().filter(|m| (!f.free_only || m.cost == Cost::Free) && m.id.to_ascii_lowercase().contains(&q)) {
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(*model == m.id, &m.id).clicked() {
+                        *model = m.id.clone();
+                        ui.memory_mut(|mem| mem.close_popup());
+                    }
+                    cost_tag(ui, m.cost);
+                });
+                shown += 1;
+            }
+            if shown == 0 {
+                ui.label(RichText::new("No matching model").color(theme::TEXT_DIM));
+            }
+        });
+    if let Some(c) = current {
+        cost_tag(ui, c);
+    }
 }
 
 /// Quick Select criteria.
@@ -180,13 +235,16 @@ pub struct Dialogs {
     pub ai_setup: Option<AiSetup>,
     pub qselect: Option<QSelect>,
     pub text_edit: Option<(u64, String)>,
-    pub ai_check: Option<Receiver<Result<Vec<String>, String>>>,
-    pub ai_models: Vec<String>,
+    pub ai_check: Option<Receiver<Result<Vec<ModelInfo>, String>>>,
+    pub ai_models: Vec<ModelInfo>,
+    /// Which engine `ai_models` was loaded for.
+    pub ai_models_for: String,
+    pub model_filter: ModelFilter,
     pub ai_status: Option<Result<String, String>>,
     pub new_layer: String,
 }
 
-fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[String]) {
+fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[ModelInfo], filter: &mut ModelFilter) {
     let ai = &mut o.ai;
     match ai.provider {
         Provider::Ollama => {
@@ -196,13 +254,10 @@ fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[String]) {
                 ui.end_row();
                 ui.label("Vision model");
                 ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut ai.ollama_model);
-                    if !models.is_empty() {
-                        egui::ComboBox::from_id_salt("ollama_models").selected_text("installed…").show_ui(ui, |ui| {
-                            for m in models {
-                                ui.selectable_value(&mut ai.ollama_model, m.clone(), m);
-                            }
-                        });
+                    if models.is_empty() {
+                        ui.text_edit_singleline(&mut ai.ollama_model);
+                    } else {
+                        model_picker(ui, "ollama_models", &mut ai.ollama_model, models, filter);
                     }
                 });
                 ui.end_row();
@@ -219,7 +274,13 @@ fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[String]) {
                 ui.text_edit_singleline(&mut ai.openai_url);
                 ui.end_row();
                 ui.label("Model");
-                ui.text_edit_singleline(&mut ai.openai_model);
+                ui.horizontal(|ui| {
+                    if models.is_empty() {
+                        ui.text_edit_singleline(&mut ai.openai_model);
+                    } else {
+                        model_picker(ui, "local_models", &mut ai.openai_model, models, filter);
+                    }
+                });
                 ui.end_row();
             });
             ui.horizontal_wrapped(|ui| {
@@ -333,11 +394,7 @@ impl App {
                     ui.label(RichText::new(format!("✔ {} — {} model(s) available", d.vendor, d.models.len())).color(Color32::from_rgb(90, 210, 120)));
                     ui.horizontal(|ui| {
                         ui.label("Vision model");
-                        egui::ComboBox::from_id_salt("setup_model").selected_text(st.model.clone()).width(300.0).show_ui(ui, |ui| {
-                            for m in d.models.iter().take(300) {
-                                ui.selectable_value(&mut st.model, m.clone(), m);
-                            }
-                        });
+                        model_picker(ui, "setup_model", &mut st.model, &d.models, &mut st.filter);
                     });
                     if ui.add(egui::Button::new(RichText::new("Save & continue").strong().color(Color32::WHITE)).fill(Color32::from_rgb(38, 96, 160))).clicked() {
                         action = Some("save");
@@ -433,15 +490,22 @@ impl App {
         let (tx, rx) = channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
+            use icad_vision::providers as p;
+            let tag = |ids: Vec<String>, cost: Cost| ids.into_iter().map(|id| ModelInfo::new(id, cost)).collect::<Vec<_>>();
             let r = match ai.provider {
-                Provider::Ollama => llm::ollama_models(&ai.ollama_url),
+                // Local models cost nothing.
+                Provider::Ollama => llm::ollama_models(&ai.ollama_url).map(|m| tag(m, Cost::Free)),
                 // Only offer models that accept images; fall back to the full list when the
                 // server publishes no capability metadata.
-                Provider::OpenAiCompatible => match icad_vision::providers::vision_models(&ai.openai_url, &ai.api_key) {
+                Provider::OpenAiCompatible => match p::vision_models_priced(&ai.openai_url, &ai.api_key) {
                     Ok(m) if !m.is_empty() => Ok(m),
-                    _ => llm::openai_models(&ai.openai_url, &ai.api_key),
+                    _ => llm::openai_models(&ai.openai_url, &ai.api_key).map(|ids| {
+                        ids.into_iter()
+                            .map(|id| ModelInfo { cost: p::model_cost(&ai.openai_url, &id, &serde_json::Value::Null), id })
+                            .collect()
+                    }),
                 },
-                Provider::Anthropic => icad_vision::providers::list_anthropic(&ai.api_key).map(|r| r.0),
+                Provider::Anthropic => p::list_anthropic(&ai.api_key).map(|r| tag(r.1, Cost::Paid)),
                 Provider::Disabled => Ok(vec![]),
             };
             let _ = tx.send(r);
@@ -457,8 +521,25 @@ impl App {
             self.dlg.ai_check = None;
             match r {
                 Ok(models) => {
+                    // No model chosen yet (or the field was cleared): take the vendor's best.
+                    if self.settings.convert.ai.model().trim().is_empty() && !models.is_empty() {
+                        let ai = &mut self.settings.convert.ai;
+                        let ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
+                        let prefer = icad_vision::providers::VENDORS.iter().find(|v| v.name == ai.vendor).map(|v| v.prefer).unwrap_or(&[]);
+                        let best = icad_vision::providers::choose_model(&ids, prefer, None).unwrap_or_else(|| ids[0].clone());
+                        match ai.provider {
+                            Provider::Ollama => ai.ollama_model = best,
+                            Provider::Anthropic => ai.anthropic_model = best,
+                            _ => ai.openai_model = best,
+                        }
+                        self.settings.save();
+                        self.sync_ai_dialog();
+                    }
                     let want = self.settings.convert.ai.model().to_string();
-                    let has = models.iter().any(|m| m == &want || m.starts_with(&format!("{want}:")) || want.starts_with(m.as_str()));
+                    let has = models
+                        .iter()
+                        .map(|m| m.id.as_str())
+                        .any(|m| m == want || m.starts_with(&format!("{want}:")) || want.starts_with(m));
                     self.ai_ready = has;
                     self.dlg.ai_status = Some(if has {
                         Ok(format!("Connected. {} model(s) available; `{want}` is ready.", models.len()))
@@ -485,6 +566,16 @@ impl App {
         let mut test = false;
         let mut change_key = false;
         let mut remove_key = false;
+        // Load the model list for the selected engine so the dropdown is ready.
+        {
+            let ai = &self.settings.convert.ai;
+            let engine = format!("{:?}|{}|{}|{}", ai.provider, ai.openai_url, ai.ollama_url, crate::secrets::mask(&ai.api_key));
+            if ai.provider != Provider::Disabled && self.dlg.ai_models_for != engine && self.dlg.ai_check.is_none() {
+                self.dlg.ai_models_for = engine;
+                self.dlg.ai_models.clear();
+                self.start_ai_check(ctx);
+            }
+        }
         egui::Window::new("AI Settings").open(&mut open).default_width(580.0).collapsible(false).show(ctx, |ui| {
             let ai = &mut self.settings.convert.ai;
             ui.label(RichText::new(format!("Current engine: {}", ai.describe())).strong());
@@ -522,13 +613,13 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Model");
                     let field = if ai.provider == Provider::Anthropic { &mut ai.anthropic_model } else { &mut ai.openai_model };
-                    ui.text_edit_singleline(field);
                     if !self.dlg.ai_models.is_empty() {
-                        egui::ComboBox::from_id_salt("cloud_models").selected_text("available…").show_ui(ui, |ui| {
-                            for m in &self.dlg.ai_models {
-                                ui.selectable_value(field, m.clone(), m);
-                            }
-                        });
+                        model_picker(ui, "cloud_models", field, &self.dlg.ai_models, &mut self.dlg.model_filter);
+                    } else if self.dlg.ai_check.is_some() {
+                        ui.spinner();
+                        ui.label(RichText::new("Loading models…").color(theme::TEXT_DIM));
+                    } else {
+                        ui.text_edit_singleline(field);
                     }
                 });
             }
@@ -541,7 +632,7 @@ impl App {
                 }
             });
             ui.separator();
-            local_ai_ui(ui, &mut self.settings.convert, &self.dlg.ai_models);
+            local_ai_ui(ui, &mut self.settings.convert, &self.dlg.ai_models, &mut self.dlg.model_filter);
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Test connection").clicked() {

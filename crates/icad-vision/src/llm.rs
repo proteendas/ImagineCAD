@@ -119,6 +119,8 @@ pub struct LlmReading {
     pub switched_model: Option<String>,
     /// Why the model was switched (for the user).
     pub switch_reason: Option<String>,
+    /// The answer was cut off and completed at its last whole value.
+    pub cut_off: bool,
     pub raw: String,
 }
 
@@ -187,12 +189,148 @@ fn send_png(img: &GrayImage) -> Result<(Vec<u8>, u32, u32), String> {
 
 /// Extract the first JSON object from a model reply (tolerates code fences / prose).
 pub fn extract_json(s: &str) -> Option<Value> {
+    parse_reply(s).map(|(v, _)| v)
+}
+
+/// Parse the JSON object in a model's answer, tolerating code fences, text
+/// around it, comments and trailing commas. An answer that was cut off is
+/// completed at its last whole value; the flag tells whether that happened.
+pub fn parse_reply(s: &str) -> Option<(Value, bool)> {
     if let Ok(v) = serde_json::from_str::<Value>(s.trim()) {
-        return Some(v);
+        return Some((v, false));
     }
-    let start = s.find('{')?;
-    let end = s.rfind('}')?;
-    serde_json::from_str(&s[start..=end]).ok()
+    let body = clean_json(&s[s.find('{')?..]);
+    if let Some(end) = object_end(&body) {
+        if let Ok(v) = serde_json::from_str(&body[..end]) {
+            return Some((v, false));
+        }
+    }
+    complete_json(&body).map(|v| (v, true))
+}
+
+/// Remove comments and trailing commas outside strings.
+fn clean_json(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let (mut in_str, mut esc) = (false, false);
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if in_str {
+            out.push(c);
+            match (esc, c) {
+                (true, _) => esc = false,
+                (false, '\\') => esc = true,
+                (false, '"') => in_str = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = true;
+                out.push(c);
+            }
+            '/' if it.peek() == Some(&'/') => {
+                for d in it.by_ref() {
+                    if d == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if it.peek() == Some(&'*') => {
+                it.next();
+                let mut prev = ' ';
+                for d in it.by_ref() {
+                    if prev == '*' && d == '/' {
+                        break;
+                    }
+                    prev = d;
+                }
+            }
+            '}' | ']' => {
+                let keep = out.trim_end().len();
+                out.truncate(keep);
+                if out.ends_with(',') {
+                    out.pop();
+                }
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Walk `s` outside strings, calling `f(byte index, char, depth before the char)`.
+fn scan(s: &str, mut f: impl FnMut(usize, char, &[char]) -> bool) -> Option<Vec<char>> {
+    let mut stack: Vec<char> = vec![];
+    let (mut in_str, mut esc) = (false, false);
+    for (i, c) in s.char_indices() {
+        if in_str {
+            match (esc, c) {
+                (true, _) => esc = false,
+                (false, '\\') => esc = true,
+                (false, '"') => in_str = false,
+                _ => {}
+            }
+            continue;
+        }
+        if !f(i, c, &stack) {
+            return None;
+        }
+        match c {
+            '"' => in_str = true,
+            '{' => stack.push('}'),
+            '[' => stack.push(']'),
+            '}' | ']' => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+    (!in_str).then_some(stack)
+}
+
+/// Byte index just past the object that starts at 0, if it is complete.
+fn object_end(s: &str) -> Option<usize> {
+    let mut end = None;
+    scan(s, |i, c, st| {
+        if (c == '}' || c == ']') && st.len() == 1 {
+            end = Some(i + 1);
+            return false;
+        }
+        true
+    });
+    end
+}
+
+/// Complete a cut-off object: drop the unfinished trailing value and close
+/// the open brackets. Cuts are made only between array items or top-level
+/// keys, so a half-written item (a segment without its diameter) is dropped
+/// whole instead of kept incomplete.
+fn complete_json(s: &str) -> Option<Value> {
+    let mut cuts = vec![];
+    scan(s, |i, c, st| {
+        if c == ',' && (st.last() == Some(&']') || st.len() == 1) {
+            cuts.push(i);
+        }
+        true
+    });
+    cuts.into_iter().rev().take(400).find_map(|p| {
+        let head = s[..p].trim_end();
+        let open = scan(head, |_, _, _| true)?;
+        let tail: String = open.iter().rev().collect();
+        serde_json::from_str(&format!("{head}{tail}")).ok()
+    })
+}
+
+/// Keep the raw answer for troubleshooting; returns where it was saved.
+fn save_reply(raw: &str) -> String {
+    let p = std::env::temp_dir().join("imaginecad-last-ai-reply.txt");
+    match std::fs::write(&p, raw) {
+        Ok(()) => p.display().to_string(),
+        Err(_) => "nowhere (temporary folder not writable)".into(),
+    }
 }
 
 fn bbox_of(v: &Value) -> Option<[f64; 4]> {
@@ -276,8 +414,11 @@ fn openai_request(s: &AiSettings, model: &str, b64: &str, w: u32, h: u32) -> Res
     }
     // OpenRouter reserves credit for the model's whole output limit when none is
     // given, which fails with 402 on a small balance; the answer needs far less.
+    // Reasoning models spend part of that budget thinking; cap it so the
+    // JSON answer always has room.
     if s.openai_url.contains("openrouter.ai") {
         body["max_tokens"] = json!(8192);
+        body["reasoning"] = json!({"max_tokens": 2048});
     }
     let mut req = agent(s.timeout_secs).post(&format!("{}/chat/completions", s.openai_url.trim_end_matches('/')));
     if !s.api_key.is_empty() {
@@ -305,6 +446,9 @@ fn short(body: &str) -> String {
 
 /// Ask the configured vision model for dimension labels.
 pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String> {
+    if s.provider != Provider::Disabled && s.model().trim().is_empty() {
+        return Err("No AI model is selected. Choose one in AI Settings.".into());
+    }
     let (png, sw, sh) = send_png(img)?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     let mut switched_model = None;
@@ -405,15 +549,39 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
             Err((code, body)) => return Err(format!("AI request failed ({code}): {}", short(&body))),
         },
     };
-    let v = extract_json(&raw).ok_or_else(|| format!("Model did not return JSON: {}", raw.chars().take(200).collect::<String>()))?;
+    let (v, cut_off) = parse_reply(&raw).ok_or_else(|| {
+        let preview: String = raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
+        format!("The model's answer was not usable JSON (\"{preview}…\"); full answer saved to {}.", save_reply(&raw))
+    })?;
+    if cut_off {
+        save_reply(&raw);
+    }
     let (labels, title) = labels_from_json(&v, img.width() as f64, img.height() as f64, sw as f64, sh as f64);
     let part = crate::parts::PartSpec::from_json(&v);
-    Ok(LlmReading { labels, title, part, switched_model, switch_reason, raw })
+    Ok(LlmReading { labels, title, part, switched_model, switch_reason, cut_off, raw })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lenient_reply_parsing() {
+        // Fenced, with prose, a comment and trailing commas.
+        let r = "Here it is:\n```json\n{\"title\": null, // none written\n \"dimensions\": [{\"text\": \"50\", \"bbox\": [1,2,3,4],},],}\n```\nDone {ok}";
+        let (v, cut) = parse_reply(r).unwrap();
+        assert!(!cut && v["dimensions"][0]["text"] == "50");
+        // Cut off mid-way: completed at the last whole value.
+        let r = "```json\n{\"title\": null, \"part\": {\"type\": \"shaft\", \"total_length\": 2836, \"segments\": [{\"length\": 155, \"diameter\": 160}, {\"length\": 330, \"diam";
+        let (v, cut) = parse_reply(r).unwrap();
+        assert!(cut);
+        assert_eq!(v["part"]["segments"].as_array().unwrap().len(), 1);
+        assert_eq!(v["part"]["total_length"], 2836);
+        // Braces and commas inside strings do not confuse the scanner.
+        let (v, _) = parse_reply("{\"title\": \"A {b}, c\", \"x\": [1, 2").unwrap();
+        assert_eq!(v["title"], "A {b}, c");
+        assert!(parse_reply("no json here").is_none());
+    }
 
     #[test]
     fn parses_model_reply_and_maps_coordinates() {
