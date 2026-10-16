@@ -193,7 +193,7 @@ fn publish(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let (pages, problems) = crate::sheetset_ui::set_pages(&set, Some(&set_path), |p| icad_io::open(p));
+    let (pages, problems) = crate::sheetset_ui::set_pages(&set, Some(&set_path), icad_io::open);
     for p in &problems {
         eprintln!("skipped {p}");
     }
