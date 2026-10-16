@@ -36,11 +36,43 @@ pub struct Text {
     pub halign: HAlign,
     #[serde(default)]
     pub valign: VAlign,
+    /// Text style name; its font, width factor and slant are filled into the
+    /// fields below when the text is drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    /// Font file of the resolved style ("" = standard drafting font).
+    #[serde(skip)]
+    pub font: String,
+    #[serde(skip, default = "unit")]
+    pub width_factor: f64,
+    /// Slant (radians) of the resolved style.
+    #[serde(skip)]
+    pub oblique: f64,
+}
+
+fn unit() -> f64 {
+    1.0
 }
 
 impl Text {
     pub fn new(pos: V2, height: f64, content: impl Into<String>) -> Self {
-        Self { pos, height, rotation: 0.0, content: content.into(), halign: HAlign::Left, valign: VAlign::Baseline }
+        Self {
+            pos,
+            height,
+            rotation: 0.0,
+            content: content.into(),
+            halign: HAlign::Left,
+            valign: VAlign::Baseline,
+            style: None,
+            font: String::new(),
+            width_factor: 1.0,
+            oblique: 0.0,
+        }
+    }
+
+    /// Drawn from font outlines (a TrueType font, width factor or slant).
+    pub fn styled(&self) -> bool {
+        !self.font.is_empty() || (self.width_factor - 1.0).abs() > 1e-9 || self.oblique.abs() > 1e-9
     }
     pub fn aligned(mut self, h: HAlign, v: VAlign) -> Self {
         self.halign = h;
@@ -53,7 +85,14 @@ impl Text {
     }
 
     pub fn width(&self) -> f64 {
-        text_width(&self.content, self.height)
+        let base = if self.styled() {
+            crate::fonts::advance(&self.font, &self.content)
+                .map(|a| a * self.height)
+                .unwrap_or_else(|| text_width(&self.content, self.height))
+        } else {
+            text_width(&self.content, self.height)
+        };
+        base * self.width_factor
     }
 
     /// Lower-left of the text box in local (unrotated) coordinates relative to `pos`.

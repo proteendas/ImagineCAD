@@ -121,6 +121,12 @@ impl Cx<'_> {
     pub fn take_selection(&mut self) -> Vec<u64> {
         std::mem::take(&mut self.tab.selection)
     }
+    /// Current text style name and its fixed height, if any.
+    pub fn text_style(&self) -> (String, Option<f64>) {
+        let d = &self.tab.doc;
+        let fixed = d.text_style(&d.text_style).map(|s| s.height).filter(|h| *h > 0.0);
+        (d.text_style.clone(), fixed)
+    }
     /// Add a dimension on the dimension layer, associated with the geometry
     /// it measures; it becomes the base for DIMBASELINE/DIMCONTINUE.
     pub fn add_dim(&mut self, mut d: Dimension) -> u64 {
@@ -294,6 +300,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("TABLEDIT", ""),
     ("MLEADER", "MLD"),
     ("MLEADERSTYLE", "MLS"),
+    ("STYLE", "ST"),
+    ("SPELL", "SP"),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {
@@ -846,7 +854,10 @@ impl Command for TextCmd {
         if let (Some(p), Some(h), Some(r)) = (self.pos, self.height, self.rot) {
             if !s.is_empty() {
                 cx.checkpoint();
-                cx.doc().add(Shape::Text(Text::new(p, h, s).rotated(r)));
+                let (style, fixed) = cx.text_style();
+                let mut t = Text::new(p, fixed.unwrap_or(h), s).rotated(r);
+                t.style = Some(style);
+                cx.doc().add(Shape::Text(t));
             }
             return Flow::Done;
         }

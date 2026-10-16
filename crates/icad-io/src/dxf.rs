@@ -302,6 +302,9 @@ fn text_groups(w: &mut W, t: &Text, content: &str) -> i32 {
     if t.rotation.abs() > 1e-9 {
         w.f(50, deg(t.rotation));
     }
+    if let Some(s) = &t.style {
+        w.g(7, s);
+    }
     let h = match t.halign {
         HAlign::Left => 0,
         HAlign::Center => 1,
@@ -460,7 +463,7 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
             if chunks.is_empty() {
                 w.g(1, "");
             }
-            w.g(7, "Standard");
+            w.g(7, m.style.as_deref().unwrap_or("Standard"));
             w.pt(11, V2::polar(1.0, m.rotation));
             w.f(44, m.spacing);
             if m.content.contains("{{") {
@@ -739,17 +742,27 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     }
     w.g(0, "ENDTAB");
 
-    let t = table_start(&mut w, "STYLE", 1);
-    record(&mut w, "STYLE", t, "AcDbTextStyleTableRecord");
-    w.g(2, if modern { "Standard" } else { "STANDARD" });
-    w.g(70, 0);
-    w.f(40, 0.0);
-    w.f(41, 1.0);
-    w.f(50, 0.0);
-    w.g(71, 0);
-    w.f(42, 2.5);
-    w.g(3, "txt");
-    w.g(4, "");
+    let mut styles = doc.text_styles.clone();
+    if !styles.iter().any(|s| s.name.eq_ignore_ascii_case("Standard")) {
+        styles.insert(0, icad_core::fonts::TextStyle::standard());
+    }
+    let t = table_start(&mut w, "STYLE", styles.len());
+    for st in &styles {
+        record(&mut w, "STYLE", t, "AcDbTextStyleTableRecord");
+        let name = if !modern && st.name.eq_ignore_ascii_case("Standard") { "STANDARD".to_string() } else { st.name.clone() };
+        w.g(2, name);
+        w.g(70, 0);
+        w.f(40, st.height);
+        w.f(41, st.width_factor);
+        w.f(50, st.oblique);
+        w.g(71, 0);
+        w.f(42, 2.5);
+        // Other programs find the font by its file name.
+        let file = st.file.rsplit_once('#').map(|x| x.0).unwrap_or(&st.file);
+        let base = std::path::Path::new(file).file_name().and_then(|f| f.to_str()).unwrap_or("");
+        w.g(3, if base.is_empty() { "txt" } else { base });
+        w.g(4, "");
+    }
     w.g(0, "ENDTAB");
 
     let mut msp_br = 0;
@@ -1234,6 +1247,7 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
                 content,
                 attach: r.i(71).clamp(1, 9) as u8,
                 spacing: r.f_or(44, 1.0),
+                style: r.s(7).filter(|s| !s.is_empty()).map(String::from),
             }))
         }
         "DIMENSION" => read_dimension(r),
@@ -1329,14 +1343,9 @@ fn read_text(r: &Rec) -> Text {
         _ => VAlign::Baseline,
     };
     let pos = if (h != HAlign::Left || v != VAlign::Baseline) && r.has(11) { r.p(11) } else { r.p(10) };
-    Text {
-        pos,
-        height: r.f(40).max(1e-6),
-        rotation: norm_angle(rad(r.f(50))),
-        content: decode_text(r.s(1).unwrap_or("")),
-        halign: h,
-        valign: v,
-    }
+    let mut t = Text::new(pos, r.f(40).max(1e-6), decode_text(r.s(1).unwrap_or(""))).aligned(h, v).rotated(norm_angle(rad(r.f(50))));
+    t.style = r.s(7).filter(|s| !s.is_empty()).map(String::from);
+    t
 }
 
 fn apply_props(e: &mut Entity, r: &Rec) {
@@ -1369,6 +1378,7 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     let mut i = 0;
     let mut section = String::new();
     let mut table_layers: Vec<Layer> = Vec::new();
+    let mut table_styles: Vec<icad_core::fonts::TextStyle> = Vec::new();
     let mut recs: Vec<Rec> = Vec::new();
     let mut block_recs: Vec<(String, V2, Vec<Rec>)> = Vec::new();
     while i < ps.len() {
@@ -1391,6 +1401,22 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
                 i += 1;
             }
             match section.as_str() {
+                "TABLES" if r.kind == "STYLE" => {
+                    if let Some(name) = r.s(2).filter(|n| !n.is_empty()) {
+                        let file = r.s(3).unwrap_or("").to_string();
+                        // Shape (.shx) fonts are drawn with the standard font.
+                        let ttf = file.to_ascii_lowercase().ends_with(".ttf") || file.to_ascii_lowercase().ends_with(".otf");
+                        let stem = std::path::Path::new(&file).file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                        table_styles.push(icad_core::fonts::TextStyle {
+                            name: name.to_string(),
+                            file: if ttf { file } else { String::new() },
+                            font: if ttf { stem } else { String::new() },
+                            width_factor: r.f_or(41, 1.0),
+                            oblique: r.f(50),
+                            height: r.f(40),
+                        });
+                    }
+                }
                 "TABLES" if r.kind == "LAYER" => {
                     if let Some(name) = r.s(2) {
                         let c = r.i(62);
@@ -1429,6 +1455,12 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
         i += 1;
     }
 
+    for st in table_styles {
+        match doc.text_styles.iter_mut().find(|s| s.name.eq_ignore_ascii_case(&st.name)) {
+            Some(s) => *s = st,
+            None => doc.text_styles.push(st),
+        }
+    }
     for l in table_layers {
         if let Some(ex) = doc.layer_mut(&l.name) {
             *ex = l;
@@ -1809,6 +1841,35 @@ mod tests {
         assert!(s.contains("UNTITLED PART"), "fields are written with their values");
         let r = read_dxf(&s).unwrap();
         assert_eq!(r.entities.iter().map(|e| e.shape.clone()).collect::<Vec<_>>(), vec![Shape::Table(t), Shape::Leader(l)]);
+    }
+
+    #[test]
+    fn text_styles_round_trip() {
+        let mut d = Document::new();
+        d.text_styles.push(icad_core::fonts::TextStyle {
+            name: "NOTES".into(),
+            file: "/Library/Fonts/Arial Narrow.ttf".into(),
+            font: "Arial Narrow".into(),
+            width_factor: 0.8,
+            oblique: 15.0,
+            height: 0.0,
+        });
+        let mut t = Text::new(V2::ZERO, 3.5, "SEE NOTE 2");
+        t.style = Some("NOTES".into());
+        d.add(Shape::Text(t));
+        let mut m = MText::new(V2::new(0., 20.), 2.5, 50.0, "REMOVE BURRS");
+        m.style = Some("NOTES".into());
+        d.add(Shape::MText(m));
+        let s = write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() });
+        assert!(s.contains("Arial Narrow.ttf"));
+        let r = read_dxf(&s).unwrap();
+        let st = r.text_style("NOTES").unwrap();
+        assert_eq!((st.file.as_str(), st.font.as_str(), st.width_factor, st.oblique), ("Arial Narrow.ttf", "Arial Narrow", 0.8, 15.0));
+        assert!(r.entities.iter().all(|e| match &e.shape {
+            Shape::Text(t) => t.style.as_deref() == Some("NOTES"),
+            Shape::MText(m) => m.style.as_deref() == Some("NOTES"),
+            _ => false,
+        }));
     }
 
     #[test]

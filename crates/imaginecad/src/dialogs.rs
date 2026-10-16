@@ -242,6 +242,8 @@ pub struct Dialogs {
     pub table: Option<crate::tables::TableDialog>,
     pub table_edit: Option<crate::tables::TableEditor>,
     pub mleader_styles: bool,
+    pub style: Option<crate::text_ui::StyleDialog>,
+    pub spell: Option<crate::spell::SpellDialog>,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -334,6 +336,8 @@ impl App {
         self.symbol_dialog(ctx);
         self.attedit_dialog(ctx);
         self.table_dialogs(ctx);
+        self.style_dialog(ctx);
+        self.spell_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();

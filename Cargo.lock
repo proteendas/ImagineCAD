@@ -1494,6 +1494,7 @@ version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ttf-parser",
 ]
 
 [[package]]
@@ -1661,6 +1662,7 @@ dependencies = [
  "icad-vision",
  "image",
  "keyring",
+ "miniz_oxide 0.8.9",
  "rfd",
  "serde",
  "serde_json",

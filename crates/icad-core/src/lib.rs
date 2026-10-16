@@ -9,6 +9,7 @@ pub mod curves;
 pub mod document;
 pub mod entity;
 pub mod fields;
+pub mod fonts;
 pub mod geom;
 pub mod hatch;
 pub mod ops;

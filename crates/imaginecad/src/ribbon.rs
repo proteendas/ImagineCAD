@@ -290,8 +290,13 @@ const MODIFY_MORE: &[Item] = &[
     (Icon::Erase, "Overkill (delete duplicates)", "OVERKILL"),
     (Icon::Undo, "Oops (restore erased)", "OOPS"),
 ];
-const TEXTS: &[Item] =
-    &[(Icon::MText, "Multiline Text", "MTEXT"), (Icon::Text, "Single Line", "TEXT"), (Icon::Properties, "Edit Text", "TEXTEDIT")];
+const TEXTS: &[Item] = &[
+    (Icon::MText, "Multiline Text", "MTEXT"),
+    (Icon::Text, "Single Line", "TEXT"),
+    (Icon::Properties, "Edit Text", "TEXTEDIT"),
+    (Icon::Text, "Text Style", "STYLE"),
+    (Icon::Check, "Check Spelling", "SPELL"),
+];
 const DIMS: &[Item] = &[
     (Icon::DimLinear, "Linear", "DIMLINEAR"),
     (Icon::DimAligned, "Aligned", "DIMALIGNED"),
@@ -479,7 +484,9 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
         column(ui, |ui| {
             small(ui, Icon::Text, "Single Line", "TEXT (DT)", "TEXT", out);
             small(ui, Icon::Properties, "Edit Text", "TEXTEDIT (ED) — or double-click text", "TEXTEDIT", out);
+            small(ui, Icon::Check, "Check Spelling", "SPELL (SP) — selection, or the whole drawing", "SPELL", out);
         });
+        big(ui, Icon::Text, "Text\nStyle", "STYLE (ST) — fonts (TrueType), width factor, slant", "STYLE", out);
     });
     panel(ui, "Dimensions", &ANNOT_MORE[4..], out, |ui, out| {
         big_split(ui, Icon::DimLinear, "Dimension", "DIMLINEAR (DLI) — choose a type with ▾", "DIMLINEAR", DIMS, out);

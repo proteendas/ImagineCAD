@@ -310,6 +310,8 @@ impl App {
                 }
             }
             "MLEADERSTYLE" | "MLS" => self.dlg.mleader_styles = true,
+            "STYLE" | "ST" | "TEXTSTYLE" => self.dlg.style = Some(Default::default()),
+            "SPELL" | "SP" => self.start_spell(),
             "AIHELP" => self.dlg.ai_help = true,
             "LAYER" | "LA" => self.dlg.layers = true,
             "PROPERTIES" | "PR" | "PROPS" => {
@@ -1633,6 +1635,19 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::Text(tx) => {
+                        ui.label("Style");
+                        let names: Vec<String> = t.doc.text_styles.iter().map(|s| s.name.clone()).collect();
+                        egui::ComboBox::from_id_salt("p_ts").selected_text(tx.style.clone().unwrap_or_else(|| "Standard".into())).show_ui(
+                            ui,
+                            |ui| {
+                                for n in names {
+                                    if ui.selectable_value(&mut tx.style, Some(n.clone()), &n).changed() {
+                                        gflag.set(true);
+                                    }
+                                }
+                            },
+                        );
+                        ui.end_row();
                         ui.label("Contents");
                         if ui.text_edit_singleline(&mut tx.content).changed() {
                             gflag.set(true);
@@ -1716,6 +1731,19 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::MText(m) => {
+                        ui.label("Style");
+                        let names: Vec<String> = t.doc.text_styles.iter().map(|s| s.name.clone()).collect();
+                        egui::ComboBox::from_id_salt("p_mts").selected_text(m.style.clone().unwrap_or_else(|| "Standard".into())).show_ui(
+                            ui,
+                            |ui| {
+                                for n in names {
+                                    if ui.selectable_value(&mut m.style, Some(n.clone()), &n).changed() {
+                                        gflag.set(true);
+                                    }
+                                }
+                            },
+                        );
+                        ui.end_row();
                         ui.label("Contents");
                         if ui.add(egui::TextEdit::multiline(&mut m.content).desired_rows(3).desired_width(160.0)).changed() {
                             gflag.set(true);

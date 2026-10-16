@@ -410,6 +410,9 @@ pub struct MText {
     /// Line spacing factor.
     #[serde(default = "one")]
     pub spacing: f64,
+    /// Text style name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
 }
 
 fn one() -> f64 {
@@ -418,7 +421,7 @@ fn one() -> f64 {
 
 impl MText {
     pub fn new(pos: V2, height: f64, width: f64, content: impl Into<String>) -> Self {
-        Self { pos, height, width, rotation: 0.0, content: content.into(), attach: 1, spacing: 1.0 }
+        Self { pos, height, width, rotation: 0.0, content: content.into(), attach: 1, spacing: 1.0, style: None }
     }
 
     /// Wrapped lines.
@@ -467,7 +470,10 @@ impl MText {
             .filter(|(_, l)| !l.is_empty())
             .map(|(i, l)| {
                 let local = V2::new(0.0, top - i as f64 * pitch);
-                Text::new(self.pos + local.rotate(self.rotation), self.height, l).aligned(h, VAlign::Top).rotated(self.rotation)
+                let mut t =
+                    Text::new(self.pos + local.rotate(self.rotation), self.height, l).aligned(h, VAlign::Top).rotated(self.rotation);
+                t.style = self.style.clone();
+                t
             })
             .collect()
     }

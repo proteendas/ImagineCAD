@@ -49,7 +49,23 @@ pub fn write_svg(doc: &Document, opts: &PlotOptions) -> String {
 <g fill="none" stroke-linecap="round" stroke-linejoin="round" font-family="Helvetica, Arial, sans-serif">"#,
         esc(&doc.sheet.title.title)
     );
-    for it in plot_items(doc, opts) {
+    let items = plot_items(doc, opts);
+    // Same-coloured fills in a row become one path (no seams between pieces).
+    let mut run = String::new();
+    for (i, it) in items.iter().enumerate() {
+        if let Prim::Fill(p) = &it.prim {
+            for (k, q) in p.iter().enumerate() {
+                let _ = write!(run, "{}{} {} ", if k == 0 { "M" } else { "L" }, f(q.x), f(y(q.y)));
+            }
+            run.push_str("Z ");
+            let next_same = items.get(i + 1).is_some_and(|nx| matches!(nx.prim, Prim::Fill(_)) && nx.rgb == it.rgb);
+            if !next_same {
+                let _ =
+                    writeln!(s, r#"<path d="{}" fill="rgb({},{},{})" stroke="none"/>"#, run.trim_end(), it.rgb[0], it.rgb[1], it.rgb[2]);
+                run.clear();
+            }
+            continue;
+        }
         let col = format!("rgb({},{},{})", it.rgb[0], it.rgb[1], it.rgb[2]);
         let mut st = format!(r#"stroke="{col}" stroke-width="{}""#, f(it.width));
         if !it.dash.is_empty() {
@@ -65,9 +81,7 @@ pub fn write_svg(doc: &Document, opts: &PlotOptions) -> String {
                 let tag = if *closed { "polygon" } else { "polyline" };
                 let _ = writeln!(s, r#"<{tag} points="{}" {st}/>"#, pts(p));
             }
-            Prim::Fill(p) => {
-                let _ = writeln!(s, r#"<polygon points="{}" fill="{col}" stroke="none"/>"#, pts(p));
-            }
+            Prim::Fill(_) => {}
             Prim::Circle(c, r) => {
                 let _ = writeln!(s, r#"<circle cx="{}" cy="{}" r="{}" {st}/>"#, f(c.x), f(y(c.y)), f(*r));
             }

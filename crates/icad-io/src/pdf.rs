@@ -85,7 +85,23 @@ pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
     c.push_str("1 J 1 j\n");
     // Clip to the page.
     let _ = writeln!(c, "0 0 {} {} re W n", n(w * PT), n(h * PT));
-    for it in &items {
+    // Runs of same-coloured fills (text outlines, solid hatches) are filled
+    // as one path, so anti-aliasing leaves no seams between the pieces.
+    let same_fill = |a: &crate::plot::PlotItem, b: &crate::plot::PlotItem| {
+        matches!((&a.prim, &b.prim), (Prim::Fill(_), Prim::Fill(_))) && a.rgb == b.rgb
+    };
+    for (i, it) in items.iter().enumerate() {
+        let continues = i > 0 && same_fill(&items[i - 1], it);
+        let run_ends = !items.get(i + 1).is_some_and(|nx| same_fill(it, nx));
+        if continues {
+            if let Prim::Fill(pts) = &it.prim {
+                poly_path(&mut c, pts, true);
+                if run_ends {
+                    c.push_str("f\n");
+                }
+            }
+            continue;
+        }
         let [r, g, b] = it.rgb.map(|v| v as f64 / 255.0);
         let _ = writeln!(c, "{} {} {} RG {} {} {} rg {} w", n(r), n(g), n(b), n(r), n(g), n(b), n(it.width * PT));
         if it.dash.is_empty() {
@@ -104,7 +120,9 @@ pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
             }
             Prim::Fill(pts) => {
                 poly_path(&mut c, pts, true);
-                c.push_str("f\n");
+                if run_ends {
+                    c.push_str("f\n");
+                }
             }
             Prim::Circle(ctr, r) => {
                 path_arc(&mut c, *ctr, *r, 0.0, std::f64::consts::TAU, true);

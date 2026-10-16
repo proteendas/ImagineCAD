@@ -18,9 +18,11 @@ mod icons;
 mod ribbon;
 mod secrets;
 mod settings;
+mod spell;
 mod symbol_ui;
 mod tab;
 mod tables;
+mod text_ui;
 mod theme;
 mod view;
 

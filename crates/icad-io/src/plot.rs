@@ -86,12 +86,15 @@ pub fn plot_items(doc: &Document, opts: &PlotOptions) -> Vec<PlotItem> {
         for it in doc.render_items(e) {
             let is_fill = matches!(it.prim, Prim::Text(_) | Prim::Fill(_) | Prim::Image(_));
             let dash: Vec<f64> = if is_fill { vec![] } else { it.linetype.pattern().iter().map(|x| x.abs() * doc.ltscale).collect() };
-            out.push(PlotItem {
-                prim: to_paper(doc, &it.prim),
-                rgb: plot_color(it.color, opts.monochrome),
-                dash,
-                width: lw(it.lineweight),
-            });
+            // Styled text plots as its font outlines.
+            for p in icad_core::fonts::expand(vec![it.prim]) {
+                out.push(PlotItem {
+                    prim: to_paper(doc, &p),
+                    rgb: plot_color(it.color, opts.monochrome),
+                    dash: dash.clone(),
+                    width: lw(it.lineweight),
+                });
+            }
         }
     }
     if opts.include_sheet && doc.sheet.visible {

@@ -341,7 +341,10 @@ impl Command for MTextCmd {
             let content = s.replace("\\P", "\n").replace("\\p", "\n");
             cx.checkpoint();
             let layer = if cx.tab.doc.layer(layers::TEXT).is_some() { layers::TEXT.to_string() } else { cx.tab.doc.current_layer.clone() };
-            cx.doc().add_on(&layer, Shape::MText(MText::new(pos, h, (a.x - b.x).abs(), content)));
+            let (style, fixed) = cx.text_style();
+            let mut m = MText::new(pos, fixed.unwrap_or(h), (a.x - b.x).abs(), content);
+            m.style = Some(style);
+            cx.doc().add_on(&layer, Shape::MText(m));
         }
         Flow::Done
     }

@@ -192,6 +192,21 @@ Manual editing works alongside the chat at all times.
 The chat uses the engine chosen in **AI Settings** (any cloud key, Ollama or a
 local server). From a terminal: `imaginecad ask part.icad "make the bore 12 mm" -o part.icad`.
 
+## Text styles and spelling
+
+`STYLE` (`ST`) manages **text styles**: any installed TrueType/OpenType font
+(searchable list), width factor, oblique (slant) angle and an optional fixed
+height. New text uses the current style; change a text's style in the
+Properties palette. Text in a TrueType style is drawn from the font's own
+outlines, so it looks the same on screen, in PDF and in SVG; DXF/DWG keep the
+style with its font file name. *Standard* uses the built-in drafting font.
+
+`SPELL` (`SP`) checks the selection, or every text in the drawing: single and
+multiline text, leaders, dimension text, attribute values and table cells.
+For each unknown word choose a suggestion and **Change** / **Change All**, or
+**Ignore**, **Ignore All**, **Add to Dictionary** (kept in your personal
+dictionary). Part numbers, codes with digits, acronyms and fields are skipped.
+
 ## Tables and multileaders
 
 `TABLE` opens a dialog: start **empty** (rows × columns), **from CSV / a

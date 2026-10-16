@@ -36,6 +36,11 @@ pub struct Document {
     pub mleader_styles: Vec<crate::table::MLeaderStyle>,
     #[serde(default = "standard")]
     pub mleader_style: String,
+    /// Text styles and the current one.
+    #[serde(default = "default_text_styles")]
+    pub text_styles: Vec<crate::fonts::TextStyle>,
+    #[serde(default = "standard")]
+    pub text_style: String,
     /// File name for the FILENAME field (set by the application; not saved).
     #[serde(skip)]
     pub file_name: String,
@@ -57,6 +62,10 @@ fn one() -> f64 {
 
 fn default_mleader_styles() -> Vec<crate::table::MLeaderStyle> {
     vec![crate::table::MLeaderStyle::standard(), crate::table::MLeaderStyle::balloon()]
+}
+
+fn default_text_styles() -> Vec<crate::fonts::TextStyle> {
+    vec![crate::fonts::TextStyle::standard()]
 }
 
 fn standard() -> String {
@@ -119,6 +128,8 @@ impl Document {
             part: None,
             mleader_styles: default_mleader_styles(),
             mleader_style: standard(),
+            text_styles: default_text_styles(),
+            text_style: standard(),
             file_name: String::new(),
         }
     }
@@ -247,15 +258,28 @@ impl Document {
         e.shape.prims(&self.ctx()).into_iter().map(|p| self.resolve_prim(p)).collect()
     }
 
-    /// Text with `{{FIELD}}` placeholders replaced by their current values.
+    /// Text with its style applied and `{{FIELD}}` placeholders replaced by
+    /// their current values.
     fn resolve_prim(&self, p: Prim) -> Prim {
         match p {
-            Prim::Text(mut t) if t.content.contains("{{") => {
-                t.content = crate::fields::resolve(self, &t.content);
+            Prim::Text(mut t) => {
+                if t.content.contains("{{") {
+                    t.content = crate::fields::resolve(self, &t.content);
+                }
+                if let Some(st) = t.style.as_deref().and_then(|n| self.text_style(n)) {
+                    t.font = st.file.clone();
+                    t.width_factor = st.width_factor;
+                    t.oblique = st.oblique.to_radians();
+                }
                 Prim::Text(t)
             }
             p => p,
         }
+    }
+
+    /// Text style by name (case-insensitive).
+    pub fn text_style(&self, name: &str) -> Option<&crate::fonts::TextStyle> {
+        self.text_styles.iter().find(|s| s.name.eq_ignore_ascii_case(name))
     }
 
     /// Border, zones and title block: the built-in title block, or the block

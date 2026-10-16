@@ -13,6 +13,7 @@ name = "imaginecad"
 path = "src/main.rs"
 
 [dependencies]
+miniz_oxide = "0.8"
 icad-core.workspace = true
 icad-io.workspace = true
 icad-vision.workspace = true

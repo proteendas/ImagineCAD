@@ -38,7 +38,7 @@ added).
 
 - [x] Block attributes (`ATTDEF`, `ATTEDIT`) and dynamic title blocks
 - [x] Multileader styles, tables (`TABLE`), fields
-- [ ] Text styles with TrueType fonts; spell check
+- [x] Text styles with TrueType fonts; spell check
 - [x] Ordinate and arc-length dimensions, `QDIM`, dimension associativity
 - [x] GD&T feature control frames, surface-finish and weld symbols
 - [ ] Object snap tracking, selection cycling, `BOUNDARY`, `REGION`

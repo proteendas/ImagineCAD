@@ -18,3 +18,8 @@ grants rights to the software, not to these marks; see TRADEMARKS.md.
 
 This product includes third-party open-source components. Their licenses are
 listed in THIRD_PARTY_LICENSES.html (generated with cargo-about).
+
+The spell checker's English word list (assets/dict) is derived from
+"Webster's Second International Dictionary" (1934) word list as distributed
+with BSD and macOS (/usr/share/dict/web2), which is in the public domain,
+plus drafting terms added by the ImagineCAD project.

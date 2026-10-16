@@ -157,6 +157,15 @@ pub fn prim_shapes(view: &View, p: &Prim, st: &Style, out: &mut Vec<Shape>) {
 
 /// Text needs the painter (font layout), so it is drawn separately.
 pub fn draw_text(painter: &Painter, view: &View, t: &icad_core::prim::Text, color: Color32) {
+    // Text styles with a TrueType font, width factor or slant: font outlines.
+    if let Some(fills) = icad_core::fonts::outline(t) {
+        for p in fills {
+            if let Prim::Fill(pts) = p {
+                painter.add(Shape::convex_polygon(pts.iter().map(|q| view.to_screen(*q)).collect(), color, Stroke::NONE));
+            }
+        }
+        return;
+    }
     let size = (t.height / 0.72 * view.zoom) as f32;
     if t.content.is_empty() {
         return;
