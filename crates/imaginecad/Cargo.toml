@@ -27,6 +27,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
@@ -41,6 +45,7 @@ priority = "optional"
 assets = [
     ["target/release/imaginecad", "usr/bin/", "755"],
     ["../../packaging/linux/imaginecad.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/linux/imaginecad-mime.xml", "usr/share/mime/packages/imaginecad.xml", "644"],
     ["../../assets/icon-256.png", "usr/share/icons/hicolor/256x256/apps/imaginecad.png", "644"],
     ["../../dist/libredwg/dwg2dxf", "usr/lib/imaginecad/", "755"],
     ["../../dist/libredwg/dxf2dwg", "usr/lib/imaginecad/", "755"],

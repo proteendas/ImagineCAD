@@ -102,8 +102,15 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
     if opts.ai.provider != Provider::Disabled {
         let model = opts.ai.describe();
         progress(0.08, &format!("Reading dimensions with AI ({model}) — this can take a minute"));
-        match llm::read_labels(&opts.ai, &gray.to_image()) {
-            Ok(r) => {
+        // The model reads small handwritten digits better from a sharper copy.
+        let sharp = raster::load(bytes, llm::SEND_MAX).unwrap_or_else(|_| gray.clone());
+        match llm::read_labels(&opts.ai, &sharp.for_reading()) {
+            Ok(mut r) => {
+                // Boxes come back in the sharp copy's pixels: bring them to ours.
+                let k = gray.w as f64 / sharp.w as f64;
+                for l in &mut r.labels {
+                    l.bbox = BBox::from_pts(l.bbox.min * k, l.bbox.max * k);
+                }
                 let used = match &r.switched_model {
                     Some(m) => {
                         let why = r.switch_reason.as_deref().unwrap_or("it could not be used");
@@ -118,8 +125,21 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
                         .push("The AI answer was cut off; values after the cut are missing. Check the drawing, or convert again.".into());
                 }
                 // A parametric description of the whole part beats tracing pencil strokes.
+                // Only a description that agrees with the written values is drawn
+                // as is; otherwise the sketch is traced with those values.
+                let texts: Vec<String> = r.labels.iter().map(|l| l.text.clone()).collect();
+                let part = r.part.clone().filter(|spec| match spec.acceptable(&texts) {
+                    Ok(()) => true,
+                    Err(issues) => {
+                        warnings.push(format!(
+                            "The AI's description of the part did not check out against the written dimensions ({}); the sketch was traced instead.",
+                            issues.join(" ")
+                        ));
+                        false
+                    }
+                });
                 if opts.reconstruct_parts {
-                    if let Some(spec) = r.part.clone() {
+                    if let Some(spec) = part {
                         progress(0.9, "Building the part from the AI description");
                         let desc = spec.describe();
                         log.push(format!("AI recognised the part: {desc}"));
@@ -220,7 +240,10 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
             ix * iy / area > 0.6
         });
         let speck = c.count < 12 || (c.w().max(c.h()) as f64) < long * 0.004;
-        erase[i + 1] = in_label || speck;
+        // The sheet border (and a title block drawn into it): a thin frame
+        // round almost the whole image.
+        let frame = c.w() as f64 > 0.8 * gray.w as f64 && c.h() as f64 > 0.8 * gray.h as f64 && (c.count as f64) < 0.15 * area;
+        erase[i + 1] = in_label || speck || frame;
     }
     for (i, l) in comp_labels.iter().enumerate() {
         if erase[*l as usize] {
@@ -1081,6 +1104,15 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
         Layer::new(layers::DIMENSIONS, 4, LineType::Continuous, 0.18),
     ] {
         doc.ensure_layer(l);
+    }
+    // Section hatching and hidden edges, when the drawing has them.
+    for (name, l) in [
+        (layers::HIDDEN, Layer::new(layers::HIDDEN, 2, LineType::Hidden, 0.25)),
+        (layers::HATCH, Layer::new(layers::HATCH, 8, LineType::Continuous, 0.13)),
+    ] {
+        if conv.shapes.iter().any(|(n, _)| n == name) {
+            doc.ensure_layer(l);
+        }
     }
     let ids: Vec<u64> = conv.shapes.iter().map(|(layer, shape)| doc.add_on(layer, shape.clone())).collect();
     if let Some(spec) = &conv.part {

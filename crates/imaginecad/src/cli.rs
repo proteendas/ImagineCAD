@@ -161,8 +161,12 @@ fn ai_options(args: &[String], ai: &mut icad_vision::llm::AiSettings) -> Result<
         // Any provider's key: detect the provider and pick a vision model.
         match icad_vision::providers::detect(&k, take(args, "--openai-url").as_deref()) {
             Ok(d) => {
-                eprintln!("AI: {} · {}", d.vendor, d.model);
                 ai.apply_detected(&d, &k);
+                // An explicitly chosen model wins over the detected default.
+                if let Some(m) = take(args, "--openai-model") {
+                    ai.openai_model = m;
+                }
+                eprintln!("AI: {} · {}", d.vendor, ai.openai_model);
             }
             Err(e) => {
                 eprintln!("API key: {e}");

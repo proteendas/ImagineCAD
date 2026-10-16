@@ -54,6 +54,15 @@ Root: HKA; Subkey: "Software\Classes\ImagineCAD.Drawing\DefaultIcon"; ValueType:
 Root: HKA; Subkey: "Software\Classes\ImagineCAD.Drawing\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\imaginecad.exe"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\.dxf\OpenWithProgids"; ValueType: string; ValueName: "ImagineCAD.Drawing"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdxf
 Root: HKA; Subkey: "Software\Classes\.dwg\OpenWithProgids"; ValueType: string; ValueName: "ImagineCAD.Drawing"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdwg
+; "Open with" for every type ImagineCAD reads (drawings and sketch photos).
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "ImagineCAD"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\imaginecad.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\SupportedTypes"; ValueType: string; ValueName: ".icad"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\SupportedTypes"; ValueType: string; ValueName: ".dxf"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\SupportedTypes"; ValueType: string; ValueName: ".dwg"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\SupportedTypes"; ValueType: string; ValueName: ".png"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\SupportedTypes"; ValueType: string; ValueName: ".jpg"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\imaginecad.exe\SupportedTypes"; ValueType: string; ValueName: ".jpeg"; ValueData: ""
 
 [Run]
 Filename: "{app}\imaginecad.exe"; Description: "{cm:LaunchProgram,ImagineCAD}"; Flags: nowait postinstall skipifsilent

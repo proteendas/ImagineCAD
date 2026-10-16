@@ -17,6 +17,8 @@ mod dialogs;
 mod dialogs2;
 mod icons;
 mod layouts_ui;
+#[cfg(target_os = "macos")]
+mod macos_open;
 mod menus;
 mod ribbon;
 mod secrets;
@@ -46,8 +48,11 @@ fn main() -> eframe::Result<()> {
     if let Some(code) = cli::run(&args) {
         std::process::exit(code);
     }
-    let open = args.iter().find(|a| !a.starts_with('-')).map(std::path::PathBuf::from);
+    // Every file the file manager passed (several when a selection is opened).
+    let open: Vec<std::path::PathBuf> = args.iter().filter(|a| !a.starts_with('-')).map(|a| launch_path(a)).collect();
 
+    #[cfg(target_os = "macos")]
+    macos_open::register();
     // IMAGINECAD_WINDOW=WxH sets the start size (visual tests).
     let size = std::env::var("IMAGINECAD_WINDOW")
         .ok()
@@ -65,4 +70,38 @@ fn main() -> eframe::Result<()> {
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native("ImagineCAD", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, open)))))
+}
+
+/// The file a file manager asked to open: a plain path (Windows Explorer,
+/// most Linux desktops) or a `file://` URI (desktop entries using %U).
+fn launch_path(arg: &str) -> std::path::PathBuf {
+    let Some(rest) = arg.strip_prefix("file://") else { return std::path::PathBuf::from(arg) };
+    // Drop an optional host ("file://localhost/…") and decode %XX escapes.
+    let path = if rest.starts_with('/') { rest } else { rest.find('/').map(|i| &rest[i..]).unwrap_or(rest) };
+    let b = path.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&path[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    std::path::PathBuf::from(String::from_utf8_lossy(&out).into_owned())
+}
+
+#[cfg(test)]
+mod launch_tests {
+    #[test]
+    fn file_uris_and_paths() {
+        assert_eq!(super::launch_path("/home/a/part 1.dxf"), std::path::PathBuf::from("/home/a/part 1.dxf"));
+        assert_eq!(super::launch_path("file:///home/a/part%201.dxf"), std::path::PathBuf::from("/home/a/part 1.dxf"));
+        assert_eq!(super::launch_path("file://localhost/tmp/x.dwg"), std::path::PathBuf::from("/tmp/x.dwg"));
+        assert_eq!(super::launch_path(r"C:\Users\a\x.dwg"), std::path::PathBuf::from(r"C:\Users\a\x.dwg"));
+    }
 }

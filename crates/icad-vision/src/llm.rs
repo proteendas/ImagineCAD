@@ -161,18 +161,66 @@ are crossed out or scribbled over. For each give the exact text and its bounding
 \"length\": L, \"width\": W or 0 if not written}}], \"chamfers\": [{{\"at\": boundary index (0 = left end, k = between segment k-1 and k, \
 n = right end), \"size\": C}}]}}. Each segment is a stretch of constant diameter: if one length dimension covers several \
 diameters (e.g. 50 + rest + 50), split it so every segment has its own length and diameter. The segment lengths must add up to \
-the written total length when one is given.\n\
+the written total length when one is given. Work in this order: count the steps drawn (each change of diameter \
+is a vertical edge across the shaft), read the chain of length dimensions under or over the shaft from left to right, read \
+the diameter written on or beside each step from left to right, then pair them; there are exactly as many segments as \
+steps.\n\
  - Rectangular plate: {{\"type\": \"plate\", \"width\": W, \"height\": H, \"holes\": [{{\"x\": X, \"y\": Y, \"diameter\": D}}]}} \
 (hole positions from the bottom-left corner).\n\
- - Anything else: null.\n\
+ - Round part (ring, washer, bush, spacer, collar, flange, wheel, pulley/sheave, gear blank) drawn as circles (end view) \
+and/or a side or section view: {{\"type\": \"ring|washer|bush|flange|wheel|pulley\", \"outer_diameter\": D, \"width\": axial width \
+or thickness, \"bore\": d or 0, \"hub_diameter\": or null, \"hub_length\": or null, \"web_thickness\": or null, \
+\"rim_thickness\": radial or null, \"grooves\": {{\"count\": n, \"angle\": included degrees (0 if square), \"depth\": h, \
+\"width\": width at the rim}} or null, \"keyway\": {{\"width\": b, \"depth\": depth into the hub}} or null, \"holes\": {{\"count\": n, \
+\"diameter\": d, \"pcd\": pitch circle diameter}} or null}}.\n\
+ - Any other part (brackets, levers, links, housings, covers, blocks, multi-view drawings): {{\"type\": \"profile\", \"name\": \
+\"what it is\", \"entities\": [{{\"polyline\": [[x, y], ...], \"closed\": true}}, {{\"line\": [x1, y1, x2, y2]}}, {{\"circle\": \
+[cx, cy, diameter]}}, {{\"arc\": [cx, cy, radius, start_deg, end_deg]}} (counter-clockwise), add \"style\": \"hidden\" or \"center\" \
+for dashed lines], \"dimensions\": [{{\"kind\": \"horizontal|vertical|aligned\", \"from\": [x, y], \"to\": [x, y], \"value\": v}}, \
+{{\"kind\": \"diameter|radius\", \"center\": [x, y], \"value\": v}}, {{\"kind\": \"angle\", \"vertex\": [x, y], \"from\": [x, y], \
+\"to\": [x, y], \"value\": degrees}}]}}. Construct the true geometry in millimetres with y pointing up, as a draftsman would from the \
+written values (the sketch is not to scale): origin at the lower-left of the main view; other views placed in projection (top \
+view above, side view to the right, aligned with the main view) with a clear gap. Every written dimension must appear in \
+\"dimensions\" with its points exactly on the geometry, and must measure exactly its value on it.\n\
+ - Use null only when the drawing is not a part.\n\
 3. The part title if one is written.\n\
 Answer with JSON only, no prose:\n\
 {{\"title\": \"TITLE or null\", \"part\": {{...}} or null, \"dimensions\": [{{\"text\": \"Ø20\", \"bbox\": [x1, y1, x2, y2]}}]}}"
     )
 }
 
+/// What is wrong with a reply's part description: gaps, and disagreements
+/// with the values the model read.
+fn part_issues(v: &Value) -> Vec<String> {
+    let mut out = crate::parts::PartSpec::gaps(v);
+    if v.get("part").is_some_and(|p| p.is_object()) && crate::parts::PartSpec::from_json(v).is_none() {
+        out.push("The part description is incomplete or invalid; give every field the schema asks for.".into());
+    }
+    if let Some(p) = crate::parts::PartSpec::from_json(v) {
+        out.extend(p.issues_with(&dimension_texts(v)));
+    }
+    out
+}
+
+/// The texts of the dimension values in a reply.
+pub fn dimension_texts(v: &Value) -> Vec<String> {
+    v["dimensions"].as_array().map(|a| a.iter().filter_map(|d| d["text"].as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+/// Second request: the model's own answer back with what does not add up.
+fn correction_prompt(w: u32, h: u32, previous: &Value, issues: &[String]) -> String {
+    format!(
+        "{}\n\nYou already answered this once:\n{}\n\nThat answer has problems:\n- {}\n\
+Look at the sketch again, fix the part description (and the dimension list if a value was misread) and answer with the \
+complete corrected JSON only.",
+        prompt(w, h),
+        previous,
+        issues.join("\n- ")
+    )
+}
+
 /// Longest side of the image sent to the model.
-const SEND_MAX: u32 = 2000;
+pub const SEND_MAX: u32 = 2400;
 
 /// PNG of the image (aspect preserved, longest side ≤ SEND_MAX).
 fn send_png(img: &GrayImage) -> Result<(Vec<u8>, u32, u32), String> {
@@ -399,13 +447,13 @@ fn image_unsupported(code: u16, body: &str) -> bool {
         && (b.contains("image") || b.contains("vision") || b.contains("modalit") || b.contains("multimodal") || b.contains("no endpoints"))
 }
 
-fn openai_request(s: &AiSettings, model: &str, b64: &str, w: u32, h: u32) -> Result<String, (u16, String)> {
+fn openai_request(s: &AiSettings, model: &str, b64: &str, text: &str) -> Result<String, (u16, String)> {
     openai_post(
         s,
         json!({
             "model": model,
             "messages": [{"role": "user", "content": [
-                {"type": "text", "text": prompt(w, h)},
+                {"type": "text", "text": text},
                 {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{b64}")}}
             ]}],
         }),
@@ -565,24 +613,27 @@ fn short(body: &str) -> String {
     msg.chars().take(300).collect()
 }
 
-/// Ask the configured vision model for dimension labels.
-pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String> {
-    if s.provider != Provider::Disabled && s.model().trim().is_empty() {
-        return Err("No AI model is selected. Choose one in AI Settings.".into());
-    }
-    let (png, sw, sh) = send_png(img)?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
-    let mut switched_model = None;
-    let mut switch_reason = None;
-    let raw = match s.provider {
-        Provider::Disabled => return Err("AI disabled".into()),
+/// What one vision request returned: the answer text and, when the
+/// configured model could not be used, the model that answered and why.
+struct VisionAnswer {
+    raw: String,
+    model: String,
+    switched: Option<(String, String)>,
+}
+
+/// Send the image with `text` to the configured model (or `model` when given).
+fn ask_vision(s: &AiSettings, model: Option<&str>, b64: &str, text: &str) -> Result<VisionAnswer, String> {
+    let configured = model.unwrap_or(s.model()).to_string();
+    let plain = |raw: String| VisionAnswer { raw, model: configured.clone(), switched: None };
+    match s.provider {
+        Provider::Disabled => Err("AI disabled".into()),
         Provider::Ollama => {
             let body = json!({
-                "model": s.ollama_model,
+                "model": configured,
                 "stream": false,
                 "format": "json",
                 "options": {"temperature": 0, "num_ctx": 8192},
-                "messages": [{"role": "user", "content": prompt(sw, sh), "images": [b64]}],
+                "messages": [{"role": "user", "content": text, "images": [b64]}],
             });
             let v: Value = agent(s.timeout_secs)
                 .post(&format!("{}/api/chat", s.ollama_url.trim_end_matches('/')))
@@ -590,21 +641,22 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                 .map_err(|e| format!("Ollama request failed: {e}. Is Ollama running and is `{}` pulled?", s.ollama_model))?
                 .into_json()
                 .map_err(|e| e.to_string())?;
-            v["message"]["content"].as_str().unwrap_or("").to_string()
+            Ok(plain(v["message"]["content"].as_str().unwrap_or("").to_string()))
         }
         Provider::Anthropic => anthropic_post(
             s,
             json!({
-                "model": s.anthropic_model,
+                "model": configured,
                 "max_tokens": 16000,
                 "messages": [{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
-                    {"type": "text", "text": prompt(sw, sh)}
+                    {"type": "text", "text": text}
                 ]}],
             }),
-        )?,
-        Provider::OpenAiCompatible => match openai_request(s, &s.openai_model, &b64, sw, sh) {
-            Ok(t) => t,
+        )
+        .map(plain),
+        Provider::OpenAiCompatible => match openai_request(s, &configured, b64, text) {
+            Ok(t) => Ok(plain(t)),
             Err((code, body)) if image_unsupported(code, &body) => {
                 // The configured model cannot read images: pick a vision model
                 // from the same provider and try once more.
@@ -614,45 +666,69 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
                     Some(v) => v.prefer.to_vec(),
                     None => vendors.iter().flat_map(|v| v.prefer.iter().copied()).collect(),
                 };
-                let Some(alt) = crate::providers::choose_model(&ids, &prefer, None).filter(|m| *m != s.openai_model) else {
-                    return Err(format!(
-                        "`{}` cannot read images and no vision model was found ({code}: {}).",
-                        s.openai_model,
-                        short(&body)
-                    ));
+                let Some(alt) = crate::providers::choose_model(&ids, &prefer, None).filter(|m| *m != configured) else {
+                    return Err(format!("`{configured}` cannot read images and no vision model was found ({code}: {}).", short(&body)));
                 };
-                let t = openai_request(s, &alt, &b64, sw, sh).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
-                switched_model = Some(alt);
-                switch_reason = Some("it cannot read images".to_string());
-                t
+                let t = openai_request(s, &alt, b64, text).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
+                Ok(VisionAnswer { raw: t, model: alt.clone(), switched: Some((alt, "it cannot read images".into())) })
             }
             Err((402, body)) => {
                 // Not enough credit for a paid model: use a free vision model when the
                 // provider has one (OpenRouter `:free` models need no credit).
                 let ids = crate::providers::vision_models(&s.openai_url, &s.api_key).unwrap_or_default();
-                let Some(free) = crate::providers::free_vision(&ids).filter(|m| *m != s.openai_model) else {
+                let Some(free) = crate::providers::free_vision(&ids).filter(|m| *m != configured) else {
                     return Err(format!(
-                        "The AI account has no credit for `{}` (402: {}). Add credit with the provider{}, or choose a free model in AI Settings.",
-                        s.openai_model,
+                        "The AI account has no credit for `{configured}` (402: {}). Add credit with the provider{}, or choose a free model in AI Settings.",
                         short(&body),
                         if s.openai_url.contains("openrouter.ai") { " (openrouter.ai/settings/credits)" } else { "" }
                     ));
                 };
-                let t = openai_request(s, &free, &b64, sw, sh).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
-                switched_model = Some(free);
-                switch_reason = Some(format!("the account has no credit for it ({})", short(&body)));
-                t
+                let t = openai_request(s, &free, b64, text).map_err(|(c, b)| format!("AI request failed ({c}): {}", short(&b)))?;
+                let why = format!("the account has no credit for it ({})", short(&body));
+                Ok(VisionAnswer { raw: t, model: free.clone(), switched: Some((free, why)) })
             }
-            Err((code, body)) => return Err(format!("AI request failed ({code}): {}", short(&body))),
+            Err((code, body)) => Err(format!("AI request failed ({code}): {}", short(&body))),
         },
+    }
+}
+
+/// Ask the configured vision model for dimension labels.
+pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String> {
+    if s.provider != Provider::Disabled && s.model().trim().is_empty() {
+        return Err("No AI model is selected. Choose one in AI Settings.".into());
+    }
+    let (png, sw, sh) = send_png(img)?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    let first = ask_vision(s, None, &b64, &prompt(sw, sh))?;
+    let (mut switched_model, mut switch_reason) = match &first.switched {
+        Some((m, why)) => (Some(m.clone()), Some(why.clone())),
+        None => (None, None),
     };
+    let mut raw = first.raw;
+    save_reply(&raw);
+    // A part description that disagrees with the values the model itself read
+    // gets one correction round (with the same model).
+    if let Some((v, _)) = parse_reply(&raw) {
+        let issues = part_issues(&v);
+        if !issues.is_empty() {
+            let text = correction_prompt(sw, sh, &v, &issues);
+            if let Ok(second) = ask_vision(s, Some(&first.model), &b64, &text) {
+                if let Some((v2, _)) = parse_reply(&second.raw) {
+                    if v2.get("part").is_some_and(|p| !p.is_null()) && part_issues(&v2).len() < issues.len() {
+                        raw = second.raw;
+                        save_reply(&raw);
+                        if let Some((m, why)) = second.switched {
+                            (switched_model, switch_reason) = (Some(m), Some(why));
+                        }
+                    }
+                }
+            }
+        }
+    }
     let (v, cut_off) = parse_reply(&raw).ok_or_else(|| {
         let preview: String = raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
         format!("The model's answer was not usable JSON (\"{preview}…\"); full answer saved to {}.", save_reply(&raw))
     })?;
-    if cut_off {
-        save_reply(&raw);
-    }
     let (labels, title) = labels_from_json(&v, img.width() as f64, img.height() as f64, sw as f64, sh as f64);
     let part = crate::parts::PartSpec::from_json(&v);
     Ok(LlmReading { labels, title, part, switched_model, switch_reason, cut_off, raw })

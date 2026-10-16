@@ -56,7 +56,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, open: Vec<PathBuf>) -> Self {
         theme::apply(&cc.egui_ctx);
         let mut settings = Settings::load();
         if let Some(k) = crate::secrets::load() {
@@ -96,9 +96,11 @@ impl App {
             cycle: None,
         };
         app.new_drawing();
-        if let Some(p) = open {
+        for p in open {
             app.open_path(&p);
         }
+        #[cfg(target_os = "macos")]
+        crate::macos_open::set_context(&cc.egui_ctx);
         app
     }
 
@@ -1486,6 +1488,11 @@ impl App {
     }
 
     fn handle_drops(&mut self, ctx: &egui::Context) {
+        // Drawings Finder asked us to open (double-click, Open With, Dock).
+        #[cfg(target_os = "macos")]
+        for p in crate::macos_open::take() {
+            self.open_path(&p);
+        }
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         for f in dropped {
             if let Some(p) = f.path {

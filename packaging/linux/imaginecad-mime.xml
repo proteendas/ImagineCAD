@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ImagineCAD native drawings (.icad); DXF and DWG are known to shared-mime-info. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-imaginecad">
+    <comment>ImagineCAD drawing</comment>
+    <glob pattern="*.icad"/>
+    <sub-class-of type="application/json"/>
+  </mime-type>
+</mime-info>

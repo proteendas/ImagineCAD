@@ -78,6 +78,16 @@ impl Gray {
         ImageBuffer::from_raw(self.w as u32, self.h as u32, self.px.clone()).unwrap()
     }
 
+    /// Contrast-stretched copy for reading text: paper → white, pencil → dark.
+    pub fn for_reading(&self) -> GrayImage {
+        let (lo, hi) = (self.percentile(0.01) as f64, self.percentile(0.6) as f64);
+        let span = (hi - lo).max(16.0);
+        ImageBuffer::from_fn(self.w as u32, self.h as u32, |x, y| {
+            let v = self.px[y as usize * self.w + x as usize] as f64;
+            Luma([((v - lo) / span * 255.0).clamp(0.0, 255.0) as u8])
+        })
+    }
+
     fn percentile(&self, p: f64) -> u8 {
         let mut hist = [0usize; 256];
         for v in &self.px {

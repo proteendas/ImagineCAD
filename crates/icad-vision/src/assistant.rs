@@ -633,11 +633,11 @@ fn ensure_layer(doc: &mut Document, name: &str) {
 }
 
 /// Where a regenerated part is anchored: the left end on the centre line for
-/// a shaft, the lower-left corner for a plate.
+/// a shaft, the lower-left corner of the outline otherwise.
 fn part_anchor(spec: &PartSpec, b: &BBox) -> V2 {
     match spec {
         PartSpec::Shaft { .. } => V2::new(b.min.x, (b.min.y + b.max.y) / 2.0),
-        PartSpec::Plate { .. } => b.min,
+        _ => b.min,
     }
 }
 
