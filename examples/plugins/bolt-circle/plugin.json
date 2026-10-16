@@ -5,15 +5,43 @@
   "commands": [
     {
       "name": "BOLTCIRCLE",
-      "description": "holes on a pitch circle",
-      "run": ["python3", "boltcircle.py"],
+      "description": "holes on a pitch circle (the circle follows the cursor until its centre is picked)",
+      "run": [
+        "python3",
+        "boltcircle.py"
+      ],
       "inputs": [
-        { "name": "center", "prompt": "Centre of the bolt circle", "kind": "point" },
-        { "name": "pcd", "prompt": "Pitch circle diameter", "kind": "number", "default": 100 },
-        { "name": "count", "prompt": "Number of holes", "kind": "number", "default": 6 },
-        { "name": "hole", "prompt": "Hole diameter", "kind": "number", "default": 9 },
-        { "name": "start", "prompt": "Angle of the first hole", "kind": "number", "default": 90 }
-      ]
+        {
+          "name": "pcd",
+          "prompt": "Pitch circle diameter",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "name": "count",
+          "prompt": "Number of holes",
+          "kind": "number",
+          "default": 6
+        },
+        {
+          "name": "hole",
+          "prompt": "Hole diameter",
+          "kind": "number",
+          "default": 9
+        },
+        {
+          "name": "start",
+          "prompt": "Angle of the first hole",
+          "kind": "number",
+          "default": 90
+        },
+        {
+          "name": "center",
+          "prompt": "Centre of the bolt circle",
+          "kind": "point"
+        }
+      ],
+      "preview": true
     },
     {
       "name": "ORIGINMARK",

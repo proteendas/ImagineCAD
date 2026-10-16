@@ -74,10 +74,11 @@ computer with your permissions.
       "description": "holes on a pitch circle",
       "run": ["python3", "boltcircle.py"],
       "inputs": [
-        { "name": "center", "prompt": "Centre of the bolt circle", "kind": "point" },
         { "name": "pcd", "prompt": "Pitch circle diameter", "kind": "number", "default": 100 },
-        { "name": "count", "prompt": "Number of holes", "kind": "number", "default": 6 }
+        { "name": "count", "prompt": "Number of holes", "kind": "number", "default": 6 },
+        { "name": "center", "prompt": "Centre of the bolt circle", "kind": "point" }
       ],
+      "preview": true,
       "timeout": 60
     },
     { "name": "ORIGINMARK", "script": "originmark.scr" }
@@ -92,6 +93,7 @@ computer with your permissions.
 | `script` | Instead of `run`: a command script in the plugin's folder |
 | `inputs` | What the command asks for, in order. `kind` is `point` (picked or typed), `number`, `text` or `select` (objects); `default` is used when Enter is pressed |
 | `timeout` | Seconds the program may run (default 60) |
+| `preview` | When the last input is a point: show what the command would add while that point is being picked. The program is asked again as the cursor moves, with `"preview": true` in the request, the cursor as that point, and no `document` or `description`; the `add` operations of its answer are drawn as the preview |
 
 ### The request
 
@@ -101,7 +103,7 @@ The program receives one JSON object on standard input:
 {
   "protocol": 1,
   "command": "BOLTCIRCLE",
-  "inputs": { "center": [60, 30], "pcd": 30, "count": 4 },
+  "inputs": { "pcd": 30, "count": 4, "center": [60, 30] },
   "selection": [12, 15],
   "units": "mm",
   "description": "text description of the drawing, as AI Chat sees it",

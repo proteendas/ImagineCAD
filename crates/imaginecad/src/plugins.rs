@@ -56,6 +56,10 @@ pub struct CommandDef {
     /// Seconds the program may take (default 60).
     #[serde(default)]
     pub timeout: Option<u64>,
+    /// Show what the command would add while the last point is picked (the
+    /// program is asked with `"preview": true` and the cursor as that point).
+    #[serde(default)]
+    pub preview: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -155,6 +159,9 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
                 dir: p.dir.clone(),
                 values: vec![],
                 selection: vec![],
+                live: Default::default(),
+                // Command names live as long as the program (a few bytes each).
+                name: Box::leak(c.name.clone().into_boxed_str()),
             }));
         }
     }
@@ -228,12 +235,23 @@ pub fn request(command: &str, inputs: Value, doc: &icad_core::Document, selectio
     })
 }
 
+/// The latest live preview of a plugin command.
+#[derive(Default)]
+struct Live {
+    /// Cursor the shown actions were made for, and the one being asked.
+    shown_for: Option<V2>,
+    asked: Option<V2>,
+    actions: Vec<Value>,
+}
+
 struct PluginCmd {
     def: CommandDef,
     plugin: String,
     dir: PathBuf,
     values: Vec<Value>,
     selection: Vec<u64>,
+    live: std::sync::Arc<Mutex<Live>>,
+    name: &'static str,
 }
 
 impl PluginCmd {
@@ -291,6 +309,34 @@ impl PluginCmd {
         Flow::Done
     }
 
+    /// Ask the program (in the background) what it would add with the
+    /// cursor as the current point; at most one request at a time.
+    fn ask_preview(&self, cursor: V2) {
+        let mut live = self.live.lock().unwrap();
+        if live.asked.is_some() || live.shown_for.is_some_and(|p| p.dist(cursor) < 1e-9) {
+            return;
+        }
+        live.asked = Some(cursor);
+        drop(live);
+        let mut inputs: serde_json::Map<String, Value> =
+            self.def.inputs.iter().map(|i| i.name.clone()).zip(self.values.iter().cloned()).collect();
+        if let Some(i) = self.current() {
+            inputs.insert(i.name.clone(), json!([cursor.x, cursor.y]));
+        }
+        // A light request: no drawing, so the program answers quickly.
+        let req = json!({"protocol": PROTOCOL, "command": self.def.name, "preview": true, "inputs": inputs, "units": "mm"});
+        let (dir, run, live) = (self.dir.clone(), self.def.run.clone(), self.live.clone());
+        std::thread::spawn(move || {
+            let answer = call(&dir, &run, &req, Duration::from_secs(5)).ok();
+            let mut l = live.lock().unwrap();
+            if let Some(a) = answer {
+                l.actions = a["actions"].as_array().cloned().unwrap_or_default();
+                l.shown_for = Some(cursor);
+            }
+            l.asked = None;
+        });
+    }
+
     fn default_value(&self) -> Option<Value> {
         self.current().and_then(|i| i.default.clone())
     }
@@ -298,7 +344,7 @@ impl PluginCmd {
 
 impl Command for PluginCmd {
     fn name(&self) -> &'static str {
-        "PLUGIN"
+        self.name
     }
     fn prompt(&self, _: &Cx) -> String {
         match self.current() {
@@ -357,6 +403,19 @@ impl Command for PluginCmd {
             _ => self.next(cx, json!(s)),
         }
     }
+    fn preview(&self, doc: &icad_core::Document, cursor: V2) -> Vec<icad_core::entity::Shape> {
+        let last_point = self.values.len() + 1 == self.def.inputs.len() && self.current().is_some_and(|i| i.kind == InputKind::Point);
+        if !self.def.preview || self.def.run.is_empty() || !last_point {
+            return vec![];
+        }
+        self.ask_preview(cursor);
+        let live = self.live.lock().unwrap();
+        live.actions
+            .iter()
+            .filter(|a| a["op"] == "add")
+            .filter_map(|a| icad_vision::assistant::shape_from_json(&a["shape"], doc).ok())
+            .collect()
+    }
     fn enter(&mut self, cx: &mut Cx) -> Flow {
         match self.default_value() {
             Some(d) => self.next(cx, d),
@@ -404,6 +463,29 @@ mod tests {
         assert!(err.contains("failed"), "{err}");
         let slow = call(&dir, &["sh".into(), "-c".into(), "sleep 5".into()], &req, Duration::from_secs(1)).unwrap_err();
         assert!(slow.contains("did not finish"), "{slow}");
+
+        // A live preview while the last point is picked.
+        let mut def = p.commands[0].clone();
+        def.preview = true;
+        def.inputs.truncate(1);
+        let cmd = PluginCmd {
+            def,
+            plugin: "Test".into(),
+            dir: dir.clone(),
+            values: vec![],
+            selection: vec![],
+            live: Default::default(),
+            name: "DOT",
+        };
+        let mut shapes = vec![];
+        for _ in 0..200 {
+            shapes = cmd.preview(&doc, V2::new(5.0, 6.0));
+            if !shapes.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(shapes, vec![icad_core::entity::Shape::Circle { c: V2::new(5.0, 6.0), r: 3.0 }]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
