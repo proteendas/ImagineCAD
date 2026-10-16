@@ -131,9 +131,7 @@ mod tests {
             labels.push(quoted(&src[i + 7..]));
         }
         // Labels written in code rather than lists.
-        for l in ["More"] {
-            labels.push(l.to_string());
-        }
+        labels.push("More".to_string());
         labels.retain(|l| !l.is_empty());
         for (code, _) in LANGUAGES.iter().filter(|l| l.0 != "en") {
             let map: HashMap<String, String> = serde_json::from_str(bundled(code).unwrap()).unwrap();
