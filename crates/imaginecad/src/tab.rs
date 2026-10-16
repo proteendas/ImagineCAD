@@ -9,6 +9,9 @@ use std::path::PathBuf;
 
 const UNDO_LIMIT: usize = 200;
 
+/// Constrained points (and radii) as last solved, with their signature.
+pub type ConsState = (String, Vec<(icad_core::constraints::PtRef, icad_core::geom::V2, f64)>);
+
 pub struct Tab {
     pub doc: Document,
     pub view: View,
@@ -32,6 +35,8 @@ pub struct Tab {
     pub paper_vp: Option<usize>,
     pub paper_view: View,
     pub paper_fit: bool,
+    /// Constrained geometry as last solved (signature, points), to solve again after edits.
+    pub cons_state: Option<ConsState>,
 }
 
 impl Tab {
@@ -53,6 +58,7 @@ impl Tab {
             paper_vp: None,
             paper_view: View::default(),
             paper_fit: true,
+            cons_state: None,
         }
     }
 

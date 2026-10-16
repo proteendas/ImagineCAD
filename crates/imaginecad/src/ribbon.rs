@@ -16,7 +16,7 @@ use crate::theme;
 use eframe::egui::{self, vec2, Align2, Color32, FontId, Id, PopupCloseBehavior, Rect, Response, RichText, Sense, Ui};
 use std::cell::{Cell, RefCell};
 
-pub const TABS: [&str; 6] = ["Home", "Insert", "Annotate", "View", "Output", "AI"];
+pub const TABS: [&str; 7] = ["Home", "Insert", "Annotate", "Parametric", "View", "Output", "AI"];
 
 pub const RIBBON_H: f32 = 96.0;
 
@@ -416,6 +416,7 @@ pub struct RibbonState<'a> {
     pub layout: bool,
     pub ai_ready: bool,
     pub chat: bool,
+    pub constraints: bool,
     pub layer_ui: &'a mut dyn FnMut(&mut Ui),
 }
 
@@ -449,8 +450,9 @@ pub fn show(ui: &mut Ui, tab: &mut usize, st: RibbonState, out: &mut Vec<String>
                 0 => home(ui, st, out),
                 1 => insert(ui, out),
                 2 => annotate(ui, out),
-                3 => view(ui, &st, out),
-                4 => output(ui, out),
+                3 => parametric(ui, &st, out),
+                4 => view(ui, &st, out),
+                5 => output(ui, out),
                 _ => ai(ui, &st, out),
             }
         });
@@ -809,6 +811,85 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
     layout(ui, 2, ps, out);
 }
 
+fn parametric(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
+    let ps = vec![
+        panel("Geometric", Icon::GcAuto, &[], |ui, out| {
+            big(
+                ui,
+                Icon::GcAuto,
+                "Auto\nConstrain",
+                "AUTOCONSTRAIN (AC) — horizontal, vertical, joined ends, tangency, concentric",
+                "AUTOCONSTRAIN",
+                out,
+            );
+            column(ui, |ui| {
+                small(ui, Icon::GcHorizontal, "Horizontal", "GCHORIZONTAL — pick a line or polyline segment", "GCHORIZONTAL", out);
+                small(ui, Icon::GcVertical, "Vertical", "GCVERTICAL", "GCVERTICAL", out);
+                small(ui, Icon::GcCoincident, "Coincident", "GCCOINCIDENT — pick two points", "GCCOINCIDENT", out);
+            });
+            column(ui, |ui| {
+                small(ui, Icon::GcParallel, "Parallel", "GCPARALLEL — pick two lines", "GCPARALLEL", out);
+                small(ui, Icon::GcPerpendicular, "Perpendicular", "GCPERPENDICULAR", "GCPERPENDICULAR", out);
+                small(ui, Icon::GcTangent, "Tangent", "GCTANGENT — line and circle, or two circles", "GCTANGENT", out);
+            });
+            column(ui, |ui| {
+                small(ui, Icon::GcEqual, "Equal", "GCEQUAL — equal lengths or radii", "GCEQUAL", out);
+                small(ui, Icon::GcConcentric, "Concentric", "GCCONCENTRIC", "GCCONCENTRIC", out);
+                small(ui, Icon::GcFix, "Fix", "GCFIX — hold a point where it is", "GCFIX", out);
+            });
+            column(ui, |ui| {
+                small(ui, Icon::GcCollinear, "Collinear", "GCCOLLINEAR", "GCCOLLINEAR", out);
+            });
+        }),
+        panel("Dimensional", Icon::DcLinear, &[], |ui, out| {
+            big_split(
+                ui,
+                Icon::DcLinear,
+                "Driving\nDimension",
+                "DCHORIZONTAL — a named dimension that drives the geometry (d1 = 50, d2 = d1 / 2)",
+                "DCHORIZONTAL",
+                &[
+                    (Icon::DcLinear, "Horizontal", "DCHORIZONTAL"),
+                    (Icon::DcLinear, "Vertical", "DCVERTICAL"),
+                    (Icon::DimAligned, "Aligned", "DCALIGNED"),
+                    (Icon::DimRadius, "Radius", "DCRADIUS"),
+                    (Icon::DimDiameter, "Diameter", "DCDIAMETER"),
+                    (Icon::DimAngular, "Angular", "DCANGULAR"),
+                ],
+                out,
+            );
+            column(ui, |ui| {
+                small(ui, Icon::DimAligned, "Aligned", "DCALIGNED", "DCALIGNED", out);
+                small(ui, Icon::DimRadius, "Radius", "DCRADIUS", "DCRADIUS", out);
+                small(ui, Icon::DimAngular, "Angular", "DCANGULAR", "DCANGULAR", out);
+            });
+        }),
+        panel("Manage", Icon::Parameters, &[], |ui, out| {
+            big(
+                ui,
+                Icon::Parameters,
+                "Parameters\nManager",
+                "PARAMETERS (PAR) — names, expressions and values of the driving dimensions",
+                "PARAMETERS",
+                out,
+            );
+            column(ui, |ui| {
+                toggle(
+                    ui,
+                    Icon::GcAuto,
+                    "Show Constraints",
+                    "CONSTRAINTBAR — constraint glyphs on the drawing",
+                    st.constraints,
+                    "CONSTRAINTBAR",
+                    out,
+                );
+                small(ui, Icon::Erase, "Delete Constraints", "DELCONSTRAINT — of the selected objects, or all", "DELCONSTRAINT", out);
+            });
+        }),
+    ];
+    layout(ui, 3, ps, out);
+}
+
 fn view(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
     let ps = vec![
         panel("Navigate", Icon::ZoomExtents, &[], |ui, out| {
@@ -848,7 +929,7 @@ fn view(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
             });
         }),
     ];
-    layout(ui, 3, ps, out);
+    layout(ui, 4, ps, out);
 }
 
 fn output(ui: &mut Ui, out: &mut Vec<String>) {
@@ -883,7 +964,7 @@ fn output(ui: &mut Ui, out: &mut Vec<String>) {
             });
         }),
     ];
-    layout(ui, 4, ps, out);
+    layout(ui, 5, ps, out);
 }
 
 fn ai(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
@@ -922,5 +1003,5 @@ fn ai(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
             });
         }),
     ];
-    layout(ui, 5, ps, out);
+    layout(ui, 6, ps, out);
 }

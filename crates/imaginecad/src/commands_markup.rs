@@ -17,7 +17,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "BOM" | "PARTSLIST" | "BILLOFMATERIALS" => Box::new(BomCmd { table: None }),
         "BALLOON" | "BAL" => Box::new(BalloonCmd::default()),
         "DIMARRANGE" | "DARR" | "DIMDECLUTTER" => Box::new(ArrangeCmd),
-        _ => return None,
+        other => return crate::constraints_ui::create(other),
     };
     Some(c)
 }

@@ -396,6 +396,11 @@ impl App {
             "XATTACH" | "XA" => self.xattach(),
             "XREF" | "XR" | "EXTERNALREFERENCES" => self.dlg.xref = true,
             "SHEETSET" | "SSM" | "SHEETSETMANAGER" => self.dlg.sheetset = true,
+            "PARAMETERS" | "PAR" | "PARAM" => self.dlg.parameters = true,
+            "CONSTRAINTBAR" | "CBAR" => {
+                self.settings.show_constraints ^= true;
+                self.log.push(format!("Constraint glyphs {}.", if self.settings.show_constraints { "shown" } else { "hidden" }));
+            }
             "REGEN" | "RE" | "REGENALL" => {}
             "HELP" | "?" => self.dlg.help = true,
             "ABOUT" => self.dlg.about = true,
@@ -875,6 +880,7 @@ impl App {
             let t = &self.tabs[self.active];
             let o = RenderOpts { on_paper: layout, lineweights: self.settings.lineweights };
             canvas::draw_document(&painter, &t.view, &t.doc, &t.selection, hover_id, &o, &mut self.images);
+            crate::constraints_ui::draw_overlay(&painter, &t.view, &t.doc, self.settings.show_constraints);
             if let Some(c) = &self.cmd {
                 if hover.is_some() {
                     canvas::draw_preview(&painter, &t.view, &t.doc, &c.preview(&t.doc, self.cursor), layout);
@@ -1216,7 +1222,8 @@ impl App {
                 let t = &mut self.tabs[self.active];
                 let (sheet, layout) = (t.doc.sheet.visible, t.layout);
                 let mut layer_ui = |ui: &mut egui::Ui| layer_combo(ui, t);
-                let st = RibbonState { grid, lwt, props, sheet, layout, ai_ready, chat, layer_ui: &mut layer_ui };
+                let constraints = self.settings.show_constraints;
+                let st = RibbonState { grid, lwt, props, sheet, layout, ai_ready, chat, constraints, layer_ui: &mut layer_ui };
                 ribbon::show(ui, &mut self.ribbon_tab, st, &mut out);
                 for c in out {
                     self.run(&c);
@@ -2175,7 +2182,8 @@ impl eframe::App for App {
         });
         self.context_menu(ctx);
         self.dialogs(ctx);
-        // Associative dimensions follow edits made this frame.
+        // Constraints, then associative dimensions, follow edits made this frame.
+        self.solve_constraints_frame();
         let t = &mut self.tabs[self.active];
         if t.doc.has_associative() {
             t.doc.update_associative();

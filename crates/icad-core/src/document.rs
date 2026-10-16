@@ -44,6 +44,9 @@ pub struct Document {
     pub text_styles: Vec<crate::fonts::TextStyle>,
     #[serde(default = "standard")]
     pub text_style: String,
+    /// Geometric and dimensional constraints (parametric drafting).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<crate::constraints::Constraint>,
     /// File name for the FILENAME field (set by the application; not saved).
     #[serde(skip)]
     pub file_name: String,
@@ -134,6 +137,7 @@ impl Document {
             layouts: vec![],
             text_styles: default_text_styles(),
             text_style: standard(),
+            constraints: vec![],
             file_name: String::new(),
         }
     }

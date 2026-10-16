@@ -107,6 +107,19 @@ pub enum Icon {
     Bom,
     Lineweight,
     SheetSet,
+    GcAuto,
+    GcHorizontal,
+    GcVertical,
+    GcParallel,
+    GcPerpendicular,
+    GcCoincident,
+    GcTangent,
+    GcEqual,
+    GcConcentric,
+    GcFix,
+    GcCollinear,
+    DcLinear,
+    Parameters,
 }
 
 /// Every icon, for the icon sheet (`IMAGINECAD_ICON_SHEET=1`).
@@ -204,6 +217,19 @@ pub const ALL: &[Icon] = &[
     Icon::Bom,
     Icon::Lineweight,
     Icon::SheetSet,
+    Icon::GcAuto,
+    Icon::GcHorizontal,
+    Icon::GcVertical,
+    Icon::GcParallel,
+    Icon::GcPerpendicular,
+    Icon::GcCoincident,
+    Icon::GcTangent,
+    Icon::GcEqual,
+    Icon::GcConcentric,
+    Icon::GcFix,
+    Icon::GcCollinear,
+    Icon::DcLinear,
+    Icon::Parameters,
 ];
 
 /// Drawing on the icon's 24-unit grid.
@@ -892,6 +918,86 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
             g.rect((3.0, 6.5), (17.0, 21.0), w, ink);
             g.rect_fill((10.0, 17.0), (17.0, 21.0), 0.0, ACC);
         }
+        // Constraints: the geometry in ink, the constraint in teal with its badge.
+        Icon::GcAuto => {
+            g.poly(&[(3.0, 20.0), (3.0, 8.0), (13.0, 8.0)], false, w, ink);
+            g.line((13.0, 8.0), (13.0, 20.0), w, ink);
+            badge(&g, 17.0, 6.0, "A");
+        }
+        Icon::GcHorizontal => {
+            g.line((3.0, 16.0), (21.0, 16.0), w, ink);
+            g.grip(3.0, 16.0);
+            g.grip(21.0, 16.0);
+            badge(&g, 12.0, 8.0, "H");
+        }
+        Icon::GcVertical => {
+            g.line((8.0, 3.0), (8.0, 21.0), w, ink);
+            g.grip(8.0, 3.0);
+            g.grip(8.0, 21.0);
+            badge(&g, 16.0, 12.0, "V");
+        }
+        Icon::GcParallel => {
+            g.line((3.0, 17.0), (14.0, 6.0), w, ink);
+            g.line((9.0, 21.0), (20.0, 10.0), w, ink);
+            badge(&g, 18.0, 5.0, "//");
+        }
+        Icon::GcPerpendicular => {
+            g.line((4.0, 20.0), (20.0, 20.0), w, ink);
+            g.line((8.0, 20.0), (8.0, 4.0), w, ink);
+            g.poly(&[(8.0, 16.0), (12.0, 16.0), (12.0, 20.0)], false, t, CONS);
+            badge(&g, 17.0, 9.0, "⊥");
+        }
+        Icon::GcCoincident => {
+            g.line((3.0, 19.0), (12.0, 12.0), w, ink);
+            g.line((12.0, 12.0), (20.0, 19.0), w, ink);
+            g.disc(12.0, 12.0, 2.6, CONS);
+            badge(&g, 17.0, 5.0, "C");
+        }
+        Icon::GcTangent => {
+            g.circle(11.0, 11.0, 6.5, w, ink);
+            g.line((2.0, 17.5), (21.0, 17.5), w, ink);
+            g.disc(11.0, 17.5, 1.6, CONS);
+            badge(&g, 19.0, 6.0, "T");
+        }
+        Icon::GcEqual => {
+            g.line((3.0, 8.0), (14.0, 8.0), w, ink);
+            g.line((3.0, 16.0), (14.0, 16.0), w, ink);
+            badge(&g, 18.5, 12.0, "=");
+        }
+        Icon::GcConcentric => {
+            g.circle(10.0, 13.0, 7.5, w, ink);
+            g.circle(10.0, 13.0, 3.5, w, ink);
+            badge(&g, 19.0, 5.0, "◎");
+        }
+        Icon::GcFix => {
+            g.line((3.0, 19.0), (15.0, 9.0), w, ink);
+            g.disc(15.0, 9.0, 2.2, CONS);
+            badge(&g, 8.0, 6.0, "F");
+        }
+        Icon::GcCollinear => {
+            g.line((2.0, 18.0), (10.0, 12.0), w, ink);
+            g.line((13.0, 9.75), (22.0, 3.0), w, ink);
+            g.dash((10.0, 12.0), (13.0, 9.75), t, CONS);
+            badge(&g, 17.0, 16.0, "Y");
+        }
+        Icon::DcLinear => {
+            g.line((4.0, 20.0), (20.0, 20.0), w, ink);
+            g.line((4.0, 18.0), (4.0, 9.0), t, CONS);
+            g.line((20.0, 18.0), (20.0, 9.0), t, CONS);
+            g.line((6.0, 11.0), (18.0, 11.0), t, CONS);
+            g.head((4.3, 11.0), (10.0, 11.0), 4.0, CONS);
+            g.head((19.7, 11.0), (14.0, 11.0), 4.0, CONS);
+            g.text(12.0, 5.5, "d1", 7.0, CONS);
+        }
+        Icon::Parameters => {
+            g.round_rect((3.0, 3.0), (21.0, 21.0), 1.5, t, ink);
+            for (i, n) in ["d1", "d2", "d3"].iter().enumerate() {
+                let y = 7.5 + i as f32 * 5.0;
+                g.text(7.0, y, n, 4.5, CONS);
+                g.line((11.0, y), (12.5, y), t, ink);
+                g.line((14.0, y), (18.5, y), w, ink);
+            }
+        }
         Icon::Grid => {
             for i in 0..5 {
                 for j in 0..5 {
@@ -985,6 +1091,15 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
         }
     }
     let _ = PI;
+}
+
+const CONS: Color32 = Color32::from_rgb(80, 200, 200);
+
+/// A constraint badge: teal letter in a small square.
+fn badge(g: &Pen, cx: f32, cy: f32, s: &str) {
+    g.rect_fill((cx - 3.6, cy - 3.6), (cx + 3.6, cy + 3.6), 1.0, Color32::from_rgb(22, 48, 52));
+    g.round_rect((cx - 3.6, cy - 3.6), (cx + 3.6, cy + 3.6), 1.0, (0.8 * g.k()).max(0.8), CONS);
+    g.text(cx, cy + 0.2, s, 5.6, CONS);
 }
 
 /// Document page with a folded corner.

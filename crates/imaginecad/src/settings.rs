@@ -51,6 +51,8 @@ pub struct Settings {
     pub show_chat: bool,
     /// Object snap tracking.
     pub otrack: bool,
+    /// Show constraint glyphs (CONSTRAINTBAR).
+    pub show_constraints: bool,
 }
 
 impl Default for Settings {
@@ -74,6 +76,7 @@ impl Default for Settings {
             polar: true,
             polar_angle: 15.0,
             show_chat: false,
+            show_constraints: true,
             otrack: true,
         }
     }

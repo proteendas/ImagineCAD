@@ -6,6 +6,7 @@
 
 pub mod arrange;
 pub mod assoc;
+pub mod constraints;
 pub mod curves;
 pub mod document;
 pub mod entity;
