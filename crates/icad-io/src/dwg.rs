@@ -98,9 +98,13 @@ pub fn find_converter() -> Option<Converter> {
     None
 }
 
+/// A fresh working folder; the counter keeps folders apart when conversions
+/// run at the same time in one process.
 fn tmp_dir(tag: &str) -> std::io::Result<PathBuf> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let d = std::env::temp_dir().join(format!("imaginecad-{tag}-{}-{nanos}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("imaginecad-{tag}-{}-{nanos}-{n}", std::process::id()));
     std::fs::create_dir_all(&d)?;
     Ok(d)
 }
