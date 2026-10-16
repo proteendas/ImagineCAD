@@ -141,6 +141,7 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
             format!("region area {} with {} loop(s), bounds {} to {}", n(r.area()), r.loops.len(), p(r.bbox().min), p(r.bbox().max))
         }
         Shape::Datum(d) => format!("datum feature symbol {:?} at {} on feature {}", d.letter, p(d.pos), p(d.tip)),
+        Shape::RevCloud(c) => format!("revision cloud round {}", c.pts.iter().map(|q| p(*q)).collect::<Vec<_>>().join(" ")),
         Shape::Surface(s) => format!("surface texture symbol at {} {:?} {:?} method {:?}", p(s.pos), s.process, s.requirement, s.method),
         Shape::Weld(w) => format!(
             "weld symbol arrow at {} arrow side {} {}{} other side {} {}{} tail {:?}",

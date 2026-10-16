@@ -13,6 +13,7 @@ pub mod fonts;
 pub mod geom;
 pub mod hatch;
 pub mod layout;
+pub mod markup;
 pub mod ops;
 pub mod prim;
 pub mod region;

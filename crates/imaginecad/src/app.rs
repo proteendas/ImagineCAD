@@ -2046,6 +2046,13 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         dv(ui, "Height", &mut a.text.height);
                         a.text.height = a.text.height.max(1e-6);
                     }
+                    Shape::RevCloud(c) => {
+                        dv(ui, "Arc length", &mut c.arc);
+                        c.arc = c.arc.max(1e-6);
+                        ui.label("Corners");
+                        ui.label(c.pts.len().to_string());
+                        ui.end_row();
+                    }
                     Shape::Tolerance(_) | Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) => {
                         ui.end_row();
                         if crate::symbol_ui::symbol_editor(ui, &mut proto.shape) {
@@ -2110,6 +2117,40 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.screenshot_hook(ctx);
+        // Design review of the icon set: IMAGINECAD_ICON_SHEET=1.
+        if std::env::var_os("IMAGINECAD_ICON_SHEET").is_some() {
+            // IMAGINECAD_ICON_SHEET=ZOOM[,FIRST] draws every icon at 16, 24 and 32 px × ZOOM.
+            let arg = std::env::var("IMAGINECAD_ICON_SHEET").unwrap_or_default();
+            let mut it = arg.split(',');
+            let z: f32 = it.next().and_then(|v| v.parse().ok()).unwrap_or(1.0f32).max(1.0);
+            let first: usize = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::RIBBON)).show(ctx, |ui| {
+                let (w, cell) = (ui.available_width(), 118.0 * z);
+                let per = (w / cell).floor().max(1.0) as usize;
+                for (i, icon) in icons::ALL.iter().skip(first).enumerate() {
+                    let o = ui.max_rect().min + vec2((i % per) as f32 * cell + 8.0, (i / per) as f32 * 64.0 * z + 8.0);
+                    let mut x = o.x;
+                    for size in [16.0, 24.0, 32.0] {
+                        let sz = size * z;
+                        icons::draw(
+                            ui.painter(),
+                            egui::Rect::from_min_size(pos2(x, o.y + 32.0 * z - sz), vec2(sz, sz)),
+                            *icon,
+                            theme::TEXT,
+                        );
+                        x += sz + 6.0 * z;
+                    }
+                    ui.painter().text(
+                        o + vec2(0.0, 36.0 * z),
+                        Align2::LEFT_TOP,
+                        format!("{icon:?}"),
+                        FontId::proportional(10.0 * z),
+                        theme::TEXT_DIM,
+                    );
+                }
+            });
+            return;
+        }
         self.handle_drops(ctx);
         self.handle_close(ctx);
         self.keyboard(ctx);

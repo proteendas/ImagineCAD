@@ -36,6 +36,10 @@ pub struct Table {
     /// `rows × columns` cells (cells covered by a span are ignored).
     pub cells: Vec<Vec<Cell>>,
     pub text_height: f64,
+    /// What generated the table ("BOM" for a bill of materials), so it can
+    /// be refreshed in place.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tag: String,
 }
 
 impl Table {
@@ -47,6 +51,7 @@ impl Table {
             row_heights: vec![row_h; rows.max(1)],
             cells: vec![vec![Cell::default(); cols.max(1)]; rows.max(1)],
             text_height: text_h,
+            tag: String::new(),
         }
     }
 

@@ -652,7 +652,7 @@ fn home(ui: &mut Ui, st: RibbonState, out: &mut Vec<String>) {
             big(ui, Icon::Match, "Match\nProperties", "MATCHPROP (MA)", "MATCHPROP", out);
             column(ui, |ui| {
                 toggle(ui, Icon::Properties, "Palette", "PROPERTIES (PR) — properties palette", st.props, "PROPERTIES", out);
-                toggle(ui, Icon::Grid, "LWT", "LWT — show lineweights", st.lwt, "LWT", out);
+                toggle(ui, Icon::Lineweight, "LWT", "LWT — show lineweights", st.lwt, "LWT", out);
             });
         }),
         panel("Utilities", Icon::Measure, &[], |ui, out| {
@@ -780,6 +780,20 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
         panel("Tables", Icon::Table, &[], |ui, out| {
             big(ui, Icon::Table, "Table", "TABLE — empty, from CSV, or a parts list from block attributes", "TABLE", out);
         }),
+        panel("Markup", Icon::RevCloud, &[], |ui, out| {
+            big(
+                ui,
+                Icon::RevCloud,
+                "Revision\nCloud",
+                "REVCLOUD (RC) — rectangular, polygonal, or from an object; A sets the arc length",
+                "REVCLOUD",
+                out,
+            );
+            column(ui, |ui| {
+                small(ui, Icon::Balloon, "Balloons", "BALLOON — number every part as in the BOM (Enter), or pick one", "BALLOON", out);
+                small(ui, Icon::Bom, "Bill of Materials", "BOM — parts list from the block references; run again to refresh", "BOM", out);
+            });
+        }),
         panel("Hatch", Icon::Hatch, &[], |ui, out| {
             big_split(ui, Icon::Hatch, "Hatch", "HATCH (H) — P pattern, S scale, A angle", "HATCH", HATCHES, out);
         }),
@@ -820,7 +834,7 @@ fn view(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
         panel("Display", Icon::Grid, &[], |ui, out| {
             column(ui, |ui| {
                 toggle(ui, Icon::Grid, "Grid", "GRID (F7)", st.grid, "GRID", out);
-                toggle(ui, Icon::Properties, "Lineweight", "LWT — show lineweights", st.lwt, "LWT", out);
+                toggle(ui, Icon::Lineweight, "Lineweight", "LWT — show lineweights", st.lwt, "LWT", out);
                 toggle(ui, Icon::Properties, "Properties", "PROPERTIES palette", st.props, "PROPERTIES", out);
             });
             column(ui, |ui| {

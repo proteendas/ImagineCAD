@@ -664,6 +664,8 @@ pub enum Shape {
     Surface(SurfaceFinish),
     /// Weld symbol.
     Weld(WeldSymbol),
+    /// Revision cloud.
+    RevCloud(crate::markup::RevCloud),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -823,6 +825,7 @@ impl Shape {
             Shape::Datum(_) => "Datum Symbol",
             Shape::Surface(_) => "Surface Texture Symbol",
             Shape::Weld(_) => "Weld Symbol",
+            Shape::RevCloud(_) => "Revision Cloud",
         }
     }
 
@@ -916,6 +919,7 @@ impl Shape {
             Shape::Datum(d) => d.prims(ctx.ds.text_height * ctx.scale),
             Shape::Surface(s) => s.prims(ctx.ds.text_height * ctx.scale),
             Shape::Weld(w) => w.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
+            Shape::RevCloud(c) => c.prims(),
         }
     }
 
@@ -1032,6 +1036,7 @@ impl Shape {
             Shape::Datum(d) => vec![(Insertion, d.pos), (End, d.tip)],
             Shape::Surface(s) => vec![(Insertion, s.pos)],
             Shape::Weld(w) => vec![(End, w.tip), (Insertion, w.elbow)],
+            Shape::RevCloud(c) => c.pts.iter().map(|p| (End, *p)).collect(),
         }
     }
 
@@ -1091,6 +1096,7 @@ impl Shape {
             Shape::Datum(d) => vec![d.pos, d.tip],
             Shape::Surface(s) => vec![s.pos],
             Shape::Weld(w) => vec![w.tip, w.elbow],
+            Shape::RevCloud(c) => c.pts.clone(),
         }
     }
 
@@ -1223,6 +1229,11 @@ impl Shape {
                     w.tip = p
                 } else {
                     w.elbow = p
+                }
+            }
+            Shape::RevCloud(c) => {
+                if let Some(q) = c.pts.get_mut(i) {
+                    *q = p
                 }
             }
         }
@@ -1366,6 +1377,10 @@ impl Shape {
                 w.tip = x.apply(w.tip);
                 w.elbow = x.apply(w.elbow);
             }
+            Shape::RevCloud(c) => {
+                c.pts.iter_mut().for_each(|p| *p = x.apply(*p));
+                c.arc *= k;
+            }
         }
     }
 
@@ -1395,6 +1410,7 @@ impl Shape {
             | Shape::Datum(_)
             | Shape::Surface(_)
             | Shape::Weld(_)
+            | Shape::RevCloud(_)
             | Shape::Table(_) => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) if !h.is_solid() => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) => Some(h.loops.iter().map(|l| Shape::Polyline { pts: l.clone(), closed: true }).collect()),

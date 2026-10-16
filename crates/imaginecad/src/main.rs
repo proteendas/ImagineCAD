@@ -12,6 +12,7 @@ mod cli;
 mod commands;
 mod commands_dim;
 mod commands_ext;
+mod commands_markup;
 mod commands_region;
 mod dialogs;
 mod dialogs2;

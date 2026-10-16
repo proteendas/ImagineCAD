@@ -489,6 +489,21 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
             }
         }
         Shape::Hatch(h) if modern => write_hatch(w, doc, h, layer, owner, st),
+        // A revision cloud is a closed polyline of bulged segments, as other
+        // programs draw it; the extended data keeps it a cloud for ImagineCAD.
+        Shape::RevCloud(c) if modern && c.pts.len() >= 2 => {
+            let v = c.bulges();
+            w.ent("LWPOLYLINE", layer, owner, st, "AcDbPolyline");
+            w.g(90, v.len());
+            w.g(70, 1);
+            w.f(43, 0.0);
+            for (p, b) in &v {
+                w.f(10, p.x);
+                w.f(20, p.y);
+                w.f(42, *b);
+            }
+            w.xdata(&e.shape);
+        }
         _ => {
             for p in doc.prims_of(e) {
                 write_prim(w, &p, layer, owner, st);
@@ -1970,6 +1985,10 @@ mod tests {
             Shape::Tolerance(Fcf { pos: V2::new(10., 10.), rows: vec![row.clone()], leader: vec![] }),
             Shape::Tolerance(Fcf { pos: V2::new(10., 40.), rows: vec![row], leader: vec![V2::new(0., 30.)] }),
             Shape::Datum(DatumFeature { letter: "B".into(), pos: V2::new(50., 20.), tip: V2::new(50., 0.) }),
+            Shape::RevCloud(icad_core::markup::RevCloud {
+                pts: vec![V2::new(0., 0.), V2::new(30., 0.), V2::new(30., 20.), V2::new(0., 20.)],
+                arc: 8.0,
+            }),
             Shape::Surface(SurfaceFinish {
                 pos: V2::new(70., 0.),
                 rotation: 0.3,

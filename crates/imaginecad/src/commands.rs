@@ -316,6 +316,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("PUBLISH", ""),
     ("XATTACH", "XA"),
     ("XREF", "XR"),
+    ("REVCLOUD", "RC"),
+    ("BOM", ""),
+    ("BALLOON", "BAL"),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {

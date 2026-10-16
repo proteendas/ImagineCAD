@@ -20,7 +20,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "INTERSECT" | "IN" => Box::new(BoolCmd::new(BoolOp::Intersect)),
         "MASSPROP" => Box::new(MassPropCmd),
         "MVIEW" | "MV" => Box::new(crate::layouts_ui::MviewCmd::default()),
-        _ => return None,
+        other => return crate::commands_markup::create(other),
     };
     Some(c)
 }
