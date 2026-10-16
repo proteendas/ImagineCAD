@@ -180,8 +180,8 @@ fn model_picker(ui: &mut egui::Ui, id: &str, model: &mut String, models: &[Model
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show_ui(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut f.text).hint_text("Search models").desired_width(190.0));
-                ui.checkbox(&mut f.free_only, "Free only");
+                ui.add(egui::TextEdit::singleline(&mut f.text).hint_text(crate::i18n::tr("Search models")).desired_width(190.0));
+                ui.checkbox(&mut f.free_only, crate::i18n::tr("Free only"));
             });
             ui.separator();
             let q = f.text.to_ascii_lowercase();
@@ -197,7 +197,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, model: &mut String, models: &[Model
                 shown += 1;
             }
             if shown == 0 {
-                ui.label(RichText::new("No matching model").color(theme::TEXT_DIM));
+                ui.label(RichText::new(crate::i18n::tr("No matching model")).color(theme::TEXT_DIM));
             }
         });
     if let Some(c) = current {
@@ -265,10 +265,10 @@ fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[ModelInfo], 
     match ai.provider {
         Provider::Ollama => {
             egui::Grid::new("ollama").num_columns(2).show(ui, |ui| {
-                ui.label("Server URL");
+                ui.label(crate::i18n::tr("Server URL"));
                 ui.text_edit_singleline(&mut ai.ollama_url);
                 ui.end_row();
-                ui.label("Vision model");
+                ui.label(crate::i18n::tr("Vision model"));
                 ui.horizontal(|ui| {
                     if models.is_empty() {
                         ui.text_edit_singleline(&mut ai.ollama_model);
@@ -279,17 +279,17 @@ fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[ModelInfo], 
                 ui.end_row();
             });
             ui.label(
-                RichText::new("Free and private: install from ollama.com, then run  `ollama pull qwen2.5vl:7b`.")
+                RichText::new(crate::i18n::tr("Free and private: install from ollama.com, then run  `ollama pull qwen2.5vl:7b`."))
                     .size(11.5)
                     .color(theme::TEXT_DIM),
             );
         }
         Provider::OpenAiCompatible if ai.api_key.is_empty() => {
             egui::Grid::new("oai").num_columns(2).show(ui, |ui| {
-                ui.label("Base URL");
+                ui.label(crate::i18n::tr("Base URL"));
                 ui.text_edit_singleline(&mut ai.openai_url);
                 ui.end_row();
-                ui.label("Model");
+                ui.label(crate::i18n::tr("Model"));
                 ui.horizontal(|ui| {
                     if models.is_empty() {
                         ui.text_edit_singleline(&mut ai.openai_model);
@@ -300,7 +300,7 @@ fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[ModelInfo], 
                 ui.end_row();
             });
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Presets:").size(11.5));
+                ui.label(RichText::new(crate::i18n::tr("Presets:")).size(11.5));
                 if ui.small_button("LM Studio").clicked() {
                     ai.openai_url = "http://localhost:1234/v1".into();
                 }
@@ -312,19 +312,19 @@ fn local_ai_ui(ui: &mut egui::Ui, o: &mut ConvertOptions, models: &[ModelInfo], 
         _ => {}
     }
     ui.add_space(4.0);
-    ui.checkbox(&mut ai.use_tesseract, "Also use Tesseract OCR when installed (good for neatly printed numbers)");
+    ui.checkbox(&mut ai.use_tesseract, crate::i18n::tr("Also use Tesseract OCR when installed (good for neatly printed numbers)"));
     match icad_vision::ocr::find_tesseract() {
         Some(p) => ui.label(RichText::new(format!("✔ Tesseract found: {}", p.display())).size(11.5).color(Color32::from_rgb(90, 210, 120))),
         None => ui.label(
-            RichText::new(
+            RichText::new(crate::i18n::tr(
                 "Tesseract not found (optional): brew install tesseract · apt install tesseract-ocr · UB-Mannheim installer on Windows",
-            )
+            ))
             .size(11.5)
             .color(theme::TEXT_DIM),
         ),
     };
     ui.horizontal(|ui| {
-        ui.label("Timeout (s)");
+        ui.label(crate::i18n::tr("Timeout (s)"));
         ui.add(egui::DragValue::new(&mut ai.timeout_secs).range(10..=3600));
     });
 }
@@ -392,18 +392,18 @@ impl App {
         }
         let mut open = true;
         let mut action: Option<&str> = None;
-        egui::Window::new("Connect an AI model").open(&mut open).collapsible(false).resizable(false).default_width(560.0).anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(ctx, |ui| {
-            ui.label(RichText::new("Image to CAD uses an AI vision model to read the dimension values on your sketch.").strong());
-            ui.label("Paste an API key from any provider: OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, Together, Hugging Face, NVIDIA, Fireworks… ImagineCAD recognises the provider and chooses the best vision model automatically.");
+        egui::Window::new(crate::i18n::tr("Connect an AI model")).open(&mut open).collapsible(false).resizable(false).default_width(560.0).anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(ctx, |ui| {
+            ui.label(RichText::new(crate::i18n::tr("Image to CAD uses an AI vision model to read the dimension values on your sketch.")).strong());
+            ui.label(crate::i18n::tr("Paste an API key from any provider: OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, Together, Hugging Face, NVIDIA, Fireworks… ImagineCAD recognises the provider and chooses the best vision model automatically."));
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label("API key");
+                ui.label(crate::i18n::tr("API key"));
                 ui.add(egui::TextEdit::singleline(&mut st.key).password(!st.show_key).desired_width(330.0).hint_text("sk-…, sk-ant-…, AIza…, gsk_…"));
-                ui.checkbox(&mut st.show_key, "show");
+                ui.checkbox(&mut st.show_key, crate::i18n::tr("show"));
             });
             egui::CollapsingHeader::new("Other OpenAI-compatible endpoint (optional)").show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Base URL");
+                    ui.label(crate::i18n::tr("Base URL"));
                     ui.add(egui::TextEdit::singleline(&mut st.custom_url).hint_text("https://example.com/v1").desired_width(330.0));
                 });
             });
@@ -415,17 +415,17 @@ impl App {
                 }
                 if busy {
                     ui.spinner();
-                    ui.label("Checking the key…");
+                    ui.label(crate::i18n::tr("Checking the key…"));
                 }
             });
             match &st.result {
                 Some(Ok(d)) => {
                     ui.label(RichText::new(format!("✔ {} — {} model(s) available", d.vendor, d.models.len())).color(Color32::from_rgb(90, 210, 120)));
                     ui.horizontal(|ui| {
-                        ui.label("Vision model");
+                        ui.label(crate::i18n::tr("Vision model"));
                         model_picker(ui, "setup_model", &mut st.model, &d.models, &mut st.filter);
                     });
-                    if ui.add(egui::Button::new(RichText::new("Save & continue").strong().color(Color32::WHITE)).fill(Color32::from_rgb(38, 96, 160))).clicked() {
+                    if ui.add(egui::Button::new(RichText::new(crate::i18n::tr("Save & continue")).strong().color(Color32::WHITE)).fill(Color32::from_rgb(38, 96, 160))).clicked() {
                         action = Some("save");
                     }
                 }
@@ -434,13 +434,13 @@ impl App {
                 }
                 None => {}
             }
-            ui.label(RichText::new("The key is stored securely (macOS Keychain / Windows Credential Manager / a private file on Linux) and only sent to the provider it belongs to. Sketches are sent to that provider for analysis.").size(11.0).color(theme::TEXT_DIM));
+            ui.label(RichText::new(crate::i18n::tr("The key is stored securely (macOS Keychain / Windows Credential Manager / a private file on Linux) and only sent to the provider it belongs to. Sketches are sent to that provider for analysis.")).size(11.0).color(theme::TEXT_DIM));
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Use a free local model (Ollama) instead").clicked() {
+                if ui.button(crate::i18n::tr("Use a free local model (Ollama) instead")).clicked() {
                     action = Some("ollama");
                 }
-                if ui.button("Skip — geometry only").clicked() {
+                if ui.button(crate::i18n::tr("Skip — geometry only")).clicked() {
                     action = Some("skip");
                 }
             });
@@ -605,11 +605,11 @@ impl App {
                 self.start_ai_check(ctx);
             }
         }
-        egui::Window::new("AI Settings").open(&mut open).default_width(580.0).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("AI Settings")).open(&mut open).default_width(580.0).collapsible(false).show(ctx, |ui| {
             let ai = &mut self.settings.convert.ai;
             ui.label(RichText::new(format!("Current engine: {}", ai.describe())).strong());
             ui.add_space(4.0);
-            ui.label(RichText::new("Engine").strong());
+            ui.label(RichText::new(crate::i18n::tr("Engine")).strong());
             let has_key = !ai.api_key.is_empty();
             ui.add_enabled_ui(has_key, |ui| {
                 let cloud = if ai.vendor == "Anthropic" { Provider::Anthropic } else { Provider::OpenAiCompatible };
@@ -629,24 +629,27 @@ impl App {
                     ai.provider = cloud;
                 }
             });
-            ui.radio_value(&mut ai.provider, Provider::Ollama, "Ollama — free local open-weight model");
+            ui.radio_value(&mut ai.provider, Provider::Ollama, crate::i18n::tr("Ollama — free local open-weight model"));
             if ui
-                .radio(ai.provider == Provider::OpenAiCompatible && !has_key, "Local OpenAI-compatible server (LM Studio, llama.cpp, vLLM)")
+                .radio(
+                    ai.provider == Provider::OpenAiCompatible && !has_key,
+                    crate::i18n::tr("Local OpenAI-compatible server (LM Studio, llama.cpp, vLLM)"),
+                )
                 .clicked()
             {
                 ai.provider = Provider::OpenAiCompatible;
             }
-            ui.radio_value(&mut ai.provider, Provider::Disabled, "Off — geometry only (computer vision, no AI)");
+            ui.radio_value(&mut ai.provider, Provider::Disabled, crate::i18n::tr("Off — geometry only (computer vision, no AI)"));
             ui.add_space(6.0);
             if matches!(ai.provider, Provider::Anthropic) || (ai.provider == Provider::OpenAiCompatible && has_key) {
                 ui.horizontal(|ui| {
-                    ui.label("Model");
+                    ui.label(crate::i18n::tr("Model"));
                     let field = if ai.provider == Provider::Anthropic { &mut ai.anthropic_model } else { &mut ai.openai_model };
                     if !self.dlg.ai_models.is_empty() {
                         model_picker(ui, "cloud_models", field, &self.dlg.ai_models, &mut self.dlg.model_filter);
                     } else if self.dlg.ai_check.is_some() {
                         ui.spinner();
-                        ui.label(RichText::new("Loading models…").color(theme::TEXT_DIM));
+                        ui.label(RichText::new(crate::i18n::tr("Loading models…")).color(theme::TEXT_DIM));
                     } else {
                         ui.text_edit_singleline(field);
                     }
@@ -656,7 +659,7 @@ impl App {
                 if ui.button(if has_key { "Change API key…" } else { "Add an API key…" }).clicked() {
                     change_key = true;
                 }
-                if has_key && ui.button("Remove key").clicked() {
+                if has_key && ui.button(crate::i18n::tr("Remove key")).clicked() {
                     remove_key = true;
                 }
             });
@@ -664,7 +667,7 @@ impl App {
             local_ai_ui(ui, &mut self.settings.convert, &self.dlg.ai_models, &mut self.dlg.model_filter);
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Test connection").clicked() {
+                if ui.button(crate::i18n::tr("Test connection")).clicked() {
                     test = true;
                 }
                 match &self.dlg.ai_status {
@@ -721,11 +724,11 @@ impl App {
         let mut open = d.open;
         let mut action: Option<&str> = None;
         let mut open_settings = false;
-        egui::Window::new("Image to CAD").open(&mut open).default_width(860.0).default_height(620.0).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Image to CAD")).open(&mut open).default_width(860.0).default_height(620.0).collapsible(false).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(440.0);
-                    if ui.button("📂  Choose sketch image…").clicked() {
+                    if ui.button(crate::i18n::tr("📂  Choose sketch image…")).clicked() {
                         if let Some(p) =
                             rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp"]).pick_file()
                         {
@@ -761,28 +764,28 @@ impl App {
                 ui.separator();
                 ui.vertical(|ui| {
                     egui::ScrollArea::vertical().max_height(470.0).show(ui, |ui| {
-                        ui.label(RichText::new("Conversion").strong());
+                        ui.label(RichText::new(crate::i18n::tr("Conversion")).strong());
                         egui::Grid::new("conv").num_columns(2).show(ui, |ui| {
-                            ui.label("Straighten lines within");
+                            ui.label(crate::i18n::tr("Straighten lines within"));
                             ui.add(egui::Slider::new(&mut d.opts.snap_deg, 0.0..=15.0).suffix("°"));
                             ui.end_row();
-                            ui.label("Sketch smoothing");
+                            ui.label(crate::i18n::tr("Sketch smoothing"));
                             ui.add(egui::Slider::new(&mut d.opts.tolerance, 0.3..=3.0));
                             ui.end_row();
-                            ui.label("Size if no dimensions");
+                            ui.label(crate::i18n::tr("Size if no dimensions"));
                             ui.add(egui::DragValue::new(&mut d.opts.fallback_size_mm).suffix(" mm").range(1.0..=100000.0));
                             ui.end_row();
-                            ui.label("Processing resolution");
+                            ui.label(crate::i18n::tr("Processing resolution"));
                             ui.add(egui::DragValue::new(&mut d.opts.max_dim).suffix(" px").range(600..=4000));
                             ui.end_row();
                         });
-                        ui.checkbox(&mut d.opts.center_marks, "Add centre lines to holes");
-                        ui.checkbox(&mut d.opts.reconstruct_parts, "Let AI rebuild the part exactly from the written dimensions")
-                            .on_hover_text("The AI describes the part (shaft, ring, flange, pulley, gear, spring, plate, or any profile) from its dimensions; the description is checked against the written values and its own geometry before it is drawn, otherwise the sketch is traced.");
+                        ui.checkbox(&mut d.opts.center_marks, crate::i18n::tr("Add centre lines to holes"));
+                        ui.checkbox(&mut d.opts.reconstruct_parts, crate::i18n::tr("Let AI rebuild the part exactly from the written dimensions"))
+                            .on_hover_text(crate::i18n::tr("The AI describes the part (shaft, ring, flange, pulley, gear, spring, plate, or any profile) from its dimensions; the description is checked against the written values and its own geometry before it is drawn, otherwise the sketch is traced."));
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(format!("AI engine: {}", d.opts.ai.describe())).color(theme::AI_ACCENT));
-                            if ui.small_button("Change…").clicked() {
+                            if ui.small_button(crate::i18n::tr("Change…")).clicked() {
                                 open_settings = true;
                             }
                         });
@@ -825,21 +828,21 @@ impl App {
                             }
                             if c.underlay.is_some() {
                                 ui.horizontal(|ui| {
-                                    ui.checkbox(&mut d.opts.overlay_sketch, "Overlay the sketch to review the result")
-                                        .on_hover_text("The photo goes under the drawing on layer AI-SKETCH-IMAGE (not plotted); turn the layer off or change Fade in Properties when done");
+                                    ui.checkbox(&mut d.opts.overlay_sketch, crate::i18n::tr("Overlay the sketch to review the result"))
+                                        .on_hover_text(crate::i18n::tr("The photo goes under the drawing on layer AI-SKETCH-IMAGE (not plotted); turn the layer off or change Fade in Properties when done"));
                                     ui.add_enabled(d.opts.overlay_sketch, egui::Slider::new(&mut d.opts.overlay_fade, 0..=90).text("fade %"));
                                 });
                             }
                             ui.horizontal(|ui| {
-                                if ui.button("Open as new drawing").clicked() {
+                                if ui.button(crate::i18n::tr("Open as new drawing")).clicked() {
                                     action = Some("new");
                                 }
-                                if ui.button("Insert into current drawing").clicked() {
+                                if ui.button(crate::i18n::tr("Insert into current drawing")).clicked() {
                                     action = Some("insert");
                                 }
                             });
                             ui.label(
-                                RichText::new("Review magenta dashed items on layer AI-REVIEW. Everything is fully editable.")
+                                RichText::new(crate::i18n::tr("Review magenta dashed items on layer AI-REVIEW. Everything is fully editable."))
                                     .size(11.0)
                                     .color(theme::TEXT_DIM),
                             );
@@ -900,10 +903,10 @@ impl App {
         let mut open = true;
         let new_layer = &mut self.dlg.new_layer;
         let t = &mut self.tabs[self.active];
-        egui::Window::new("Layer Properties Manager").open(&mut open).default_width(760.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Layer Properties Manager")).open(&mut open).default_width(760.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(new_layer).hint_text("new layer name").desired_width(180.0));
-                if ui.button("➕ New Layer").clicked() {
+                ui.add(egui::TextEdit::singleline(new_layer).hint_text(crate::i18n::tr("new layer name")).desired_width(180.0));
+                if ui.button(crate::i18n::tr("➕ New Layer")).clicked() {
                     let mut name = new_layer.trim().to_string();
                     if name.is_empty() {
                         name = format!("Layer{}", t.doc.layers.len());
@@ -924,11 +927,14 @@ impl App {
             egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                 egui::Grid::new("layers").striped(true).num_columns(9).spacing([10.0, 4.0]).show(ui, |ui| {
                     for h in ["Status", "Name", "On", "Lock", "Plot", "Color", "Linetype", "Lineweight", ""] {
-                        ui.label(RichText::new(h).strong());
+                        ui.label(RichText::new(crate::i18n::tr(h)).strong());
                     }
                     ui.end_row();
                     for (i, l) in t.doc.layers.iter_mut().enumerate() {
-                        if ui.selectable_label(l.name == cur, if l.name == cur { "✔" } else { "  " }).on_hover_text("Set current").clicked()
+                        if ui
+                            .selectable_label(l.name == cur, if l.name == cur { "✔" } else { "  " })
+                            .on_hover_text(crate::i18n::tr("Set current"))
+                            .clicked()
                         {
                             make_current = Some(l.name.clone());
                         }
@@ -936,15 +942,20 @@ impl App {
                         changed |= ui.checkbox(&mut l.visible, "").changed();
                         changed |= ui.checkbox(&mut l.locked, "").changed();
                         changed |= ui.checkbox(&mut l.plot, "").changed();
-                        egui::ComboBox::from_id_salt(("lc", i)).selected_text(aci_name(l.color)).width(100.0).show_ui(ui, |ui| {
-                            for (c, n) in ACI_NAMES {
-                                changed |= ui.selectable_value(&mut l.color, c, RichText::new(n).color(theme::aci(c, false))).changed();
-                            }
-                            ui.horizontal(|ui| {
-                                ui.label("Index");
-                                changed |= ui.add(egui::DragValue::new(&mut l.color).range(1..=255)).changed();
-                            });
-                        });
+                        egui::ComboBox::from_id_salt(("lc", i)).selected_text(crate::i18n::tr(&aci_name(l.color))).width(100.0).show_ui(
+                            ui,
+                            |ui| {
+                                for (c, n) in ACI_NAMES {
+                                    changed |= ui
+                                        .selectable_value(&mut l.color, c, RichText::new(crate::i18n::tr(n)).color(theme::aci(c, false)))
+                                        .changed();
+                                }
+                                ui.horizontal(|ui| {
+                                    ui.label(crate::i18n::tr("Index"));
+                                    changed |= ui.add(egui::DragValue::new(&mut l.color).range(1..=255)).changed();
+                                });
+                            },
+                        );
                         egui::ComboBox::from_id_salt(("lt", i)).selected_text(l.linetype.name()).width(110.0).show_ui(ui, |ui| {
                             for lt in LineType::ALL {
                                 changed |=
@@ -959,7 +970,8 @@ impl App {
                                 }
                             },
                         );
-                        if l.name != "0" && ui.small_button("🗑").on_hover_text("Delete layer (must be empty)").clicked() {
+                        if l.name != "0" && ui.small_button("🗑").on_hover_text(crate::i18n::tr("Delete layer (must be empty)")).clicked()
+                        {
                             delete = Some(i);
                         } else if l.name == "0" {
                             ui.label("");
@@ -979,7 +991,7 @@ impl App {
                 if counts[i] > 0 {
                     ui.label(RichText::new(format!("Layer {name} is not empty.")).color(theme::ERR));
                 } else if name == t.doc.current_layer {
-                    ui.label(RichText::new("Cannot delete the current layer.").color(theme::ERR));
+                    ui.label(RichText::new(crate::i18n::tr("Cannot delete the current layer.")).color(theme::ERR));
                 } else {
                     t.checkpoint();
                     t.doc.layers.remove(i);
@@ -1016,11 +1028,11 @@ impl App {
         let before = t.doc.sheet.clone();
         // Blocks with attributes can serve as the title block.
         let tb_blocks: Vec<String> = t.doc.blocks.iter().filter(|b| b.attdefs().next().is_some()).map(|b| b.name.clone()).collect();
-        egui::Window::new("Page Setup & Title Block").open(&mut open).default_width(520.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Page Setup & Title Block")).open(&mut open).default_width(520.0).show(ctx, |ui| {
             let sh = &mut t.doc.sheet;
-            ui.label(RichText::new("Sheet").strong());
+            ui.label(RichText::new(crate::i18n::tr("Sheet")).strong());
             egui::Grid::new("sheet").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Paper size");
+                ui.label(crate::i18n::tr("Paper size"));
                 egui::ComboBox::from_id_salt("paper").selected_text(sh.paper.name()).show_ui(ui, |ui| {
                     for p in PaperSize::ALL {
                         let (w, h) = p.mm();
@@ -1028,13 +1040,13 @@ impl App {
                     }
                 });
                 ui.end_row();
-                ui.label("Orientation");
+                ui.label(crate::i18n::tr("Orientation"));
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut sh.landscape, true, "Landscape");
-                    ui.radio_value(&mut sh.landscape, false, "Portrait");
+                    ui.radio_value(&mut sh.landscape, true, crate::i18n::tr("Landscape"));
+                    ui.radio_value(&mut sh.landscape, false, crate::i18n::tr("Portrait"));
                 });
                 ui.end_row();
-                ui.label("Plot scale");
+                ui.label(crate::i18n::tr("Plot scale"));
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_id_salt("scale").selected_text(sh.scale_label()).show_ui(ui, |ui| {
                         for s in STANDARD_SCALES {
@@ -1042,33 +1054,37 @@ impl App {
                         }
                     });
                     let mut txt = sh.scale_label();
-                    if ui.add(egui::TextEdit::singleline(&mut txt).desired_width(70.0)).on_hover_text("Custom, e.g. 1:3 or 3:1").changed() {
+                    if ui
+                        .add(egui::TextEdit::singleline(&mut txt).desired_width(70.0))
+                        .on_hover_text(crate::i18n::tr("Custom, e.g. 1:3 or 3:1"))
+                        .changed()
+                    {
                         if let Some(v) = parse_scale(&txt) {
                             sh.scale = v;
                         }
                     }
                 });
                 ui.end_row();
-                ui.label("Show border & title");
+                ui.label(crate::i18n::tr("Show border & title"));
                 ui.checkbox(&mut sh.visible, "");
                 ui.end_row();
             });
-            if ui.button("Fit sheet to drawing (choose paper & scale)").clicked() {
+            if ui.button(crate::i18n::tr("Fit sheet to drawing (choose paper & scale)")).clicked() {
                 fit = true;
             }
             ui.separator();
-            ui.label(RichText::new("Title block").strong());
+            ui.label(RichText::new(crate::i18n::tr("Title block")).strong());
             ui.horizontal(|ui| {
-                ui.label("Layout");
+                ui.label(crate::i18n::tr("Layout"));
                 let shown = sh.title_block.clone().unwrap_or_else(|| "Built-in (ISO 7200)".into());
                 egui::ComboBox::from_id_salt("tb_block").width(200.0).selected_text(shown).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut sh.title_block, None, "Built-in (ISO 7200)");
+                    ui.selectable_value(&mut sh.title_block, None, crate::i18n::tr("Built-in (ISO 7200)"));
                     for n in &tb_blocks {
                         ui.selectable_value(&mut sh.title_block, Some(n.clone()), n);
                     }
                 });
                 if ui
-                    .small_button("Create editable copy")
+                    .small_button(crate::i18n::tr("Create editable copy"))
                     .on_hover_text(
                         "Adds the built-in title block as a block with attributes and uses it. Insert and explode it, change it, \
                          and redefine it with BLOCK under the same name. Attribute tags name the fields that fill it in.",
@@ -1098,23 +1114,23 @@ impl App {
                     ui.add(egui::TextEdit::singleline(v).desired_width(300.0));
                     ui.end_row();
                 }
-                ui.label("Date");
+                ui.label(crate::i18n::tr("Date"));
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut tb.date).desired_width(120.0));
-                    if ui.small_button("Today").clicked() {
+                    if ui.small_button(crate::i18n::tr("Today")).clicked() {
                         tb.date = icad_core::sheet::today();
                     }
                 });
                 ui.end_row();
-                ui.label("Projection");
+                ui.label(crate::i18n::tr("Projection"));
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut tb.projection, Projection::FirstAngle, "First angle (ISO)");
-                    ui.radio_value(&mut tb.projection, Projection::ThirdAngle, "Third angle (ANSI)");
+                    ui.radio_value(&mut tb.projection, Projection::FirstAngle, crate::i18n::tr("First angle (ISO)"));
+                    ui.radio_value(&mut tb.projection, Projection::ThirdAngle, crate::i18n::tr("Third angle (ANSI)"));
                 });
                 ui.end_row();
             });
             ui.add_space(4.0);
-            if ui.button("Use company & drawn-by as defaults for new drawings").clicked() {
+            if ui.button(crate::i18n::tr("Use company & drawn-by as defaults for new drawings")).clicked() {
                 save_defaults = true;
             }
         });
@@ -1185,9 +1201,13 @@ impl App {
         let mut open = true;
         let t = &mut self.tabs[self.active];
         let before = (t.doc.dimstyle.clone(), t.doc.ltscale);
-        egui::Window::new("Dimension Style").open(&mut open).default_width(360.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Dimension Style")).open(&mut open).default_width(360.0).show(ctx, |ui| {
             let ds = &mut t.doc.dimstyle;
-            ui.label(RichText::new("Sizes are in paper millimetres; they scale with the sheet scale.").size(11.5).color(theme::TEXT_DIM));
+            ui.label(
+                RichText::new(crate::i18n::tr("Sizes are in paper millimetres; they scale with the sheet scale."))
+                    .size(11.5)
+                    .color(theme::TEXT_DIM),
+            );
             egui::Grid::new("ds").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                 let row = |ui: &mut egui::Ui, l: &str, v: &mut f64| {
                     ui.label(l);
@@ -1199,16 +1219,16 @@ impl App {
                 row(ui, "Extension line offset", &mut ds.ext_offset);
                 row(ui, "Extend beyond dim line", &mut ds.ext_beyond);
                 row(ui, "Text gap", &mut ds.text_gap);
-                ui.label("Precision (decimals)");
+                ui.label(crate::i18n::tr("Precision (decimals)"));
                 ui.add(egui::DragValue::new(&mut ds.decimals).range(0..=6));
                 ui.end_row();
-                ui.label("Suppress trailing zeros");
+                ui.label(crate::i18n::tr("Suppress trailing zeros"));
                 ui.checkbox(&mut ds.suppress_trailing_zeros, "");
                 ui.end_row();
             });
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Linetype scale (LTSCALE)");
+                ui.label(crate::i18n::tr("Linetype scale (LTSCALE)"));
                 ui.add(egui::DragValue::new(&mut t.doc.ltscale).speed(0.05).range(0.01..=1000.0));
             });
         });
@@ -1262,9 +1282,9 @@ impl App {
         let mut open = true;
         let (plugins, problems) = crate::plugins::installed();
         let mut run = None;
-        egui::Window::new("Plugins").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Plugins")).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
             if plugins.is_empty() {
-                ui.label("No plugins installed.");
+                ui.label(crate::i18n::tr("No plugins installed."));
             }
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for p in &plugins {
@@ -1274,7 +1294,7 @@ impl App {
                     }
                     for c in &p.commands {
                         ui.horizontal(|ui| {
-                            if ui.small_button(&c.name).on_hover_text("Run").clicked() {
+                            if ui.small_button(&c.name).on_hover_text(crate::i18n::tr("Run")).clicked() {
                                 run = Some(c.name.clone());
                             }
                             ui.label(RichText::new(&c.description).size(11.5));
@@ -1287,11 +1307,11 @@ impl App {
                 ui.colored_label(theme::WARN, e);
             }
             ui.horizontal(|ui| {
-                if ui.button("Reload").clicked() {
+                if ui.button(crate::i18n::tr("Reload")).clicked() {
                     run = Some("PLUGINS RELOAD".into());
                 }
                 if let Some(dir) = crate::plugins::plugin_dir() {
-                    if ui.button("Open plugins folder").clicked() {
+                    if ui.button(crate::i18n::tr("Open plugins folder")).clicked() {
                         let _ = std::fs::create_dir_all(&dir);
                         let opener = if cfg!(target_os = "macos") {
                             "open"
@@ -1305,7 +1325,7 @@ impl App {
                 }
             });
             ui.label(
-                RichText::new("A plugin is a folder with a plugin.json; its commands run like built-in ones. Only install plugins you trust: they run as programs on this computer.")
+                RichText::new(crate::i18n::tr("A plugin is a folder with a plugin.json; its commands run like built-in ones. Only install plugins you trust: they run as programs on this computer."))
                     .size(11.0)
                     .color(theme::TEXT_DIM),
             );
@@ -1336,33 +1356,37 @@ impl App {
             )
             .text(&layout, sheet)
         };
-        egui::Window::new("Plot Stamp").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Plot Stamp")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
             let st = &mut self.settings.plot_stamp;
-            ui.checkbox(&mut st.on, RichText::new("Print a plot stamp on every plotted page").strong());
+            ui.checkbox(&mut st.on, RichText::new(crate::i18n::tr("Print a plot stamp on every plotted page")).strong());
             ui.add_enabled_ui(st.on, |ui| {
                 egui::Grid::new("stamp_fields").num_columns(2).show(ui, |ui| {
-                    ui.checkbox(&mut st.drawing, "Drawing name");
-                    ui.checkbox(&mut st.layout, "Layout name");
+                    ui.checkbox(&mut st.drawing, crate::i18n::tr("Drawing name"));
+                    ui.checkbox(&mut st.layout, crate::i18n::tr("Layout name"));
                     ui.end_row();
-                    ui.checkbox(&mut st.date, "Date and time (UTC)");
-                    ui.checkbox(&mut st.user, "User name");
+                    ui.checkbox(&mut st.date, crate::i18n::tr("Date and time (UTC)"));
+                    ui.checkbox(&mut st.user, crate::i18n::tr("User name"));
                     ui.end_row();
-                    ui.checkbox(&mut st.paper, "Paper size");
-                    ui.checkbox(&mut st.scale, "Plot scale");
+                    ui.checkbox(&mut st.paper, crate::i18n::tr("Paper size"));
+                    ui.checkbox(&mut st.scale, crate::i18n::tr("Plot scale"));
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Extra text");
-                    ui.add(egui::TextEdit::singleline(&mut st.custom).hint_text("e.g. PRELIMINARY, project number").desired_width(260.0));
+                    ui.label(crate::i18n::tr("Extra text"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut st.custom)
+                            .hint_text(crate::i18n::tr("e.g. PRELIMINARY, project number"))
+                            .desired_width(260.0),
+                    );
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Location");
+                    ui.label(crate::i18n::tr("Location"));
                     egui::ComboBox::from_id_salt("stamp_corner").selected_text(st.corner.name()).show_ui(ui, |ui| {
                         for c in icad_io::plot::StampCorner::ALL {
                             ui.selectable_value(&mut st.corner, c, c.name());
                         }
                     });
-                    ui.label("Height");
+                    ui.label(crate::i18n::tr("Height"));
                     ui.add(egui::DragValue::new(&mut st.height).range(0.5..=10.0).speed(0.1).suffix(" mm"));
                 });
                 ui.separator();
@@ -1383,34 +1407,34 @@ impl App {
         }
         let mut open = true;
         let mut go = None;
-        egui::Window::new("Export").open(&mut open).default_width(380.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Export")).open(&mut open).default_width(380.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("PDF/SVG plot style");
+                ui.label(crate::i18n::tr("PDF/SVG plot style"));
                 let t = &mut self.tabs[self.active];
                 let sheet = match t.paper {
                     Some(li) => &mut t.doc.layouts[li].sheet,
                     None => &mut t.doc.sheet,
                 };
-                egui::ComboBox::from_id_salt("exp_style").selected_text(sheet.plot_style.name()).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("exp_style").selected_text(crate::i18n::tr(sheet.plot_style.name())).show_ui(ui, |ui| {
                     for s in icad_core::layout::PlotStyle::ALL {
-                        if ui.selectable_value(&mut sheet.plot_style, s, s.name()).changed() {
+                        if ui.selectable_value(&mut sheet.plot_style, s, crate::i18n::tr(s.name())).changed() {
                             t.dirty = true;
                         }
                     }
                 });
             });
-            ui.checkbox(&mut self.settings.explode_dims_dxf, "DXF: explode dimensions into lines and text");
-            ui.checkbox(&mut self.settings.pdfa, "PDF: PDF/A-2b for archiving (text as outlines)");
+            ui.checkbox(&mut self.settings.explode_dims_dxf, crate::i18n::tr("DXF: explode dimensions into lines and text"));
+            ui.checkbox(&mut self.settings.pdfa, crate::i18n::tr("PDF: PDF/A-2b for archiving (text as outlines)"));
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.settings.plot_stamp.on, "PDF/SVG: plot stamp");
-                if ui.small_button("Settings…").clicked() {
+                ui.checkbox(&mut self.settings.plot_stamp.on, crate::i18n::tr("PDF/SVG: plot stamp"));
+                if ui.small_button(crate::i18n::tr("Settings…")).clicked() {
                     self.dlg.plotstamp = true;
                 }
             });
             ui.separator();
             ui.horizontal(|ui| {
                 for (l, e) in [("PDF", "pdf"), ("DXF", "dxf"), ("DWG", "dwg"), ("SVG", "svg")] {
-                    if ui.button(format!("Export {l}…")).clicked() {
+                    if ui.button(crate::i18n::tr1("Export {}…", l)).clicked() {
                         go = Some(e);
                     }
                 }
@@ -1435,9 +1459,9 @@ impl App {
     fn help_dialogs(&mut self, ctx: &egui::Context) {
         if self.dlg.help {
             let mut open = true;
-            egui::Window::new("ImagineCAD Help").open(&mut open).default_width(620.0).default_height(520.0).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("ImagineCAD Help")).open(&mut open).default_width(620.0).default_height(520.0).show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.label(RichText::new("Commands (type the name or alias, then Enter/Space)").strong());
+                    ui.label(RichText::new(crate::i18n::tr("Commands (type the name or alias, then Enter/Space)")).strong());
                     egui::Grid::new("help_cmds").striped(true).num_columns(2).show(ui, |ui| {
                         for (n, a) in commands::COMMANDS {
                             ui.label(RichText::new(*n).monospace());
@@ -1446,24 +1470,24 @@ impl App {
                         }
                     });
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Coordinate input").strong());
-                    ui.label("x,y  absolute   ·   @dx,dy  relative   ·   @dist<angle  polar   ·   a number = distance along the cursor direction");
+                    ui.label(RichText::new(crate::i18n::tr("Coordinate input")).strong());
+                    ui.label(crate::i18n::tr("x,y  absolute   ·   @dx,dy  relative   ·   @dist<angle  polar   ·   a number = distance along the cursor direction"));
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Mouse").strong());
-                    ui.label("Wheel: zoom at cursor · Middle-drag or Alt+drag: pan · Double-click middle: zoom extents · Right-click: Enter / context menu");
-                    ui.label("Click-click or drag left→right: window selection (fully inside) · right→left: crossing selection · Shift+click: remove from selection");
-                    ui.label("Click a blue grip of a selected object to stretch it.");
+                    ui.label(RichText::new(crate::i18n::tr("Mouse")).strong());
+                    ui.label(crate::i18n::tr("Wheel: zoom at cursor · Middle-drag or Alt+drag: pan · Double-click middle: zoom extents · Right-click: Enter / context menu"));
+                    ui.label(crate::i18n::tr("Click-click or drag left→right: window selection (fully inside) · right→left: crossing selection · Shift+click: remove from selection"));
+                    ui.label(crate::i18n::tr("Click a blue grip of a selected object to stretch it."));
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Keys").strong());
-                    ui.label("Esc cancel · Enter/Space repeat or confirm · Delete erase · F3 OSNAP · F7 grid · F8 ortho · F9 snap · F12 dynamic input");
-                    ui.label("Ctrl+Z/Y undo/redo · Ctrl+S save · Ctrl+O open · Ctrl+N new · Ctrl+P plot · Ctrl+I image-to-CAD · Ctrl+C/V copy/paste · Ctrl+A select all");
+                    ui.label(RichText::new(crate::i18n::tr("Keys")).strong());
+                    ui.label(crate::i18n::tr("Esc cancel · Enter/Space repeat or confirm · Delete erase · F3 OSNAP · F7 grid · F8 ortho · F9 snap · F12 dynamic input"));
+                    ui.label(crate::i18n::tr("Ctrl+Z/Y undo/redo · Ctrl+S save · Ctrl+O open · Ctrl+N new · Ctrl+P plot · Ctrl+I image-to-CAD · Ctrl+C/V copy/paste · Ctrl+A select all"));
                 });
             });
             self.dlg.help = open;
         }
         if self.dlg.ai_help {
             let mut open = true;
-            egui::Window::new("Tips for best sketch conversion").open(&mut open).default_width(520.0).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("Tips for best sketch conversion")).open(&mut open).default_width(520.0).show(ctx, |ui| {
                 for tip in [
                     "Use dark pen or a soft pencil on plain white paper. Squared paper works if the grid is faint.",
                     "Photograph straight-on with even light (no strong shadows), or scan at 200–300 dpi.",
@@ -1481,10 +1505,10 @@ impl App {
         }
         if self.dlg.about {
             let mut open = true;
-            egui::Window::new("About ImagineCAD").open(&mut open).default_width(460.0).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("About ImagineCAD")).open(&mut open).default_width(460.0).show(ctx, |ui| {
                 ui.heading("ImagineCAD");
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                ui.label("AI-assisted 2D CAD for mechanical drawings. Built in Rust.");
+                ui.label(crate::i18n::tr("AI-assisted 2D CAD for mechanical drawings. Built in Rust."));
                 ui.add_space(6.0);
                 ui.label(RichText::new(crate::LEGAL_NOTICE).size(11.5).color(theme::TEXT_DIM));
                 ui.add_space(6.0);
@@ -1512,7 +1536,7 @@ impl App {
                 |ui| {
                     ui.set_max_width(460.0);
                     ui.label(msg);
-                    if ui.button("OK").clicked() {
+                    if ui.button(crate::i18n::tr("OK")).clicked() {
                         close = true;
                     }
                 },
@@ -1531,20 +1555,20 @@ impl App {
             }
             let name = self.tabs[i].name.clone();
             let mut choice = None;
-            egui::Window::new("Save changes?")
+            egui::Window::new(crate::i18n::tr("Save changes?"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
                 .show(ctx, |ui| {
                     ui.label(format!("Save changes to {name}?"));
                     ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
+                        if ui.button(crate::i18n::tr("Save")).clicked() {
                             choice = Some(0);
                         }
-                        if ui.button("Don't save").clicked() {
+                        if ui.button(crate::i18n::tr("Don't save")).clicked() {
                             choice = Some(1);
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(crate::i18n::tr("Cancel")).clicked() {
                             choice = Some(2);
                         }
                     });
@@ -1568,17 +1592,17 @@ impl App {
         if self.dlg.confirm_quit {
             let dirty: Vec<String> = self.tabs.iter().filter(|t| t.dirty).map(|t| t.name.clone()).collect();
             let mut choice = None;
-            egui::Window::new("Quit ImagineCAD?")
+            egui::Window::new(crate::i18n::tr("Quit ImagineCAD?"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
                 .show(ctx, |ui| {
                     ui.label(format!("Unsaved changes in: {}", dirty.join(", ")));
                     ui.horizontal(|ui| {
-                        if ui.button("Quit without saving").clicked() {
+                        if ui.button(crate::i18n::tr("Quit without saving")).clicked() {
                             choice = Some(true);
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(crate::i18n::tr("Cancel")).clicked() {
                             choice = Some(false);
                         }
                     });

@@ -124,21 +124,21 @@ impl TableDialog {
 pub fn table_editor(ui: &mut egui::Ui, t: &mut Table) -> bool {
     let mut ch = false;
     ui.horizontal_wrapped(|ui| {
-        if ui.button("+ Row").clicked() {
+        if ui.button(crate::i18n::tr("+ Row")).clicked() {
             let n = t.rows();
             t.insert_row(n);
             ch = true;
         }
-        if ui.button("+ Column").clicked() {
+        if ui.button(crate::i18n::tr("+ Column")).clicked() {
             let n = t.cols();
             t.insert_col(n);
             ch = true;
         }
-        if ui.button("Fit columns").on_hover_text("Size every column to its text").clicked() {
+        if ui.button(crate::i18n::tr("Fit columns")).on_hover_text(crate::i18n::tr("Size every column to its text")).clicked() {
             t.fit_columns();
             ch = true;
         }
-        ui.label("Text height");
+        ui.label(crate::i18n::tr("Text height"));
         ch |= ui.add(egui::DragValue::new(&mut t.text_height).speed(0.1).range(0.01..=1e6)).changed();
     });
     ui.add_space(4.0);
@@ -151,7 +151,7 @@ pub fn table_editor(ui: &mut egui::Ui, t: &mut Table) -> bool {
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
                         ch |= ui.add(egui::DragValue::new(&mut t.col_widths[c]).speed(0.5).range(0.1..=1e6).prefix("w ")).changed();
-                        if t.cols() > 1 && ui.small_button("✖").on_hover_text("Remove column").clicked() {
+                        if t.cols() > 1 && ui.small_button("✖").on_hover_text(crate::i18n::tr("Remove column")).clicked() {
                             remove_col = Some(c);
                         }
                     });
@@ -173,12 +173,12 @@ pub fn table_editor(ui: &mut egui::Ui, t: &mut Table) -> bool {
             ui.end_row();
             for r in 0..t.rows() {
                 ui.horizontal(|ui| {
-                    if t.rows() > 1 && ui.small_button("✖").on_hover_text("Remove row").clicked() {
+                    if t.rows() > 1 && ui.small_button("✖").on_hover_text(crate::i18n::tr("Remove row")).clicked() {
                         remove_row = Some(r);
                     }
                     let merged = t.cells[r][0].span + 1 >= t.cols() && t.cols() > 1;
                     let mut m = merged;
-                    if ui.checkbox(&mut m, "").on_hover_text("Merge the whole row (title)").changed() {
+                    if ui.checkbox(&mut m, "").on_hover_text(crate::i18n::tr("Merge the whole row (title)")).changed() {
                         t.cells[r][0].span = if m { t.cols() - 1 } else { 0 };
                         ch = true;
                     }
@@ -212,26 +212,26 @@ pub fn table_editor(ui: &mut egui::Ui, t: &mut Table) -> bool {
 fn mstyle_editor(ui: &mut egui::Ui, s: &mut MLeaderStyle) -> bool {
     let mut ch = false;
     egui::Grid::new("mls").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-        ui.label("Arrowhead");
+        ui.label(crate::i18n::tr("Arrowhead"));
         egui::ComboBox::from_id_salt("mls_arrow").selected_text(s.arrow.name()).show_ui(ui, |ui| {
             for a in ArrowKind::ALL {
                 ch |= ui.selectable_value(&mut s.arrow, a, a.name()).changed();
             }
         });
         ui.end_row();
-        ui.label("Arrow size (mm)");
+        ui.label(crate::i18n::tr("Arrow size (mm)"));
         ch |= ui.add(egui::DragValue::new(&mut s.arrow_size).speed(0.1).range(0.0..=50.0)).changed();
         ui.end_row();
-        ui.label("Text height (mm)");
+        ui.label(crate::i18n::tr("Text height (mm)"));
         ch |= ui.add(egui::DragValue::new(&mut s.text_height).speed(0.1).range(0.5..=50.0)).changed();
         ui.end_row();
-        ui.label("Landing");
+        ui.label(crate::i18n::tr("Landing"));
         ui.horizontal(|ui| {
             ch |= ui.checkbox(&mut s.landing, "").changed();
             ch |= ui.add_enabled(s.landing, egui::DragValue::new(&mut s.landing_len).speed(0.1).range(0.0..=50.0).suffix(" mm")).changed();
         });
         ui.end_row();
-        ui.label("Text frame");
+        ui.label(crate::i18n::tr("Text frame"));
         ui.horizontal(|ui| {
             for (f, l) in [(TextFrame::None, "None"), (TextFrame::Box, "Box"), (TextFrame::Circle, "Balloon")] {
                 ch |= ui.radio_value(&mut s.frame, f, l).changed();
@@ -264,41 +264,41 @@ impl App {
             let mut open = true;
             let mut place = false;
             let doc = &self.tabs[self.active].doc;
-            egui::Window::new("Insert Table").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("Insert Table")).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut d.source, TableSource::Empty, "Empty");
-                    ui.radio_value(&mut d.source, TableSource::Csv, "From CSV / spreadsheet");
-                    ui.radio_value(&mut d.source, TableSource::PartsList, "Parts list (block attributes)");
+                    ui.radio_value(&mut d.source, TableSource::Empty, crate::i18n::tr("Empty"));
+                    ui.radio_value(&mut d.source, TableSource::Csv, crate::i18n::tr("From CSV / spreadsheet"));
+                    ui.radio_value(&mut d.source, TableSource::PartsList, crate::i18n::tr("Parts list (block attributes)"));
                 });
                 ui.add_space(4.0);
                 egui::Grid::new("tbl_new").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                     if d.source == TableSource::Empty {
-                        ui.label("Rows × columns");
+                        ui.label(crate::i18n::tr("Rows × columns"));
                         ui.horizontal(|ui| {
                             ui.add(egui::DragValue::new(&mut d.rows).range(1..=500));
                             ui.label("×");
                             ui.add(egui::DragValue::new(&mut d.cols).range(1..=50));
                         });
                         ui.end_row();
-                        ui.label("Column width");
+                        ui.label(crate::i18n::tr("Column width"));
                         ui.add(egui::DragValue::new(&mut d.col_w).speed(0.5).range(0.1..=1e6));
                         ui.end_row();
                     }
-                    ui.label("Row height");
+                    ui.label(crate::i18n::tr("Row height"));
                     ui.add(egui::DragValue::new(&mut d.row_h).speed(0.1).range(0.1..=1e6));
                     ui.end_row();
-                    ui.label("Text height");
+                    ui.label(crate::i18n::tr("Text height"));
                     ui.add(egui::DragValue::new(&mut d.text_h).speed(0.1).range(0.01..=1e6));
                     ui.end_row();
-                    ui.label("Title row");
-                    ui.add(egui::TextEdit::singleline(&mut d.title).hint_text("optional, e.g. PARTS LIST"));
+                    ui.label(crate::i18n::tr("Title row"));
+                    ui.add(egui::TextEdit::singleline(&mut d.title).hint_text(crate::i18n::tr("optional, e.g. PARTS LIST")));
                     ui.end_row();
                 });
                 match d.source {
                     TableSource::Csv => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Paste comma- or tab-separated rows (from a spreadsheet):").size(12.0));
-                            if ui.small_button("Open file…").clicked() {
+                            ui.label(RichText::new(crate::i18n::tr("Paste comma- or tab-separated rows (from a spreadsheet):")).size(12.0));
+                            if ui.small_button(crate::i18n::tr("Open file…")).clicked() {
                                 if let Some(p) = rfd::FileDialog::new().add_filter("CSV", &["csv", "txt", "tsv"]).pick_file() {
                                     d.csv = std::fs::read_to_string(p).unwrap_or_default();
                                 }
@@ -317,7 +317,7 @@ impl App {
                     TableSource::Empty => {}
                 }
                 ui.add_space(6.0);
-                if ui.button(RichText::new("Place in drawing").strong()).clicked() {
+                if ui.button(RichText::new(crate::i18n::tr("Place in drawing")).strong()).clicked() {
                     place = true;
                 }
             });
@@ -341,14 +341,14 @@ impl App {
             let mut open = true;
             let mut ok = false;
             let mut cancel = false;
-            egui::Window::new("Edit Table").open(&mut open).collapsible(false).default_width(640.0).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("Edit Table")).open(&mut open).collapsible(false).default_width(640.0).show(ctx, |ui| {
                 table_editor(ui, &mut e.table);
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("OK").strong()).clicked() {
+                    if ui.button(RichText::new(crate::i18n::tr("OK")).strong()).clicked() {
                         ok = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
                         cancel = true;
                     }
                 });
@@ -368,61 +368,70 @@ impl App {
             let mut open = true;
             let t = &mut self.tabs[self.active];
             let before = (t.doc.mleader_styles.clone(), t.doc.mleader_style.clone());
-            egui::Window::new("Multileader Styles").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
-                let doc = &mut t.doc;
-                ui.horizontal(|ui| {
-                    ui.label("Current style");
-                    egui::ComboBox::from_id_salt("mls_cur").selected_text(doc.mleader_style.clone()).show_ui(ui, |ui| {
-                        for s in &doc.mleader_styles {
-                            ui.selectable_value(&mut doc.mleader_style, s.name.clone(), &s.name);
-                        }
-                    });
-                    if ui.button("New").clicked() {
-                        let mut s =
-                            doc.mleader_styles.iter().find(|s| s.name == doc.mleader_style).cloned().unwrap_or_else(MLeaderStyle::standard);
-                        let mut k = 1;
-                        while doc.mleader_styles.iter().any(|x| x.name == format!("Style {k}")) {
-                            k += 1;
-                        }
-                        s.name = format!("Style {k}");
-                        doc.mleader_style = s.name.clone();
-                        doc.mleader_styles.push(s);
-                    }
-                    let in_use = doc
-                        .entities
-                        .iter()
-                        .any(|e| matches!(&e.shape, Shape::Leader(l) if l.style.as_deref() == Some(doc.mleader_style.as_str())));
-                    if ui
-                        .add_enabled(doc.mleader_styles.len() > 1 && !in_use, egui::Button::new("Delete"))
-                        .on_disabled_hover_text("Styles in use cannot be deleted")
-                        .clicked()
-                    {
-                        doc.mleader_styles.retain(|s| s.name != doc.mleader_style);
-                        doc.mleader_style = doc.mleader_styles[0].name.clone();
-                    }
-                });
-                ui.separator();
-                let cur = doc.mleader_style.clone();
-                if let Some(s) = doc.mleader_styles.iter_mut().find(|s| s.name == cur) {
+            egui::Window::new(crate::i18n::tr("Multileader Styles")).open(&mut open).collapsible(false).default_width(420.0).show(
+                ctx,
+                |ui| {
+                    let doc = &mut t.doc;
                     ui.horizontal(|ui| {
-                        ui.label("Name");
-                        let mut name = s.name.clone();
-                        if ui.text_edit_singleline(&mut name).changed() && !name.trim().is_empty() {
-                            s.name = name.clone();
-                            doc.mleader_style = name;
+                        ui.label(crate::i18n::tr("Current style"));
+                        egui::ComboBox::from_id_salt("mls_cur").selected_text(doc.mleader_style.clone()).show_ui(ui, |ui| {
+                            for s in &doc.mleader_styles {
+                                ui.selectable_value(&mut doc.mleader_style, s.name.clone(), &s.name);
+                            }
+                        });
+                        if ui.button(crate::i18n::tr("New")).clicked() {
+                            let mut s = doc
+                                .mleader_styles
+                                .iter()
+                                .find(|s| s.name == doc.mleader_style)
+                                .cloned()
+                                .unwrap_or_else(MLeaderStyle::standard);
+                            let mut k = 1;
+                            while doc.mleader_styles.iter().any(|x| x.name == format!("Style {k}")) {
+                                k += 1;
+                            }
+                            s.name = format!("Style {k}");
+                            doc.mleader_style = s.name.clone();
+                            doc.mleader_styles.push(s);
+                        }
+                        let in_use = doc
+                            .entities
+                            .iter()
+                            .any(|e| matches!(&e.shape, Shape::Leader(l) if l.style.as_deref() == Some(doc.mleader_style.as_str())));
+                        if ui
+                            .add_enabled(doc.mleader_styles.len() > 1 && !in_use, egui::Button::new("Delete"))
+                            .on_disabled_hover_text("Styles in use cannot be deleted")
+                            .clicked()
+                        {
+                            doc.mleader_styles.retain(|s| s.name != doc.mleader_style);
+                            doc.mleader_style = doc.mleader_styles[0].name.clone();
                         }
                     });
-                    mstyle_editor(ui, s);
-                    let pts = [V2::ZERO, V2::new(8.0, 8.0)];
-                    let prims = s.prims(&pts, if s.frame == TextFrame::Circle { "12" } else { "NOTE TEXT" }, 1.0, 1.0);
-                    crate::canvas::preview_prims(ui, &prims, egui::vec2(360.0, 90.0));
-                }
-                ui.label(
-                    RichText::new("MLEADER draws with the current style; change a leader's style in the Properties palette.")
+                    ui.separator();
+                    let cur = doc.mleader_style.clone();
+                    if let Some(s) = doc.mleader_styles.iter_mut().find(|s| s.name == cur) {
+                        ui.horizontal(|ui| {
+                            ui.label(crate::i18n::tr("Name"));
+                            let mut name = s.name.clone();
+                            if ui.text_edit_singleline(&mut name).changed() && !name.trim().is_empty() {
+                                s.name = name.clone();
+                                doc.mleader_style = name;
+                            }
+                        });
+                        mstyle_editor(ui, s);
+                        let pts = [V2::ZERO, V2::new(8.0, 8.0)];
+                        let prims = s.prims(&pts, if s.frame == TextFrame::Circle { "12" } else { "NOTE TEXT" }, 1.0, 1.0);
+                        crate::canvas::preview_prims(ui, &prims, egui::vec2(360.0, 90.0));
+                    }
+                    ui.label(
+                        RichText::new(crate::i18n::tr(
+                            "MLEADER draws with the current style; change a leader's style in the Properties palette.",
+                        ))
                         .size(11.0)
                         .color(theme::TEXT_DIM),
-                );
-            });
+                    );
+                },
+            );
             // Renamed styles carry their leaders along.
             let (old_styles, _) = &before;
             for (o, n) in old_styles.iter().zip(&t.doc.mleader_styles) {

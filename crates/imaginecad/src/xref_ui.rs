@@ -89,9 +89,9 @@ impl App {
                 })
                 .collect()
         };
-        egui::Window::new("External References").open(&mut open).default_width(560.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("External References")).open(&mut open).default_width(560.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Attach DWG / DXF…").clicked() {
+                if ui.button(crate::i18n::tr("Attach DWG / DXF…")).clicked() {
                     action = Some(("attach", String::new()));
                 }
                 if ui.add_enabled(!rows.is_empty(), egui::Button::new("Reload all")).clicked() {
@@ -101,8 +101,10 @@ impl App {
             ui.separator();
             if rows.is_empty() {
                 ui.label(
-                    RichText::new("No external references. Attach a drawing to show it here, kept up to date with its file.")
-                        .color(theme::TEXT_DIM),
+                    RichText::new(crate::i18n::tr(
+                        "No external references. Attach a drawing to show it here, kept up to date with its file.",
+                    ))
+                    .color(theme::TEXT_DIM),
                 );
             }
             egui::Grid::new("xrefs").num_columns(4).striped(true).spacing([10.0, 6.0]).show(ui, |ui| {
@@ -111,23 +113,24 @@ impl App {
                     ui.label(if *found {
                         RichText::new(format!("Loaded · {uses} reference(s)")).color(egui::Color32::from_rgb(90, 210, 120))
                     } else {
-                        RichText::new("Not found").color(theme::ERR)
+                        RichText::new(crate::i18n::tr("Not found")).color(theme::ERR)
                     });
                     ui.label(RichText::new(path).size(11.0).color(theme::TEXT_DIM)).on_hover_text(path);
                     ui.horizontal(|ui| {
-                        if ui.small_button("Reload").clicked() {
+                        if ui.small_button(crate::i18n::tr("Reload")).clicked() {
                             action = Some(("reload", name.clone()));
                         }
-                        if ui.small_button("Path…").on_hover_text("Choose the file again").clicked() {
+                        if ui.small_button(crate::i18n::tr("Path…")).on_hover_text(crate::i18n::tr("Choose the file again")).clicked() {
                             action = Some(("path", name.clone()));
                         }
-                        if ui.small_button("Open").clicked() {
+                        if ui.small_button(crate::i18n::tr("Open")).clicked() {
                             action = Some(("open", path.clone()));
                         }
-                        if ui.small_button("Bind").on_hover_text("Make it part of this drawing").clicked() {
+                        if ui.small_button(crate::i18n::tr("Bind")).on_hover_text(crate::i18n::tr("Make it part of this drawing")).clicked()
+                        {
                             action = Some(("bind", name.clone()));
                         }
-                        if ui.small_button("Detach").clicked() {
+                        if ui.small_button(crate::i18n::tr("Detach")).clicked() {
                             action = Some(("detach", name.clone()));
                         }
                     });

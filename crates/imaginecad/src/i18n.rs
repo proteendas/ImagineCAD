@@ -157,6 +157,24 @@ mod tests {
             assert!(missing.is_empty(), "{code} lacks translations for {missing:?}");
             assert!(map.values().all(|v| !v.trim().is_empty()));
         }
+        // Every literal passed to tr() in the sources (dialogs, palettes…).
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut used: Vec<String> = vec![];
+        for f in std::fs::read_dir(&dir).unwrap().flatten() {
+            let src = std::fs::read_to_string(f.path()).unwrap_or_default();
+            for (i, _) in src.match_indices("i18n::tr(\"") {
+                let rest = &src[i + 10..];
+                if let Some(end) = rest.find('"') {
+                    used.push(rest[..end].to_string());
+                }
+            }
+        }
+        assert!(used.len() > 250, "{}", used.len());
+        for (code, _) in LANGUAGES.iter().filter(|l| l.0 != "en") {
+            let map: HashMap<String, String> = serde_json::from_str(bundled(code).unwrap()).unwrap();
+            let missing: Vec<&String> = used.iter().filter(|l| !map.contains_key(*l)).collect();
+            assert!(missing.is_empty(), "{code} lacks translations for {missing:?}");
+        }
         set_language("de");
         assert_eq!(tr("Layers"), "Layer");
         assert_eq!(tr("Plot\nto PDF"), "Als PDF\nplotten");

@@ -1280,7 +1280,7 @@ impl App {
                         let recent = self.settings.recent.clone();
                         ui.menu_button("Recent drawings", |ui| {
                             if recent.is_empty() {
-                                ui.label("(none)");
+                                ui.label(crate::i18n::tr("(none)"));
                             }
                             for p in recent {
                                 if ui
@@ -1332,7 +1332,7 @@ impl App {
                         ui.painter().text(pos2(x, ui.max_rect().center().y), Align2::CENTER_CENTER, title, font, theme::TEXT);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(egui::Button::new("?").frame(false)).on_hover_text("Help (F1)").clicked() {
+                        if ui.add(egui::Button::new("?").frame(false)).on_hover_text(crate::i18n::tr("Help (F1)")).clicked() {
                             self.dlg.help = true;
                         }
                         if ui
@@ -1396,7 +1396,7 @@ impl App {
                                     }
                                     if ui
                                         .add(egui::Button::new(RichText::new("×").size(12.0)).frame(false))
-                                        .on_hover_text("Close")
+                                        .on_hover_text(crate::i18n::tr("Close"))
                                         .clicked()
                                     {
                                         close = Some(i);
@@ -1404,7 +1404,11 @@ impl App {
                                 });
                             });
                     }
-                    if ui.add(egui::Button::new(RichText::new(" + ").strong()).frame(false)).on_hover_text("New drawing").clicked() {
+                    if ui
+                        .add(egui::Button::new(RichText::new(" + ").strong()).frame(false))
+                        .on_hover_text(crate::i18n::tr("New drawing"))
+                        .clicked()
+                    {
                         self.new_drawing();
                     }
                     if let Some(i) = close {
@@ -1489,7 +1493,7 @@ impl App {
                         // Annotation scale: dimension text, arrows and the sheet follow it.
                         let cur = self.tabs[self.active].doc.sheet.scale;
                         ui.menu_button(format!("Scale {}", icad_core::sheet::scale_label(cur)), |ui| {
-                            ui.label(RichText::new("Annotation scale").size(11.0).color(theme::TEXT_DIM));
+                            ui.label(RichText::new(crate::i18n::tr("Annotation scale")).size(11.0).color(theme::TEXT_DIM));
                             for sc in [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0] {
                                 if ui.selectable_label((cur - sc).abs() < 1e-9, icad_core::sheet::scale_label(sc)).clicked() {
                                     let t = self.tab();
@@ -1503,13 +1507,15 @@ impl App {
                                 }
                             }
                             ui.separator();
-                            if ui.button("Page Setup…").clicked() {
+                            if ui.button(crate::i18n::tr("Page Setup…")).clicked() {
                                 self.dlg.page = true;
                                 ui.close_menu();
                             }
                         })
                         .response
-                        .on_hover_text("Annotation scale — sizes dimension text and arrows for the plot (like the sheet scale)");
+                        .on_hover_text(crate::i18n::tr(
+                            "Annotation scale — sizes dimension text and arrows for the plot (like the sheet scale)",
+                        ));
                         let chip = |ui: &mut egui::Ui, label: &str, on: bool, tip: &str| -> egui::Response {
                             let txt = RichText::new(label).size(11.5).color(if on { Color32::WHITE } else { theme::TEXT_DIM });
                             ui.add(egui::Button::new(txt).fill(if on { theme::ACTIVE } else { Color32::TRANSPARENT }).corner_radius(2))
@@ -1527,14 +1533,14 @@ impl App {
                         }
                         os.context_menu(|ui| {
                             let m = &mut self.settings.osnap_modes;
-                            ui.checkbox(&mut m.end, "Endpoint");
-                            ui.checkbox(&mut m.mid, "Midpoint");
-                            ui.checkbox(&mut m.center, "Center");
-                            ui.checkbox(&mut m.quadrant, "Quadrant");
-                            ui.checkbox(&mut m.intersection, "Intersection");
-                            ui.checkbox(&mut m.perpendicular, "Perpendicular");
-                            ui.checkbox(&mut m.node, "Node");
-                            ui.checkbox(&mut m.nearest, "Nearest");
+                            ui.checkbox(&mut m.end, crate::i18n::tr("Endpoint"));
+                            ui.checkbox(&mut m.mid, crate::i18n::tr("Midpoint"));
+                            ui.checkbox(&mut m.center, crate::i18n::tr("Center"));
+                            ui.checkbox(&mut m.quadrant, crate::i18n::tr("Quadrant"));
+                            ui.checkbox(&mut m.intersection, crate::i18n::tr("Intersection"));
+                            ui.checkbox(&mut m.perpendicular, crate::i18n::tr("Perpendicular"));
+                            ui.checkbox(&mut m.node, crate::i18n::tr("Node"));
+                            ui.checkbox(&mut m.nearest, crate::i18n::tr("Nearest"));
                         });
                         let pl = chip(ui, "POLAR", self.settings.polar, "Polar tracking (F10) — right-click for the angle increment");
                         if pl.clicked() {
@@ -1562,7 +1568,7 @@ impl App {
                         }
                         sn.context_menu(|ui| {
                             ui.horizontal(|ui| {
-                                ui.label("Snap spacing");
+                                ui.label(crate::i18n::tr("Snap spacing"));
                                 ui.add(egui::DragValue::new(&mut self.settings.snap_spacing).speed(0.5).range(0.001..=1e6));
                             });
                         });
@@ -1768,7 +1774,7 @@ fn layer_combo(ui: &mut egui::Ui, t: &mut Tab) {
         });
     });
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Current:").size(11.0).color(theme::TEXT_DIM));
+        ui.label(RichText::new(crate::i18n::tr("Current:")).size(11.0).color(theme::TEXT_DIM));
         ui.label(RichText::new(&cur).size(11.0));
     });
 }
@@ -1824,7 +1830,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
     let mut gen_changed = false;
     ui.collapsing("General", |ui| {
         egui::Grid::new("gen").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-            ui.label("Layer");
+            ui.label(crate::i18n::tr("Layer"));
             egui::ComboBox::from_id_salt("p_layer").selected_text(&proto.layer).width(140.0).show_ui(ui, |ui| {
                 for l in &t.doc.layers {
                     if ui.selectable_value(&mut proto.layer, l.name.clone(), &l.name).changed() {
@@ -1833,13 +1839,13 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                 }
             });
             ui.end_row();
-            ui.label("Color");
+            ui.label(crate::i18n::tr("Color"));
             let ctext = match proto.color {
                 Color::ByLayer => "ByLayer".to_string(),
                 Color::Aci(c) => aci_name(c),
             };
             egui::ComboBox::from_id_salt("p_color").selected_text(ctext).width(140.0).show_ui(ui, |ui| {
-                if ui.selectable_value(&mut proto.color, Color::ByLayer, "ByLayer").changed() {
+                if ui.selectable_value(&mut proto.color, Color::ByLayer, crate::i18n::tr("ByLayer")).changed() {
                     gen_changed = true;
                 }
                 for (i, n) in ACI_NAMES {
@@ -1852,13 +1858,13 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                 }
             });
             ui.end_row();
-            ui.label("Linetype");
+            ui.label(crate::i18n::tr("Linetype"));
             let lt = match proto.linetype {
                 LtRef::ByLayer => "ByLayer".to_string(),
                 LtRef::Lt(l) => l.name().to_string(),
             };
             egui::ComboBox::from_id_salt("p_lt").selected_text(lt).width(140.0).show_ui(ui, |ui| {
-                if ui.selectable_value(&mut proto.linetype, LtRef::ByLayer, "ByLayer").changed() {
+                if ui.selectable_value(&mut proto.linetype, LtRef::ByLayer, crate::i18n::tr("ByLayer")).changed() {
                     gen_changed = true;
                 }
                 for l in LineType::ALL {
@@ -1926,7 +1932,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         *r = r.max(1e-9);
                     }
                     Shape::Polyline { pts, closed } => {
-                        ui.label("Closed");
+                        ui.label(crate::i18n::tr("Closed"));
                         if ui.checkbox(closed, "").changed() {
                             gflag.set(true);
                         }
@@ -1937,7 +1943,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::Text(tx) => {
-                        ui.label("Style");
+                        ui.label(crate::i18n::tr("Style"));
                         let names: Vec<String> = t.doc.text_styles.iter().map(|s| s.name.clone()).collect();
                         egui::ComboBox::from_id_salt("p_ts").selected_text(tx.style.clone().unwrap_or_else(|| "Standard".into())).show_ui(
                             ui,
@@ -1950,7 +1956,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             },
                         );
                         ui.end_row();
-                        ui.label("Contents");
+                        ui.label(crate::i18n::tr("Contents"));
                         if ui.text_edit_singleline(&mut tx.content).changed() {
                             gflag.set(true);
                         }
@@ -1964,14 +1970,14 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         tx.height = tx.height.max(1e-6);
                     }
                     Shape::Dim(d) => {
-                        ui.label("Measurement");
+                        ui.label(crate::i18n::tr("Measurement"));
                         ui.label(t.doc.dimstyle.format(d.measurement()));
                         ui.end_row();
-                        ui.label("Text override");
+                        ui.label(crate::i18n::tr("Text override"));
                         let mut s = d.text.clone().unwrap_or_default();
                         if ui
                             .text_edit_singleline(&mut s)
-                            .on_hover_text("Leave empty for the measured value; <> inserts it, e.g. 2x <>")
+                            .on_hover_text(crate::i18n::tr("Leave empty for the measured value; <> inserts it, e.g. 2x <>"))
                             .changed()
                         {
                             d.text = if s.is_empty() { None } else { Some(s) };
@@ -2008,7 +2014,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::Spline { pts, closed } => {
-                        ui.label("Closed");
+                        ui.label(crate::i18n::tr("Closed"));
                         if ui.checkbox(closed, "").changed() {
                             gflag.set(true);
                         }
@@ -2033,7 +2039,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::MText(m) => {
-                        ui.label("Style");
+                        ui.label(crate::i18n::tr("Style"));
                         let names: Vec<String> = t.doc.text_styles.iter().map(|s| s.name.clone()).collect();
                         egui::ComboBox::from_id_salt("p_mts").selected_text(m.style.clone().unwrap_or_else(|| "Standard".into())).show_ui(
                             ui,
@@ -2046,7 +2052,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             },
                         );
                         ui.end_row();
-                        ui.label("Contents");
+                        ui.label(crate::i18n::tr("Contents"));
                         if ui.add(egui::TextEdit::multiline(&mut m.content).desired_rows(3).desired_width(160.0)).changed() {
                             gflag.set(true);
                         }
@@ -2060,7 +2066,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         m.rotation = norm_angle(rad(r));
                         m.height = m.height.max(1e-6);
                         m.width = m.width.max(0.0);
-                        ui.label("Justify");
+                        ui.label(crate::i18n::tr("Justify"));
                         let names = [
                             "Top left",
                             "Top center",
@@ -2085,7 +2091,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         ui.end_row();
                     }
                     Shape::Hatch(h) => {
-                        ui.label("Pattern");
+                        ui.label(crate::i18n::tr("Pattern"));
                         egui::ComboBox::from_id_salt("h_pat").selected_text(h.pattern.clone()).show_ui(ui, |ui| {
                             for (n, d) in icad_core::hatch::PATTERNS {
                                 if ui.selectable_value(&mut h.pattern, n.to_string(), *n).on_hover_text(*d).changed() {
@@ -2099,12 +2105,12 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         let mut a = deg(h.angle);
                         dv(ui, "Angle °", &mut a);
                         h.angle = rad(a);
-                        ui.label("Area");
+                        ui.label(crate::i18n::tr("Area"));
                         ui.label(commands::fmt(h.area()));
                         ui.end_row();
                     }
                     Shape::Insert(ins) => {
-                        ui.label("Block");
+                        ui.label(crate::i18n::tr("Block"));
                         ui.label(&ins.name);
                         ui.end_row();
                         dv(ui, "Position X", &mut ins.pos.x);
@@ -2152,12 +2158,12 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::Leader(l) => {
-                        ui.label("Style");
+                        ui.label(crate::i18n::tr("Style"));
                         let names: Vec<String> = t.doc.mleader_styles.iter().map(|s| s.name.clone()).collect();
                         egui::ComboBox::from_id_salt("p_mls")
                             .selected_text(l.style.clone().unwrap_or_else(|| "(dimension style)".into()))
                             .show_ui(ui, |ui| {
-                                if ui.selectable_value(&mut l.style, None, "(dimension style)").changed() {
+                                if ui.selectable_value(&mut l.style, None, crate::i18n::tr("(dimension style)")).changed() {
                                     gflag.set(true);
                                 }
                                 for n in names {
@@ -2167,7 +2173,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                                 }
                             });
                         ui.end_row();
-                        ui.label("Text");
+                        ui.label(crate::i18n::tr("Text"));
                         if ui.add(egui::TextEdit::multiline(&mut l.text).desired_rows(2).desired_width(160.0)).changed() {
                             gflag.set(true);
                         }
@@ -2190,11 +2196,11 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             ui.end_row();
                         }
                         ui.label("");
-                        ui.label(RichText::new("MASSPROP for moments of inertia").size(11.0).color(theme::TEXT_DIM));
+                        ui.label(RichText::new(crate::i18n::tr("MASSPROP for moments of inertia")).size(11.0).color(theme::TEXT_DIM));
                         ui.end_row();
                     }
                     Shape::Table(tb) => {
-                        ui.label("Size");
+                        ui.label(crate::i18n::tr("Size"));
                         ui.label(format!("{} rows × {} columns", tb.rows(), tb.cols()));
                         ui.end_row();
                         dv(ui, "Position X", &mut tb.pos.x);
@@ -2202,7 +2208,9 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         dv(ui, "Text height", &mut tb.text_height);
                         tb.text_height = tb.text_height.max(1e-6);
                         ui.label("");
-                        ui.label(RichText::new("Double-click the table to edit its cells").size(11.0).color(theme::TEXT_DIM));
+                        ui.label(
+                            RichText::new(crate::i18n::tr("Double-click the table to edit its cells")).size(11.0).color(theme::TEXT_DIM),
+                        );
                         ui.end_row();
                     }
                     Shape::AttDef(a) => {
@@ -2213,7 +2221,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             }
                             ui.end_row();
                         }
-                        ui.label("Invisible");
+                        ui.label(crate::i18n::tr("Invisible"));
                         if ui.checkbox(&mut a.invisible, "").changed() {
                             gflag.set(true);
                         }
@@ -2226,7 +2234,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                     Shape::RevCloud(c) => {
                         dv(ui, "Arc length", &mut c.arc);
                         c.arc = c.arc.max(1e-6);
-                        ui.label("Corners");
+                        ui.label(crate::i18n::tr("Corners"));
                         ui.label(c.pts.len().to_string());
                         ui.end_row();
                     }
@@ -2238,7 +2246,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         ui.end_row();
                     }
                     Shape::Image(img) => {
-                        ui.label("File");
+                        ui.label(crate::i18n::tr("File"));
                         ui.label(RichText::new(&img.path).size(11.0));
                         ui.end_row();
                         dv(ui, "Position X", &mut img.pos.x);
@@ -2250,7 +2258,7 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             img.w = img.w.max(1e-6);
                             img.h = img.w * aspect;
                         }
-                        ui.label("Fade %");
+                        ui.label(crate::i18n::tr("Fade %"));
                         if ui.add(egui::Slider::new(&mut img.fade, 0..=90)).changed() {
                             gflag.set(true);
                         }

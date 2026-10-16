@@ -132,12 +132,17 @@ impl App {
             .frame(egui::Frame::NONE.fill(theme::PANEL).inner_margin(egui::Margin::same(8)))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("AI CHAT").strong().color(theme::AI_ACCENT));
+                    ui.label(RichText::new(crate::i18n::tr("AI CHAT")).strong().color(theme::AI_ACCENT));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(egui::Button::new("×").frame(false)).on_hover_text("Close (AICHAT)").clicked() {
+                        if ui.add(egui::Button::new("×").frame(false)).on_hover_text(crate::i18n::tr("Close (AICHAT)")).clicked() {
                             self.settings.show_chat = false;
                         }
-                        if !self.chat.messages.is_empty() && ui.small_button("Clear").on_hover_text("Start a new conversation").clicked() {
+                        if !self.chat.messages.is_empty()
+                            && ui
+                                .small_button(crate::i18n::tr("Clear"))
+                                .on_hover_text(crate::i18n::tr("Start a new conversation"))
+                                .clicked()
+                        {
                             self.chat.messages.clear();
                         }
                     });
@@ -145,7 +150,7 @@ impl App {
                 let ai = &self.settings.convert.ai;
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(ai.describe()).size(11.0).color(theme::TEXT_DIM));
-                    if ui.small_button("Change…").clicked() {
+                    if ui.small_button(crate::i18n::tr("Change…")).clicked() {
                         open_settings = true;
                     }
                 });
@@ -198,7 +203,12 @@ impl App {
                                             let current = m.undo_mark.is_some_and(|(tab, depth)| {
                                                 Some(i) == last_applied && tab == self.active && self.tabs[tab].undo_stack.len() == depth
                                             });
-                                            if current && ui.small_button("Undo").on_hover_text("Revert this answer's changes").clicked() {
+                                            if current
+                                                && ui
+                                                    .small_button(crate::i18n::tr("Undo"))
+                                                    .on_hover_text(crate::i18n::tr("Revert this answer's changes"))
+                                                    .clicked()
+                                            {
                                                 undo = Some(i);
                                             }
                                         });
@@ -213,14 +223,14 @@ impl App {
                         if self.chat.rx.is_some() {
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label(RichText::new("Thinking…").color(theme::TEXT_DIM));
+                                ui.label(RichText::new(crate::i18n::tr("Thinking…")).color(theme::TEXT_DIM));
                             });
                         }
                     });
                 ui.separator();
                 if off {
-                    ui.label(RichText::new("AI is off. Connect a model to use the chat.").color(theme::WARN));
-                    if ui.button("Open AI Settings").clicked() {
+                    ui.label(RichText::new(crate::i18n::tr("AI is off. Connect a model to use the chat.")).color(theme::WARN));
+                    if ui.button(crate::i18n::tr("Open AI Settings")).clicked() {
                         open_settings = true;
                     }
                     return;
@@ -236,11 +246,12 @@ impl App {
                         .id(id)
                         .desired_rows(3)
                         .desired_width(f32::INFINITY)
-                        .hint_text("Describe a change… (Enter to send, Shift+Enter for a new line)"),
+                        .hint_text(crate::i18n::tr("Describe a change… (Enter to send, Shift+Enter for a new line)")),
                 );
                 ui.horizontal(|ui| {
                     let busy = self.chat.rx.is_some();
-                    let btn = egui::Button::new(RichText::new("Send").strong().color(Color32::WHITE)).fill(Color32::from_rgb(110, 70, 200));
+                    let btn = egui::Button::new(RichText::new(crate::i18n::tr("Send")).strong().color(Color32::WHITE))
+                        .fill(Color32::from_rgb(110, 70, 200));
                     if ui.add_enabled(!busy && !self.chat.input.trim().is_empty(), btn).clicked() {
                         send = true;
                     }

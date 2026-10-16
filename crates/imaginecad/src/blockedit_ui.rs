@@ -486,14 +486,14 @@ impl App {
                 }
                 *cols = columns.clone();
             }
-            egui::Window::new("Lookup Table").open(&mut open).default_width(480.0).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("Lookup Table")).open(&mut open).default_width(480.0).show(ctx, |ui| {
                 ui.label(
-                    RichText::new("Each row is one choice for the block reference; it sets all the parameters at once.")
+                    RichText::new(crate::i18n::tr("Each row is one choice for the block reference; it sets all the parameters at once."))
                         .color(theme::TEXT_DIM),
                 );
                 let mut remove = None;
                 egui::Grid::new("lookup").striped(true).spacing([6.0, 4.0]).show(ui, |ui| {
-                    ui.label(RichText::new("Row").strong());
+                    ui.label(RichText::new(crate::i18n::tr("Row")).strong());
                     for c in &columns {
                         ui.label(RichText::new(c).strong());
                     }
@@ -521,7 +521,7 @@ impl App {
                 if let Some(i) = remove {
                     rows.remove(i);
                 }
-                if ui.button("+ Row").clicked() {
+                if ui.button(crate::i18n::tr("+ Row")).clicked() {
                     rows.push((format!("Size {}", rows.len() + 1), defaults.clone()));
                 }
             });

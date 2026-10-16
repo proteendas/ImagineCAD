@@ -181,7 +181,7 @@ impl App {
         let mut open = true;
         let mut ok = false;
         let mut cancel = false;
-        egui::Window::new("Edit Attributes").open(&mut open).collapsible(false).default_width(380.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Edit Attributes")).open(&mut open).collapsible(false).default_width(380.0).show(ctx, |ui| {
             ui.label(RichText::new(format!("Block: {}", d.block)).strong());
             ui.add_space(4.0);
             egui::Grid::new("att_rows").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
@@ -193,10 +193,10 @@ impl App {
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("OK").strong()).clicked() {
+                if ui.button(RichText::new(crate::i18n::tr("OK")).strong()).clicked() {
                     ok = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(crate::i18n::tr("Cancel")).clicked() {
                     cancel = true;
                 }
             });

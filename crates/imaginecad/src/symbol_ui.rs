@@ -111,15 +111,15 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
                                 ch |= ui.selectable_value(&mut r.symbol, g, g.name()).changed();
                             }
                         });
-                        ch |= ui.checkbox(&mut r.diameter, "Ø").on_hover_text("Cylindrical tolerance zone").changed();
+                        ch |= ui.checkbox(&mut r.diameter, "Ø").on_hover_text(crate::i18n::tr("Cylindrical tolerance zone")).changed();
                         ch |= ui.add(egui::TextEdit::singleline(&mut r.tolerance).desired_width(54.0).hint_text("0.1")).changed();
                         ch |= material_combo(ui, "mat", &mut r.material);
-                        if rows > 1 && ui.small_button("✖").on_hover_text("Remove this row").clicked() {
+                        if rows > 1 && ui.small_button("✖").on_hover_text(crate::i18n::tr("Remove this row")).clicked() {
                             remove = Some(i);
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Datums").size(11.5).color(theme::TEXT_DIM));
+                        ui.label(RichText::new(crate::i18n::tr("Datums")).size(11.5).color(theme::TEXT_DIM));
                         r.datums.resize_with(3, Default::default);
                         for (k, d) in r.datums.iter_mut().enumerate() {
                             ch |= ui
@@ -136,7 +136,7 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
                 f.rows.remove(i);
                 ch = true;
             }
-            if f.rows.len() < 2 && ui.small_button("+ Second row (composite)").clicked() {
+            if f.rows.len() < 2 && ui.small_button(crate::i18n::tr("+ Second row (composite)")).clicked() {
                 let mut r = f.rows[0].clone();
                 r.tolerance.clear();
                 f.rows.push(r);
@@ -145,13 +145,13 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
         }
         Shape::Datum(d) => {
             ui.horizontal(|ui| {
-                ui.label("Datum letter");
+                ui.label(crate::i18n::tr("Datum letter"));
                 ch |= ui.add(egui::TextEdit::singleline(&mut d.letter).desired_width(40.0)).changed();
             });
         }
         Shape::Surface(sf) => {
             ui.horizontal(|ui| {
-                ui.label("Process");
+                ui.label(crate::i18n::tr("Process"));
                 for (v, l) in
                     [(SurfaceProcess::Removal, "Machined"), (SurfaceProcess::Any, "Any"), (SurfaceProcess::NoRemoval, "No removal")]
                 {
@@ -159,13 +159,13 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
                 }
             });
             egui::Grid::new("sf").num_columns(2).show(ui, |ui| {
-                ui.label("Requirement");
+                ui.label(crate::i18n::tr("Requirement"));
                 ch |= ui.add(egui::TextEdit::singleline(&mut sf.requirement).hint_text("Ra 1.6")).changed();
                 ui.end_row();
-                ui.label("Method");
-                ch |= ui.add(egui::TextEdit::singleline(&mut sf.method).hint_text("ground, turned…")).changed();
+                ui.label(crate::i18n::tr("Method"));
+                ch |= ui.add(egui::TextEdit::singleline(&mut sf.method).hint_text(crate::i18n::tr("ground, turned…"))).changed();
                 ui.end_row();
-                ui.label("Lay");
+                ui.label(crate::i18n::tr("Lay"));
                 egui::ComboBox::from_id_salt("lay").selected_text(if sf.lay.is_empty() { "–" } else { sf.lay.as_str() }).show_ui(
                     ui,
                     |ui| {
@@ -187,7 +187,7 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
                     },
                 );
                 ui.end_row();
-                ui.label("Rotation °");
+                ui.label(crate::i18n::tr("Rotation °"));
                 let mut r = sf.rotation.to_degrees();
                 if ui.add(egui::DragValue::new(&mut r).speed(1.0)).changed() {
                     sf.rotation = norm_angle(r.to_radians());
@@ -195,7 +195,7 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
                 }
                 ui.end_row();
             });
-            ch |= ui.checkbox(&mut sf.all_around, "All around the outline").changed();
+            ch |= ui.checkbox(&mut sf.all_around, crate::i18n::tr("All around the outline")).changed();
         }
         Shape::Weld(w) => {
             for (label, side) in [("Arrow side (below the line)", &mut w.arrow_side), ("Other side (above the line)", &mut w.other_side)] {
@@ -208,17 +208,21 @@ pub fn symbol_editor(ui: &mut egui::Ui, s: &mut Shape) -> bool {
                             }
                         });
                         ch |= ui.add(egui::TextEdit::singleline(&mut side.size).desired_width(48.0).hint_text("a5")).changed();
-                        ch |= ui.add(egui::TextEdit::singleline(&mut side.length).desired_width(72.0).hint_text("length")).changed();
+                        ch |= ui
+                            .add(egui::TextEdit::singleline(&mut side.length).desired_width(72.0).hint_text(crate::i18n::tr("length")))
+                            .changed();
                     });
                 });
             }
             ui.horizontal(|ui| {
-                ch |= ui.checkbox(&mut w.all_around, "All around").changed();
-                ch |= ui.checkbox(&mut w.field, "Field weld").changed();
+                ch |= ui.checkbox(&mut w.all_around, crate::i18n::tr("All around")).changed();
+                ch |= ui.checkbox(&mut w.field, crate::i18n::tr("Field weld")).changed();
             });
             ui.horizontal(|ui| {
-                ui.label("Tail");
-                ch |= ui.add(egui::TextEdit::singleline(&mut w.tail).hint_text("process, e.g. 111").desired_width(160.0)).changed();
+                ui.label(crate::i18n::tr("Tail"));
+                ch |= ui
+                    .add(egui::TextEdit::singleline(&mut w.tail).hint_text(crate::i18n::tr("process, e.g. 111")).desired_width(160.0))
+                    .changed();
             });
         }
         _ => {}
@@ -402,7 +406,7 @@ impl App {
                 if ui.button(RichText::new(label).strong()).clicked() {
                     done = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(crate::i18n::tr("Cancel")).clicked() {
                     cancel = true;
                 }
             });

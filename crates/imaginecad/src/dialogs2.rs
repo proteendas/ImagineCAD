@@ -22,14 +22,14 @@ impl App {
         let usage = |name: &str| {
             t.doc.entities.iter().filter(|e| matches!(&e.shape, Shape::Insert(i) if i.name.eq_ignore_ascii_case(name))).count()
         };
-        egui::Window::new("Blocks").open(&mut open).default_width(420.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Blocks")).open(&mut open).default_width(420.0).show(ctx, |ui| {
             if t.doc.blocks.is_empty() {
-                ui.label("No blocks in this drawing. Select objects and run BLOCK (B) to create one.");
+                ui.label(crate::i18n::tr("No blocks in this drawing. Select objects and run BLOCK (B) to create one."));
             }
             egui::Grid::new("blocks").striped(true).num_columns(4).show(ui, |ui| {
-                ui.label(RichText::new("Name").strong());
-                ui.label(RichText::new("Objects").strong());
-                ui.label(RichText::new("Inserted").strong());
+                ui.label(RichText::new(crate::i18n::tr("Name")).strong());
+                ui.label(RichText::new(crate::i18n::tr("Objects")).strong());
+                ui.label(RichText::new(crate::i18n::tr("Inserted")).strong());
                 ui.label("");
                 ui.end_row();
                 for b in &t.doc.blocks {
@@ -38,10 +38,10 @@ impl App {
                     let n = usage(&b.name);
                     ui.label(n.to_string());
                     ui.horizontal(|ui| {
-                        if ui.button("Insert").clicked() {
+                        if ui.button(crate::i18n::tr("Insert")).clicked() {
                             insert = Some(b.name.clone());
                         }
-                        if n == 0 && ui.small_button("Delete").clicked() {
+                        if n == 0 && ui.small_button(crate::i18n::tr("Delete")).clicked() {
                             delete = Some(b.name.clone());
                         }
                     });
@@ -69,9 +69,9 @@ impl App {
         let mut kinds: Vec<&str> = t.doc.entities.iter().map(|e| e.shape.type_name()).collect();
         kinds.sort();
         kinds.dedup();
-        egui::Window::new("Quick Select").open(&mut open).default_width(340.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Quick Select")).open(&mut open).default_width(340.0).show(ctx, |ui| {
             egui::Grid::new("qs").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Object type");
+                ui.label(crate::i18n::tr("Object type"));
                 egui::ComboBox::from_id_salt("qs_kind").selected_text(if q.kind.is_empty() { "Any" } else { &q.kind }).show_ui(ui, |ui| {
                     ui.selectable_value(&mut q.kind, String::new(), "Any");
                     for k in &kinds {
@@ -79,7 +79,7 @@ impl App {
                     }
                 });
                 ui.end_row();
-                ui.label("Layer");
+                ui.label(crate::i18n::tr("Layer"));
                 egui::ComboBox::from_id_salt("qs_layer").selected_text(if q.layer.is_empty() { "Any" } else { &q.layer }).show_ui(
                     ui,
                     |ui| {
@@ -90,18 +90,18 @@ impl App {
                     },
                 );
                 ui.end_row();
-                ui.label("Colour");
+                ui.label(crate::i18n::tr("Colour"));
                 let ctext = q.color.map(icad_core::style::aci_name).unwrap_or_else(|| "Any".into());
                 egui::ComboBox::from_id_salt("qs_color").selected_text(ctext).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut q.color, None, "Any");
+                    ui.selectable_value(&mut q.color, None, crate::i18n::tr("Any"));
                     for (i, n) in ACI_NAMES {
                         ui.selectable_value(&mut q.color, Some(i), n);
                     }
                 });
                 ui.end_row();
             });
-            ui.checkbox(&mut q.append, "Append to current selection");
-            if ui.button("Select").clicked() {
+            ui.checkbox(&mut q.append, crate::i18n::tr("Append to current selection"));
+            if ui.button(crate::i18n::tr("Select")).clicked() {
                 apply = true;
             }
         });
@@ -139,16 +139,20 @@ impl App {
         let Some((id, mut text)) = self.dlg.text_edit.take() else { return };
         let mut open = true;
         let mut ok = false;
-        egui::Window::new("Edit Text").open(&mut open).default_width(420.0).anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(
-            ctx,
-            |ui| {
+        egui::Window::new(crate::i18n::tr("Edit Text"))
+            .open(&mut open)
+            .default_width(420.0)
+            .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
                 let r = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(4).desired_width(400.0));
                 r.request_focus();
                 ui.label(
-                    RichText::new("Use Ø ° ± directly; for dimensions, <> inserts the measured value.").size(11.0).color(theme::TEXT_DIM),
+                    RichText::new(crate::i18n::tr("Use Ø ° ± directly; for dimensions, <> inserts the measured value."))
+                        .size(11.0)
+                        .color(theme::TEXT_DIM),
                 );
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(crate::i18n::tr("OK")).clicked() {
                         ok = true;
                     }
                     ui.menu_button("Insert field ▾", |ui| {
@@ -160,10 +164,9 @@ impl App {
                         }
                     })
                     .response
-                    .on_hover_text("Fields always show the current value (title, scale, date, object length…)");
+                    .on_hover_text(crate::i18n::tr("Fields always show the current value (title, scale, date, object length…)"));
                 });
-            },
-        );
+            });
         if ok {
             let t = self.tab();
             t.checkpoint();
@@ -204,9 +207,9 @@ impl App {
         }
         let mut open = true;
         let t = &mut self.tabs[self.active];
-        egui::Window::new("Drawing Units").open(&mut open).default_width(320.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Drawing Units")).open(&mut open).default_width(320.0).show(ctx, |ui| {
             egui::Grid::new("units").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Insertion units");
+                ui.label(crate::i18n::tr("Insertion units"));
                 egui::ComboBox::from_id_salt("units_name").selected_text(&t.doc.sheet.title.units).show_ui(ui, |ui| {
                     for u in ["mm", "cm", "m", "in", "ft"] {
                         if ui.selectable_value(&mut t.doc.sheet.title.units, u.to_string(), u).changed() {
@@ -215,16 +218,18 @@ impl App {
                     }
                 });
                 ui.end_row();
-                ui.label("Linear precision");
+                ui.label(crate::i18n::tr("Linear precision"));
                 if ui.add(egui::DragValue::new(&mut t.doc.dimstyle.decimals).range(0..=8)).changed() {
                     t.dirty = true;
                 }
                 ui.end_row();
-                ui.label("Example");
+                ui.label(crate::i18n::tr("Example"));
                 ui.label(t.doc.dimstyle.format(1234.567891));
                 ui.end_row();
             });
-            ui.label(RichText::new("Angles: decimal degrees, counter-clockwise, 0° = east.").size(11.0).color(theme::TEXT_DIM));
+            ui.label(
+                RichText::new(crate::i18n::tr("Angles: decimal degrees, counter-clockwise, 0° = east.")).size(11.0).color(theme::TEXT_DIM),
+            );
         });
         self.dlg.units = open;
     }

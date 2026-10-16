@@ -316,10 +316,10 @@ impl App {
         let Some(mut d) = self.dlg.spell.take() else { return };
         let mut open = true;
         let mut action: Option<&str> = None;
-        egui::Window::new("Check Spelling").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Check Spelling")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
             let Some(issue) = d.current().cloned() else {
                 ui.label(format!("Spelling check complete. {} change(s) made.", d.changed));
-                if ui.button("Close").clicked() {
+                if ui.button(crate::i18n::tr("Close")).clicked() {
                     action = Some("close");
                 }
                 return;
@@ -332,13 +332,13 @@ impl App {
             );
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Change to");
+                ui.label(crate::i18n::tr("Change to"));
                 ui.text_edit_singleline(&mut d.replacement);
             });
-            ui.label(RichText::new("Suggestions").size(11.5));
+            ui.label(RichText::new(crate::i18n::tr("Suggestions")).size(11.5));
             egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
                 if d.suggestions.is_empty() {
-                    ui.label(RichText::new("(none)").color(theme::TEXT_DIM));
+                    ui.label(RichText::new(crate::i18n::tr("(none)")).color(theme::TEXT_DIM));
                 }
                 for s in d.suggestions.clone() {
                     if ui.selectable_label(d.replacement == s, &s).clicked() {

@@ -106,7 +106,7 @@ impl App {
         let mut open = true;
         let mut action: Option<(&str, usize)> = None;
         let mut st = self.sheetset.take().unwrap_or(SheetSetState { path: None, set: SheetSet::default(), dirty: false });
-        egui::Window::new("Sheet Set Manager").open(&mut open).default_width(620.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Sheet Set Manager")).open(&mut open).default_width(620.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for (label, a) in [("New", "new"), ("Open…", "open"), ("Save", "save"), ("Save As…", "saveas")] {
                     if ui.button(label).clicked() {
@@ -138,10 +138,14 @@ impl App {
             });
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("+ Current drawing").on_hover_text("Its main sheet and every layout").clicked() {
+                if ui
+                    .button(crate::i18n::tr("+ Current drawing"))
+                    .on_hover_text(crate::i18n::tr("Its main sheet and every layout"))
+                    .clicked()
+                {
                     action = Some(("add_current", 0));
                 }
-                if ui.button("+ Drawings…").clicked() {
+                if ui.button(crate::i18n::tr("+ Drawings…")).clicked() {
                     action = Some(("add_files", 0));
                 }
                 if ui.add_enabled(!st.set.sheets.is_empty(), egui::Button::new("Renumber")).clicked() {
@@ -151,16 +155,18 @@ impl App {
             });
             if st.set.sheets.is_empty() {
                 ui.label(
-                    RichText::new("No sheets yet. Add the current drawing or pick drawings; each brings its main sheet and its layouts.")
-                        .color(theme::TEXT_DIM),
+                    RichText::new(crate::i18n::tr(
+                        "No sheets yet. Add the current drawing or pick drawings; each brings its main sheet and its layouts.",
+                    ))
+                    .color(theme::TEXT_DIM),
                 );
             }
             egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                 egui::Grid::new("set_sheets").num_columns(5).striped(true).spacing([6.0, 3.0]).show(ui, |ui| {
-                    ui.label(RichText::new("No.").strong());
-                    ui.label(RichText::new("Title").strong());
-                    ui.label(RichText::new("Drawing").strong());
-                    ui.label(RichText::new("Sheet").strong());
+                    ui.label(RichText::new(crate::i18n::tr("No.")).strong());
+                    ui.label(RichText::new(crate::i18n::tr("Title")).strong());
+                    ui.label(RichText::new(crate::i18n::tr("Drawing")).strong());
+                    ui.label(RichText::new(crate::i18n::tr("Sheet")).strong());
                     ui.label("");
                     ui.end_row();
                     let n = st.set.sheets.len();
@@ -176,7 +182,7 @@ impl App {
                         ui.label(RichText::new(&s.file).size(11.0).color(theme::TEXT_DIM));
                         ui.label(RichText::new(s.layout.as_deref().unwrap_or("Main sheet")).size(11.0));
                         ui.horizontal(|ui| {
-                            if ui.small_button("Open").clicked() {
+                            if ui.small_button(crate::i18n::tr("Open")).clicked() {
                                 action = Some(("open_sheet", i));
                             }
                             if ui.add_enabled(i > 0, egui::Button::new("▲").small()).clicked() {
@@ -185,7 +191,7 @@ impl App {
                             if ui.add_enabled(i + 1 < n, egui::Button::new("▼").small()).clicked() {
                                 action = Some(("down", i));
                             }
-                            if ui.small_button("×").on_hover_text("Remove from the set").clicked() {
+                            if ui.small_button("×").on_hover_text(crate::i18n::tr("Remove from the set")).clicked() {
                                 action = Some(("remove", i));
                             }
                         });
@@ -196,14 +202,14 @@ impl App {
             ui.separator();
             ui.horizontal(|ui| {
                 let any = !st.set.sheets.is_empty();
-                if ui.add_enabled(any, egui::Button::new(RichText::new("Publish set to PDF…").strong())).clicked() {
+                if ui.add_enabled(any, egui::Button::new(RichText::new(crate::i18n::tr("Publish set to PDF…")).strong())).clicked() {
                     action = Some(("publish", 0));
                 }
                 if ui
                     .add_enabled(any, egui::Button::new("Update title blocks"))
-                    .on_hover_text(
+                    .on_hover_text(crate::i18n::tr(
                         "Write sheet numbers, titles and the shared values into every sheet's title block, and save the drawings",
-                    )
+                    ))
                     .clicked()
                 {
                     action = Some(("update", 0));

@@ -780,7 +780,7 @@ impl App {
         if bufs.len() != rows.len() {
             bufs = rows.iter().map(|r| r.2.clone()).collect();
         }
-        egui::Window::new("Parameters").open(&mut open).default_width(420.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Parameters")).open(&mut open).default_width(420.0).show(ctx, |ui| {
             ui.label(
                 RichText::new(format!(
                     "{} driving dimension(s), {} geometric constraint(s). Expressions may use the other names, e.g. d1 / 2 + 5.",
@@ -791,9 +791,9 @@ impl App {
             );
             ui.separator();
             egui::Grid::new("params").num_columns(4).striped(true).spacing([8.0, 4.0]).show(ui, |ui| {
-                ui.label(RichText::new("Name").strong());
-                ui.label(RichText::new("Expression").strong());
-                ui.label(RichText::new("Value").strong());
+                ui.label(RichText::new(crate::i18n::tr("Name")).strong());
+                ui.label(RichText::new(crate::i18n::tr("Expression")).strong());
+                ui.label(RichText::new(crate::i18n::tr("Value")).strong());
                 ui.label("");
                 ui.end_row();
                 for (k, (i, name, _, value)) in rows.iter().enumerate() {
@@ -803,7 +803,7 @@ impl App {
                         edit = Some((*i, bufs[k].trim().to_string()));
                     }
                     ui.label(fmt(*value));
-                    if ui.small_button("×").on_hover_text("Delete this driving dimension").clicked() {
+                    if ui.small_button("×").on_hover_text(crate::i18n::tr("Delete this driving dimension")).clicked() {
                         delete = Some(*i);
                     }
                     ui.end_row();
@@ -811,8 +811,10 @@ impl App {
             });
             if rows.is_empty() {
                 ui.label(
-                    RichText::new("No driving dimensions yet: use DCHORIZONTAL, DCVERTICAL, DCALIGNED, DCRADIUS or DCANGULAR.")
-                        .color(theme::TEXT_DIM),
+                    RichText::new(crate::i18n::tr(
+                        "No driving dimensions yet: use DCHORIZONTAL, DCVERTICAL, DCALIGNED, DCRADIUS or DCANGULAR.",
+                    ))
+                    .color(theme::TEXT_DIM),
                 );
             }
         });

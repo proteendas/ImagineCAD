@@ -161,7 +161,10 @@ impl App {
         if ui.selectable_label(!layout && paper.is_none(), "Model").clicked() {
             self.show_sheet(None);
         }
-        if ui.selectable_label(layout && paper.is_none(), "Layout1").on_hover_text("The main sheet (title block over the model)").clicked()
+        if ui
+            .selectable_label(layout && paper.is_none(), "Layout1")
+            .on_hover_text(crate::i18n::tr("The main sheet (title block over the model)"))
+            .clicked()
         {
             self.show_sheet(Some(None));
         }
@@ -172,27 +175,27 @@ impl App {
                 self.show_sheet(Some(Some(i)));
             }
             r.context_menu(|ui| {
-                if ui.button("Rename…").clicked() {
+                if ui.button(crate::i18n::tr("Rename…")).clicked() {
                     self.dlg.layout_rename = Some((i, n.clone()));
                     ui.close_menu();
                 }
-                if ui.button("Page Setup…").clicked() {
+                if ui.button(crate::i18n::tr("Page Setup…")).clicked() {
                     self.show_sheet(Some(Some(i)));
                     self.dlg.page = true;
                     ui.close_menu();
                 }
-                if ui.button("Plot to PDF…").clicked() {
+                if ui.button(crate::i18n::tr("Plot to PDF…")).clicked() {
                     self.show_sheet(Some(Some(i)));
                     self.export("pdf");
                     ui.close_menu();
                 }
-                if ui.button("Delete").clicked() {
+                if ui.button(crate::i18n::tr("Delete")).clicked() {
                     delete = Some(i);
                     ui.close_menu();
                 }
             });
         }
-        if ui.small_button("+").on_hover_text("New layout with a viewport of the model").clicked() {
+        if ui.small_button("+").on_hover_text(crate::i18n::tr("New layout with a viewport of the model")).clicked() {
             self.new_layout();
         }
         if let Some(i) = delete {
@@ -208,10 +211,10 @@ impl App {
         if let Some((i, mut name)) = self.dlg.layout_rename.take() {
             let mut open = true;
             let mut ok = false;
-            egui::Window::new("Rename Layout").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            egui::Window::new(crate::i18n::tr("Rename Layout")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
                 let r = ui.text_edit_singleline(&mut name);
                 r.request_focus();
-                if ui.button("OK").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                if ui.button(crate::i18n::tr("OK")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                     ok = true;
                 }
             });
@@ -244,42 +247,44 @@ impl App {
         let Some(mut d) = self.dlg.publish.take() else { return };
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Publish (Batch Plot)").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
-            ui.label("Sheets to plot:");
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                for r in &mut d.rows {
-                    ui.checkbox(&mut r.on, &r.label);
+        egui::Window::new(crate::i18n::tr("Publish (Batch Plot)")).open(&mut open).collapsible(false).default_width(420.0).show(
+            ctx,
+            |ui| {
+                ui.label(crate::i18n::tr("Sheets to plot:"));
+                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    for r in &mut d.rows {
+                        ui.checkbox(&mut r.on, &r.label);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.small_button(crate::i18n::tr("All")).clicked() {
+                        d.rows.iter_mut().for_each(|r| r.on = true);
+                    }
+                    if ui.small_button(crate::i18n::tr("None")).clicked() {
+                        d.rows.iter_mut().for_each(|r| r.on = false);
+                    }
+                });
+                ui.separator();
+                ui.radio_value(&mut d.single_file, true, crate::i18n::tr("One multi-page PDF"));
+                ui.radio_value(&mut d.single_file, false, crate::i18n::tr("One PDF per sheet (choose a folder)"));
+                ui.horizontal(|ui| {
+                    ui.label(crate::i18n::tr("Plot style"));
+                    egui::ComboBox::from_id_salt("pub_style")
+                        .selected_text(crate::i18n::tr(d.style.map(|s| s.name()).unwrap_or("Each sheet's own")))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut d.style, None, crate::i18n::tr("Each sheet's own"));
+                            for s in PlotStyle::ALL {
+                                ui.selectable_value(&mut d.style, Some(s), crate::i18n::tr(s.name()));
+                            }
+                        });
+                });
+                ui.add_space(6.0);
+                let n = d.rows.iter().filter(|r| r.on).count();
+                if ui.add_enabled(n > 0, egui::Button::new(RichText::new(format!("Publish {n} sheet(s)")).strong())).clicked() {
+                    go = true;
                 }
-            });
-            ui.horizontal(|ui| {
-                if ui.small_button("All").clicked() {
-                    d.rows.iter_mut().for_each(|r| r.on = true);
-                }
-                if ui.small_button("None").clicked() {
-                    d.rows.iter_mut().for_each(|r| r.on = false);
-                }
-            });
-            ui.separator();
-            ui.radio_value(&mut d.single_file, true, "One multi-page PDF");
-            ui.radio_value(&mut d.single_file, false, "One PDF per sheet (choose a folder)");
-            ui.horizontal(|ui| {
-                ui.label("Plot style");
-                egui::ComboBox::from_id_salt("pub_style").selected_text(d.style.map(|s| s.name()).unwrap_or("Each sheet's own")).show_ui(
-                    ui,
-                    |ui| {
-                        ui.selectable_value(&mut d.style, None, "Each sheet's own");
-                        for s in PlotStyle::ALL {
-                            ui.selectable_value(&mut d.style, Some(s), s.name());
-                        }
-                    },
-                );
-            });
-            ui.add_space(6.0);
-            let n = d.rows.iter().filter(|r| r.on).count();
-            if ui.add_enabled(n > 0, egui::Button::new(RichText::new(format!("Publish {n} sheet(s)")).strong())).clicked() {
-                go = true;
-            }
-        });
+            },
+        );
         if go {
             let pdfa = self.settings.pdfa;
             let sheets: Vec<(String, icad_io::pdf::Page)> = d
@@ -422,14 +427,14 @@ impl App {
         let l = &mut t.doc.layouts[li];
         ui.label(RichText::new(format!("Layout {}", l.name)).strong());
         egui::Grid::new("lay_props").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-            ui.label("Plot style");
-            egui::ComboBox::from_id_salt("lay_style").selected_text(l.sheet.plot_style.name()).show_ui(ui, |ui| {
+            ui.label(crate::i18n::tr("Plot style"));
+            egui::ComboBox::from_id_salt("lay_style").selected_text(crate::i18n::tr(l.sheet.plot_style.name())).show_ui(ui, |ui| {
                 for s in PlotStyle::ALL {
-                    changed |= ui.selectable_value(&mut l.sheet.plot_style, s, s.name()).changed();
+                    changed |= ui.selectable_value(&mut l.sheet.plot_style, s, crate::i18n::tr(s.name())).changed();
                 }
             });
             ui.end_row();
-            ui.label("Plot frames");
+            ui.label(crate::i18n::tr("Plot frames"));
             changed |= ui.checkbox(&mut l.plot_frames, "").changed();
             ui.end_row();
         });
@@ -437,13 +442,15 @@ impl App {
         match t.paper_vp.and_then(|i| l.viewports.get_mut(i).map(|v| (i, v))) {
             None => {
                 ui.label(
-                    RichText::new("Click a viewport to set its scale and view. MVIEW adds viewports.").size(11.5).color(theme::TEXT_DIM),
+                    RichText::new(crate::i18n::tr("Click a viewport to set its scale and view. MVIEW adds viewports."))
+                        .size(11.5)
+                        .color(theme::TEXT_DIM),
                 );
             }
             Some((_, vp)) => {
-                ui.label(RichText::new("Viewport").strong());
+                ui.label(RichText::new(crate::i18n::tr("Viewport")).strong());
                 egui::Grid::new("vp_props").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-                    ui.label("Scale");
+                    ui.label(crate::i18n::tr("Scale"));
                     ui.add_enabled_ui(!vp.locked, |ui| {
                         egui::ComboBox::from_id_salt("vp_scale").selected_text(scale_label(vp.scale)).show_ui(ui, |ui| {
                             for s in STANDARD_SCALES {
@@ -463,7 +470,7 @@ impl App {
                         changed |= ui.add(egui::DragValue::new(v).speed(0.5)).changed();
                         ui.end_row();
                     }
-                    ui.label("Locked");
+                    ui.label(crate::i18n::tr("Locked"));
                     changed |= ui.checkbox(&mut vp.locked, "").changed();
                     ui.end_row();
                 });
@@ -472,7 +479,7 @@ impl App {
                         vp.fit(&ext);
                         changed = true;
                     }
-                    if ui.button("Delete viewport").clicked() {
+                    if ui.button(crate::i18n::tr("Delete viewport")).clicked() {
                         delete = true;
                     }
                 });

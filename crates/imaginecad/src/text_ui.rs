@@ -33,16 +33,16 @@ impl App {
         let mut open = true;
         let t = &mut self.tabs[self.active];
         let before = (t.doc.text_styles.clone(), t.doc.text_style.clone());
-        egui::Window::new("Text Styles").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+        egui::Window::new(crate::i18n::tr("Text Styles")).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
             let doc = &mut t.doc;
             ui.horizontal(|ui| {
-                ui.label("Current style");
+                ui.label(crate::i18n::tr("Current style"));
                 egui::ComboBox::from_id_salt("ts_cur").selected_text(doc.text_style.clone()).show_ui(ui, |ui| {
                     for s in &doc.text_styles {
                         ui.selectable_value(&mut doc.text_style, s.name.clone(), &s.name);
                     }
                 });
-                if ui.button("New").clicked() {
+                if ui.button(crate::i18n::tr("New")).clicked() {
                     let mut s = doc.text_style(&doc.text_style).cloned().unwrap_or_else(TextStyle::standard);
                     let mut k = 1;
                     while doc.text_style(&format!("Style{k}")).is_some() {
@@ -72,7 +72,7 @@ impl App {
             let cur = doc.text_style.clone();
             let Some(st) = doc.text_styles.iter_mut().find(|s| s.name.eq_ignore_ascii_case(&cur)) else { return };
             egui::Grid::new("ts").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Name");
+                ui.label(crate::i18n::tr("Name"));
                 let mut name = st.name.clone();
                 let standard = st.name.eq_ignore_ascii_case("Standard");
                 if ui.add_enabled(!standard, egui::TextEdit::singleline(&mut name)).changed() && !name.trim().is_empty() {
@@ -80,7 +80,7 @@ impl App {
                     doc.text_style = name;
                 }
                 ui.end_row();
-                ui.label("Font");
+                ui.label(crate::i18n::tr("Font"));
                 ui.vertical(|ui| {
                     let shown = if st.file.is_empty() { "Standard drafting font".to_string() } else { st.font.clone() };
                     egui::ComboBox::from_id_salt("ts_font")
@@ -89,7 +89,7 @@ impl App {
                         .selected_text(shown)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .show_ui(ui, |ui| {
-                            ui.add(egui::TextEdit::singleline(&mut d.font_filter).hint_text("Search fonts"));
+                            ui.add(egui::TextEdit::singleline(&mut d.font_filter).hint_text(crate::i18n::tr("Search fonts")));
                             if ui.selectable_label(st.file.is_empty(), "Standard drafting font").clicked() {
                                 st.file.clear();
                                 st.font.clear();
@@ -99,7 +99,7 @@ impl App {
                                 None => {
                                     ui.horizontal(|ui| {
                                         ui.spinner();
-                                        ui.label("Listing installed fonts…");
+                                        ui.label(crate::i18n::tr("Listing installed fonts…"));
                                     });
                                 }
                                 Some(list) => {
@@ -116,15 +116,15 @@ impl App {
                         });
                 });
                 ui.end_row();
-                ui.label("Width factor");
+                ui.label(crate::i18n::tr("Width factor"));
                 ui.add(egui::DragValue::new(&mut st.width_factor).speed(0.01).range(0.1..=10.0));
                 ui.end_row();
-                ui.label("Oblique angle °");
+                ui.label(crate::i18n::tr("Oblique angle °"));
                 ui.add(egui::DragValue::new(&mut st.oblique).speed(0.5).range(-85.0..=85.0));
                 ui.end_row();
-                ui.label("Fixed height");
+                ui.label(crate::i18n::tr("Fixed height"));
                 ui.add(egui::DragValue::new(&mut st.height).speed(0.1).range(0.0..=1e6))
-                    .on_hover_text("0 = choose the height for each text");
+                    .on_hover_text(crate::i18n::tr("0 = choose the height for each text"));
                 ui.end_row();
             });
             // Preview with the style applied.
@@ -134,7 +134,7 @@ impl App {
             sample.oblique = st.oblique.to_radians();
             crate::canvas::preview_prims(ui, &[Prim::Text(sample)], egui::vec2(420.0, 70.0));
             ui.label(
-                RichText::new("New text uses the current style. Change a text's style in the Properties palette.")
+                RichText::new(crate::i18n::tr("New text uses the current style. Change a text's style in the Properties palette."))
                     .size(11.0)
                     .color(theme::TEXT_DIM),
             );
