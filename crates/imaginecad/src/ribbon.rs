@@ -304,7 +304,12 @@ const DIMS: &[Item] = &[
     (Icon::DimBaseline, "Baseline", "DIMBASELINE"),
     (Icon::DimContinue, "Continue", "DIMCONTINUE"),
 ];
-const LEADERS: &[Item] = &[(Icon::Leader, "Leader", "LEADER"), (Icon::CenterMark, "Center Mark", "CENTERMARK")];
+const LEADERS: &[Item] = &[
+    (Icon::Leader, "Multileader", "MLEADER"),
+    (Icon::Leader, "Leader", "LEADER"),
+    (Icon::DimStyle, "Multileader Style", "MLEADERSTYLE"),
+    (Icon::CenterMark, "Center Mark", "CENTERMARK"),
+];
 const SYMBOLS: &[Item] = &[
     (Icon::Tolerance, "Geometric Tolerance", "TOLERANCE"),
     (Icon::Datum, "Datum Symbol", "DATUM"),
@@ -316,8 +321,10 @@ const ANNOT_MORE: &[Item] = &[
     (Icon::Datum, "Datum Symbol", "DATUM"),
     (Icon::Surface, "Surface Texture", "SURFFINISH"),
     (Icon::Weld, "Weld Symbol", "WELD"),
+    (Icon::Table, "Table", "TABLE"),
     (Icon::CenterMark, "Center Mark", "CENTERMARK"),
     (Icon::DimStyle, "Dimension Style", "DIMSTYLE"),
+    (Icon::DimStyle, "Multileader Style", "MLEADERSTYLE"),
     (Icon::Link, "Reassociate Dimensions", "DIMREASSOCIATE"),
     (Icon::Unlink, "Disassociate Dimensions", "DIMDISASSOCIATE"),
 ];
@@ -386,7 +393,7 @@ fn home(ui: &mut Ui, st: RibbonState, out: &mut Vec<String>) {
         big_split(ui, Icon::DimLinear, "Dimension", "DIMLINEAR (DLI) — choose a type with ▾", "DIMLINEAR", DIMS, out);
         column(ui, |ui| {
             small_split(ui, Icon::QDim, "Quick", "QDIM — dimension a selection at once", "QDIM", DIMS, out);
-            small_split(ui, Icon::Leader, "Leader", "LEADER (LE)", "LEADER", LEADERS, out);
+            small_split(ui, Icon::Leader, "Leader", "MLEADER (MLD) — leader in the current multileader style", "MLEADER", LEADERS, out);
             small_split(ui, Icon::Tolerance, "Symbols", "TOLERANCE — geometric tolerance", "TOLERANCE", SYMBOLS, out);
         });
     });
@@ -502,8 +509,15 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
         });
     });
     panel(ui, "Leaders", &[], out, |ui, out| {
-        big(ui, Icon::Leader, "Leader", "LEADER (LE)", "LEADER", out);
-        big(ui, Icon::CenterMark, "Center\nMark", "CENTERMARK (CM)", "CENTERMARK", out);
+        big_split(ui, Icon::Leader, "Multileader", "MLEADER (MLD) — leader in the current style", "MLEADER", LEADERS, out);
+        column(ui, |ui| {
+            small(ui, Icon::Leader, "Leader", "LEADER (LE)", "LEADER", out);
+            small(ui, Icon::DimStyle, "Leader Style", "MLEADERSTYLE (MLS) — arrowheads, landing, balloons", "MLEADERSTYLE", out);
+            small(ui, Icon::CenterMark, "Center Mark", "CENTERMARK (CM)", "CENTERMARK", out);
+        });
+    });
+    panel(ui, "Tables", &[], out, |ui, out| {
+        big(ui, Icon::Table, "Table", "TABLE — empty, from CSV, or a parts list from block attributes", "TABLE", out);
     });
     panel(ui, "Hatch", &[], out, |ui, out| {
         big_split(ui, Icon::Hatch, "Hatch", "HATCH (H) — P pattern, S scale, A angle", "HATCH", HATCHES, out);

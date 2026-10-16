@@ -192,6 +192,21 @@ Manual editing works alongside the chat at all times.
 The chat uses the engine chosen in **AI Settings** (any cloud key, Ollama or a
 local server). From a terminal: `imaginecad ask part.icad "make the bore 12 mm" -o part.icad`.
 
+## Tables and multileaders
+
+`TABLE` opens a dialog: start **empty** (rows × columns), **from CSV / a
+spreadsheet** (paste or open a file), or as a **parts list** built from the
+drawing's block attributes; optionally add a merged title row, then place the
+table by its top-left corner. Double-click a table (or `TABLEDIT`) to edit cells,
+add or remove rows and columns, merge a row, set alignment and column widths, or
+**Fit columns** to the text. Cells may contain fields.
+
+`MLEADER` (`MLD`) draws a leader in the current **multileader style**;
+`MLEADERSTYLE` (`MLS`) manages styles: arrowhead (closed filled, open, dot,
+tick, none), sizes, landing and a text frame (box, or a circle for item
+balloons). The drawing starts with *Standard* and *Balloon*. Change a leader's
+style in the Properties palette.
+
 ## Block attributes
 
 `ATTDEF` (`ATT`) defines an attribute: a tag (e.g. `PART_NO`), the prompt shown

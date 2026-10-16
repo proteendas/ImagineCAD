@@ -139,7 +139,8 @@ fn needs_proxy(s: &Shape) -> bool {
     match s {
         Shape::Dim(d) => d.kind == DimKind::ArcLength,
         Shape::Tolerance(f) => !f.leader.is_empty(),
-        Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) => true,
+        Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) | Shape::Table(_) => true,
+        Shape::Leader(l) => l.style.is_some(),
         _ => false,
     }
 }
@@ -1269,7 +1270,7 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
         "HATCH" => read_hatch(r),
         "LEADER" => {
             let pts: Vec<V2> = r.all(10).iter().zip(r.all(20).iter()).map(|(x, y)| V2::new(*x, *y)).collect();
-            (pts.len() >= 2).then_some(Shape::Leader(Leader { pts, text: String::new() }))
+            (pts.len() >= 2).then_some(Shape::Leader(Leader { pts, text: String::new(), style: None }))
         }
         "SOLID" | "TRACE" => {
             let (a, b, c, d) = (r.p(10), r.p(11), r.p(12), r.p(13));
@@ -1793,6 +1794,21 @@ mod tests {
         let Shape::Insert(ins) = &r.entities[0].shape else { panic!("{:?}", r.entities[0].shape) };
         assert_eq!((ins.value_of("item"), ins.value_of("PART")), (Some("12"), Some("ICP-0042")));
         assert_eq!(r.entities.len(), 1, "attributes are not separate entities");
+    }
+
+    #[test]
+    fn tables_and_styled_leaders_round_trip() {
+        use icad_core::table::*;
+        let mut d = Document::new();
+        let mut t = Table::from_rows(V2::new(10., 50.), &[vec!["A".into(), "B".into()], vec!["1".into(), "{{TITLE}}".into()]], 2.5);
+        t.cells[0][0].span = 1;
+        d.add(Shape::Table(t.clone()));
+        let l = Leader { pts: vec![V2::ZERO, V2::new(5., 5.)], text: "3".into(), style: Some("Balloon".into()) };
+        d.add(Shape::Leader(l.clone()));
+        let s = write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() });
+        assert!(s.contains("UNTITLED PART"), "fields are written with their values");
+        let r = read_dxf(&s).unwrap();
+        assert_eq!(r.entities.iter().map(|e| e.shape.clone()).collect::<Vec<_>>(), vec![Shape::Table(t), Shape::Leader(l)]);
     }
 
     #[test]

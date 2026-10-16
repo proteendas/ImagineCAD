@@ -290,6 +290,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("ATTDEF", "ATT"),
     ("ATTEDIT", "ATE"),
     ("ATTEXPORT", ""),
+    ("TABLE", ""),
+    ("TABLEDIT", ""),
+    ("MLEADER", "MLD"),
+    ("MLEADERSTYLE", "MLS"),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {

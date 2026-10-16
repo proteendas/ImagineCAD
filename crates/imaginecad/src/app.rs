@@ -302,6 +302,14 @@ impl App {
             "SURFFINISH" | "SF" | "ROUGHNESS" => self.new_symbol(crate::symbol_ui::SymbolKind::Surface),
             "WELD" | "WELDSYMBOL" => self.new_symbol(crate::symbol_ui::SymbolKind::Weld),
             "ATTEXPORT" | "DATAEXTRACTION" | "ATTEXT" => self.export_attributes(),
+            "TABLE" => self.open_table_dialog(),
+            "TABLEDIT" => {
+                let sel = self.tabs[self.active].selection.first().copied();
+                if !sel.is_some_and(|id| self.edit_table_of(id)) {
+                    self.log.push("Select a table first, or double-click it.".into());
+                }
+            }
+            "MLEADERSTYLE" | "MLS" => self.dlg.mleader_styles = true,
             "AIHELP" => self.dlg.ai_help = true,
             "LAYER" | "LA" => self.dlg.layers = true,
             "PROPERTIES" | "PR" | "PROPS" => {
@@ -907,7 +915,7 @@ impl App {
         let clicked = resp.clicked_by(PointerButton::Primary);
         if wants.is_none() && resp.double_clicked() {
             if let Some(id) = hover_id {
-                if self.edit_text_of(id) || self.edit_symbol_of(id) || self.edit_attributes_of(id) {
+                if self.edit_text_of(id) || self.edit_symbol_of(id) || self.edit_attributes_of(id) || self.edit_table_of(id) {
                     return;
                 }
             }
@@ -1789,6 +1797,21 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         }
                     }
                     Shape::Leader(l) => {
+                        ui.label("Style");
+                        let names: Vec<String> = t.doc.mleader_styles.iter().map(|s| s.name.clone()).collect();
+                        egui::ComboBox::from_id_salt("p_mls")
+                            .selected_text(l.style.clone().unwrap_or_else(|| "(dimension style)".into()))
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_value(&mut l.style, None, "(dimension style)").changed() {
+                                    gflag.set(true);
+                                }
+                                for n in names {
+                                    if ui.selectable_value(&mut l.style, Some(n.clone()), &n).changed() {
+                                        gflag.set(true);
+                                    }
+                                }
+                            });
+                        ui.end_row();
                         ui.label("Text");
                         if ui.add(egui::TextEdit::multiline(&mut l.text).desired_rows(2).desired_width(160.0)).changed() {
                             gflag.set(true);
@@ -1798,6 +1821,18 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             dv(ui, &format!("Vertex {} X", i + 1), &mut p.x);
                             dv(ui, &format!("Vertex {} Y", i + 1), &mut p.y);
                         }
+                    }
+                    Shape::Table(tb) => {
+                        ui.label("Size");
+                        ui.label(format!("{} rows × {} columns", tb.rows(), tb.cols()));
+                        ui.end_row();
+                        dv(ui, "Position X", &mut tb.pos.x);
+                        dv(ui, "Position Y", &mut tb.pos.y);
+                        dv(ui, "Text height", &mut tb.text_height);
+                        tb.text_height = tb.text_height.max(1e-6);
+                        ui.label("");
+                        ui.label(RichText::new("Double-click the table to edit its cells").size(11.0).color(theme::TEXT_DIM));
+                        ui.end_row();
                     }
                     Shape::AttDef(a) => {
                         for (label, v) in [("Tag", &mut a.tag), ("Prompt", &mut a.prompt), ("Default", &mut a.default)] {

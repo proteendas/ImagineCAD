@@ -83,6 +83,7 @@ pub enum Icon {
     Weld,
     Lock,
     Unlock,
+    Table,
     Link,
     Unlink,
     Block,
@@ -582,6 +583,19 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 ln(p, pos2(x, tl.y), pos2(x, bl.y), Stroke::new(1.0f32, crate::theme::TEXT_DIM));
             }
             ln(p, bl, br, s);
+        }
+        Icon::Table => {
+            let r = Rect::from_min_max(tl + vec2(0.0, u * 0.15), br - vec2(0.0, u * 0.15));
+            p.rect_stroke(r, 1.0, s, eframe::egui::StrokeKind::Middle);
+            p.rect_filled(Rect::from_min_max(r.min, pos2(r.max.x, r.min.y + r.height() * 0.28)), 0.0, accent);
+            for k in [0.28, 0.52, 0.76] {
+                let y = r.min.y + r.height() * k;
+                ln(p, pos2(r.min.x, y), pos2(r.max.x, y), thin);
+            }
+            for k in [0.35, 0.7] {
+                let x = r.min.x + r.width() * k;
+                ln(p, pos2(x, r.min.y + r.height() * 0.28), pos2(x, r.max.y), thin);
+            }
         }
         Icon::Lock | Icon::Unlock => {
             let body = Rect::from_min_max(pos2(tl.x + u * 0.2, c.y - u * 0.1), pos2(tr.x - u * 0.2, bl.y));

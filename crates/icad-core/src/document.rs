@@ -31,6 +31,11 @@ pub struct Document {
     /// Parametric part the drawing was generated from, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<PartRecord>,
+    /// Multileader styles and the current one.
+    #[serde(default = "default_mleader_styles")]
+    pub mleader_styles: Vec<crate::table::MLeaderStyle>,
+    #[serde(default = "standard")]
+    pub mleader_style: String,
     /// File name for the FILENAME field (set by the application; not saved).
     #[serde(skip)]
     pub file_name: String,
@@ -48,6 +53,14 @@ pub struct PartRecord {
 
 fn one() -> f64 {
     1.0
+}
+
+fn default_mleader_styles() -> Vec<crate::table::MLeaderStyle> {
+    vec![crate::table::MLeaderStyle::standard(), crate::table::MLeaderStyle::balloon()]
+}
+
+fn standard() -> String {
+    "Standard".into()
 }
 
 /// Layers created by the mechanical drawing template.
@@ -104,6 +117,8 @@ impl Document {
             next_id: 1,
             blocks: vec![],
             part: None,
+            mleader_styles: default_mleader_styles(),
+            mleader_style: standard(),
             file_name: String::new(),
         }
     }
@@ -132,7 +147,7 @@ impl Document {
     }
 
     pub fn ctx(&self) -> Ctx<'_> {
-        Ctx { ds: &self.dimstyle, scale: self.ascale(), blocks: &self.blocks, depth: 0 }
+        Ctx { ds: &self.dimstyle, scale: self.ascale(), blocks: &self.blocks, depth: 0, mstyles: &self.mleader_styles }
     }
 
     pub fn alloc_id(&mut self) -> u64 {

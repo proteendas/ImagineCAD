@@ -20,6 +20,7 @@ mod secrets;
 mod settings;
 mod symbol_ui;
 mod tab;
+mod tables;
 mod theme;
 mod view;
 

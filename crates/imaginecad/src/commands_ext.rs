@@ -21,7 +21,8 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "XLINE" | "XL" => Box::new(XLineCmd { ray: false, p: None, fixed: None }),
         "RAY" => Box::new(XLineCmd { ray: true, p: None, fixed: None }),
         "MTEXT" | "MT" | "T" => Box::new(MTextCmd::default()),
-        "LEADER" | "LE" | "MLEADER" | "MLD" | "QLEADER" => Box::new(LeaderCmd::default()),
+        "LEADER" | "LE" | "QLEADER" => Box::new(LeaderCmd::default()),
+        "MLEADER" | "MLD" => Box::new(LeaderCmd { multi: true, ..Default::default() }),
         "DIMANGULAR" | "DAN" => Box::new(DimAngCmd::default()),
         "DIMBASELINE" | "DBA" => Box::new(DimChainCmd { baseline: true }),
         "DIMCONTINUE" | "DCO" => Box::new(DimChainCmd { baseline: false }),
@@ -359,11 +360,24 @@ impl Command for MTextCmd {
 struct LeaderCmd {
     pts: Vec<V2>,
     texting: bool,
+    /// MLEADER: use the drawing's current multileader style.
+    multi: bool,
+    style: Option<String>,
 }
 
 impl Command for LeaderCmd {
     fn name(&self) -> &'static str {
-        "LEADER"
+        if self.multi {
+            "MLEADER"
+        } else {
+            "LEADER"
+        }
+    }
+    fn start(&mut self, cx: &mut Cx) -> Flow {
+        if self.multi {
+            self.style = Some(cx.tab.doc.mleader_style.clone());
+        }
+        Flow::Continue
     }
     fn prompt(&self, _: &Cx) -> String {
         if self.texting {
@@ -405,7 +419,10 @@ impl Command for LeaderCmd {
         }
         cx.checkpoint();
         let layer = dim_layer(cx);
-        cx.doc().add_on(&layer, Shape::Leader(Leader { pts: std::mem::take(&mut self.pts), text: s.replace("\\P", "\n") }));
+        cx.doc().add_on(
+            &layer,
+            Shape::Leader(Leader { pts: std::mem::take(&mut self.pts), text: s.replace("\\P", "\n"), style: self.style.clone() }),
+        );
         Flow::Done
     }
     fn preview(&self, _: &Document, c: V2) -> Vec<Shape> {
@@ -414,7 +431,7 @@ impl Command for LeaderCmd {
         }
         let mut p = self.pts.clone();
         p.push(c);
-        vec![Shape::Leader(Leader { pts: p, text: String::new() })]
+        vec![Shape::Leader(Leader { pts: p, text: String::new(), style: self.style.clone() })]
     }
 }
 

@@ -107,7 +107,12 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
         Shape::AttDef(a) => {
             format!("attribute definition tag {:?} prompt {:?} default {:?} at {}", a.tag, a.prompt, a.default, p(a.text.pos))
         }
-        Shape::Leader(l) => format!("leader arrow at {} text {:?}", p(l.pts.first().copied().unwrap_or(V2::ZERO)), l.text),
+        Shape::Leader(l) => format!(
+            "leader arrow at {} text {:?}{}",
+            p(l.pts.first().copied().unwrap_or(V2::ZERO)),
+            l.text,
+            l.style.as_ref().map(|s| format!(" style {s}")).unwrap_or_default()
+        ),
         Shape::Image(i) => format!("image {:?} at {} size {}x{}", i.path, p(i.pos), n(i.w), n(i.h)),
         Shape::Tolerance(f) => {
             let rows: Vec<String> = f
@@ -126,6 +131,11 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
                 })
                 .collect();
             format!("geometric tolerance at {}: {}", p(f.pos), rows.join(" / "))
+        }
+        Shape::Table(t) => {
+            let rows: Vec<String> =
+                t.cells.iter().take(40).map(|r| r.iter().map(|c| c.text.replace('\n', " ")).collect::<Vec<_>>().join(" | ")).collect();
+            format!("table at {} ({}x{} cells, text {}): {}", p(t.pos), t.rows(), t.cols(), n(t.text_height), rows.join(" / "))
         }
         Shape::Datum(d) => format!("datum feature symbol {:?} at {} on feature {}", d.letter, p(d.pos), p(d.tip)),
         Shape::Surface(s) => format!("surface texture symbol at {} {:?} {:?} method {:?}", p(s.pos), s.process, s.requirement, s.method),
@@ -303,6 +313,8 @@ SHAPE is one of:
 {"type": "hatch", "loops": [[[x, y], ...]], "pattern": "ANSI31", "scale": 1, "angle": 0}
 {"type": "tolerance", "at": [x, y], "rows": [{"symbol": "position", "diameter": true, "tolerance": "0.05", "material": "M", "datums": ["A", "B(M)"]}], "leader": [[feature x, y]]}
      (symbols: position, straightness, flatness, circularity, cylindricity, profile of a line, profile of a surface, angularity, perpendicularity, parallelism, concentricity, symmetry, circular run-out, total run-out)
+{"type": "table", "at": [top-left x, y], "rows": [["ITEM", "PART", "QTY"], ["1", "Shaft", "1"]], "text_height": 2.5}
+{"type": "leader", "pts": [[tip], [x, y]], "text": "3", "style": "Balloon"}     (multileader styles: Standard, Balloon, or the drawing's own)
 {"type": "datum", "letter": "A", "at": [x, y], "tip": [point on the feature]}
 {"type": "surface", "at": [point on the surface], "rotation": 0, "process": "removal" | "any" | "no_removal", "requirement": "Ra 1.6", "method": "ground", "lay": "=", "all_around": false}
 {"type": "weld", "tip": [joint x, y], "elbow": [x, y], "arrow_side": {"kind": "fillet", "size": "a5", "length": "100"}, "other_side": {"kind": "none"}, "all_around": false, "field": false, "tail": "111"}
@@ -483,7 +495,7 @@ pub fn shape_from_json(v: &Value, doc: &Document) -> Result<Shape, String> {
             if pts.len() < 2 {
                 return Err("leader needs 2 points".into());
             }
-            Shape::Leader(Leader { pts, text: v["text"].as_str().unwrap_or("").to_string() })
+            Shape::Leader(Leader { pts, text: v["text"].as_str().unwrap_or("").to_string(), style: v["style"].as_str().map(String::from) })
         }
         "tolerance" | "fcf" | "gdt" => {
             let rows = v["rows"]
@@ -502,6 +514,20 @@ pub fn shape_from_json(v: &Value, doc: &Document) -> Result<Shape, String> {
                 .collect::<Result<Vec<_>, String>>()?;
             let leader = v["leader"].as_array().map(|a| a.iter().filter_map(pt).collect()).unwrap_or_default();
             Shape::Tolerance(Fcf { pos: get_pt(v, &["at", "pos"])?, rows, leader })
+        }
+        "table" => {
+            let rows: Vec<Vec<String>> = v["rows"]
+                .as_array()
+                .ok_or("table needs rows")?
+                .iter()
+                .map(|r| {
+                    r.as_array()
+                        .map(|c| c.iter().map(|x| x.as_str().map(String::from).unwrap_or_else(|| x.to_string())).collect())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let h = get_num(v, &["text_height", "height"]).unwrap_or(2.5 * doc.sheet.scale);
+            Shape::Table(icad_core::table::Table::from_rows(get_pt(v, &["at", "pos"])?, &rows, h))
         }
         "datum" => Shape::Datum(DatumFeature {
             letter: v["letter"].as_str().unwrap_or("A").to_string(),

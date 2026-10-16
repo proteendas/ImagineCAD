@@ -384,7 +384,7 @@ fn build_shaft(segments: &[Segment], keyways: &[Keyway], chamfers: &[Chamfer], t
             r.push((tip.x - 0.1 * th, elbow + 0.1 * th));
         }
         let y = rmax + 3.4 * th + row as f64 * 1.8 * th;
-        out.push((layers::DIMENSIONS.into(), Shape::Leader(Leader { pts: vec![tip, V2::new(elbow, y)], text })));
+        out.push((layers::DIMENSIONS.into(), Shape::Leader(Leader { pts: vec![tip, V2::new(elbow, y)], text, style: None })));
     }
 
     // Length chain below the shaft (short neighbours staggered), then the overall length.

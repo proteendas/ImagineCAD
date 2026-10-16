@@ -16,6 +16,7 @@ pub mod prim;
 pub mod sheet;
 pub mod style;
 pub mod symbols;
+pub mod table;
 
 pub use document::Document;
 pub use entity::{BlockDef, Ctx, Curve, DimKind, Dimension, Entity, Hatch, Insert, Leader, MText, Shape, SnapKind};

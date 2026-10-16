@@ -15,6 +15,8 @@ All notable changes to ImagineCAD are documented here. The format follows
 - **Block attributes:** `ATTDEF`, values per block reference (prompted on insert, `ATTEDIT`, double-click, Properties palette), `ATTEXPORT` to CSV; standard DXF/DWG attribute entities.
 - **Dynamic title blocks:** any block with attributes can be the title block, filled automatically from the title fields; the built-in title block can be copied as an editable block.
 - **Fields** in text (`{{TITLE}}`, `{{SCALE}}`, `{{DATE}}`, `{{FILENAME}}`, `{{LENGTH:id}}`, `{{AREA:id}}`, `{{COUNT:block}}`…) with an Insert field menu.
+- **Tables:** `TABLE` (empty, from CSV/spreadsheet data, or a parts list from block attributes), merged title rows, alignment, column widths, a cell editor (`TABLEDIT`, double-click); fields in cells.
+- **Multileader styles:** `MLEADER`, `MLEADERSTYLE` with arrowhead type, sizes, landing and box/balloon frames; *Standard* and *Balloon* styles built in.
 - **Compact ribbon:** split buttons with variant lists (Circle ▾, Arc ▾, Dimension ▾, Trim ▾, Fillet ▾, Array ▾…), icon tool columns and panel-title menus (Draw ▾, Modify ▾, Annotation ▾, Layers ▾), so each tab fits without scrolling.
 - DXF/DWG: objects without a DXF 2000 equivalent are written as their graphics plus ImagineCAD extended data, so other programs show them and ImagineCAD reads them back exactly.
 

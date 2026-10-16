@@ -9,6 +9,7 @@ use crate::hatch;
 use crate::prim::*;
 use crate::style::*;
 use crate::symbols::*;
+use crate::table::*;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -23,11 +24,13 @@ pub struct Ctx<'a> {
     pub scale: f64,
     pub blocks: &'a [BlockDef],
     pub depth: u8,
+    /// Multileader styles of the drawing.
+    pub mstyles: &'a [MLeaderStyle],
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(ds: &'a DimStyle, scale: f64) -> Self {
-        Self { ds, scale, blocks: &[], depth: 0 }
+        Self { ds, scale, blocks: &[], depth: 0, mstyles: &[] }
     }
     pub fn block(&self, name: &str) -> Option<&'a BlockDef> {
         self.blocks.iter().find(|b| b.name.eq_ignore_ascii_case(name))
@@ -576,6 +579,9 @@ pub struct Leader {
     /// Arrow tip first, then vertices; text goes after the last point.
     pub pts: Vec<V2>,
     pub text: String,
+    /// Multileader style (None = the dimension style's arrow and text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -636,6 +642,7 @@ pub enum Shape {
     Image(ImageRef),
     /// Geometric tolerance feature control frame.
     Tolerance(Fcf),
+    Table(Table),
     /// Attribute definition (in a block; shows its tag elsewhere).
     AttDef(AttDef),
     /// Datum feature symbol.
@@ -797,6 +804,7 @@ impl Shape {
             Shape::Leader(_) => "Leader",
             Shape::Image(_) => "Raster Image",
             Shape::Tolerance(_) => "Tolerance",
+            Shape::Table(_) => "Table",
             Shape::AttDef(_) => "Attribute Definition",
             Shape::Datum(_) => "Datum Symbol",
             Shape::Surface(_) => "Surface Texture Symbol",
@@ -816,6 +824,7 @@ impl Shape {
                 | Shape::Surface(_)
                 | Shape::Weld(_)
                 | Shape::AttDef(_)
+                | Shape::Table(_)
         )
     }
 
@@ -883,6 +892,7 @@ impl Shape {
             Shape::Leader(l) => leader_prims(l, ctx),
             Shape::Image(i) => vec![Prim::Image(i.clone())],
             Shape::Tolerance(f) => f.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
+            Shape::Table(t) => t.prims(),
             Shape::AttDef(a) => {
                 let mut t = a.text.clone();
                 t.content = a.tag.clone();
@@ -1000,6 +1010,7 @@ impl Shape {
             Shape::Image(i) => i.corners().into_iter().map(|p| (End, p)).collect(),
             Shape::Hatch(_) => vec![],
             Shape::Tolerance(f) => vec![(Insertion, f.pos)],
+            Shape::Table(t) => vec![(Insertion, t.pos)],
             Shape::AttDef(a) => vec![(Insertion, a.text.pos)],
             Shape::Datum(d) => vec![(Insertion, d.pos), (End, d.tip)],
             Shape::Surface(s) => vec![(Insertion, s.pos)],
@@ -1050,6 +1061,7 @@ impl Shape {
                 }
             }
             Shape::Tolerance(f) => std::iter::once(f.pos).chain(f.leader.iter().copied()).collect(),
+            Shape::Table(t) => vec![t.pos],
             Shape::AttDef(a) => vec![a.text.pos],
             Shape::Datum(d) => vec![d.pos, d.tip],
             Shape::Surface(s) => vec![s.pos],
@@ -1175,6 +1187,7 @@ impl Shape {
                 }
             }
             Shape::Surface(s) => s.pos = p,
+            Shape::Table(t) => t.pos = p,
             Shape::AttDef(a) => a.text.pos = p,
             Shape::Weld(w) => {
                 if i == 0 {
@@ -1285,6 +1298,12 @@ impl Shape {
                 img.w = b.width();
                 img.h = b.height();
             }
+            Shape::Table(t) => {
+                t.pos = x.apply(t.pos);
+                t.col_widths.iter_mut().for_each(|w| *w *= k);
+                t.row_heights.iter_mut().for_each(|h| *h *= k);
+                t.text_height *= k;
+            }
             Shape::AttDef(a) => {
                 a.text.pos = x.apply(a.text.pos);
                 a.text.height *= k;
@@ -1339,7 +1358,8 @@ impl Shape {
             | Shape::Tolerance(_)
             | Shape::Datum(_)
             | Shape::Surface(_)
-            | Shape::Weld(_) => Some(from_prims(self.prims(ctx))),
+            | Shape::Weld(_)
+            | Shape::Table(_) => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) if !h.is_solid() => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) => Some(h.loops.iter().map(|l| Shape::Polyline { pts: l.clone(), closed: true }).collect()),
             _ => None,
@@ -1406,6 +1426,9 @@ fn leader_prims(l: &Leader, ctx: &Ctx) -> Vec<Prim> {
     let mut out = vec![];
     if l.pts.len() < 2 {
         return out;
+    }
+    if let Some(st) = l.style.as_ref().and_then(|n| ctx.mstyles.iter().find(|s| s.name.eq_ignore_ascii_case(n))) {
+        return st.prims(&l.pts, &l.text, ctx.scale, ctx.ds.text_gap);
     }
     let s = ctx.scale.max(1e-9);
     let ar = ctx.ds.arrow_size * s;
