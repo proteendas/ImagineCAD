@@ -284,7 +284,7 @@ impl BrokenOutCmd {
                 Some(first)
                     if first.first().is_some_and(|f| run.last().is_some_and(|l| l.dist(*f) < ext.width().max(ext.height()) * 0.05)) =>
                 {
-                    run.extend(first.drain(..));
+                    run.append(first);
                     *first = run;
                 }
                 _ => runs.push(run),
