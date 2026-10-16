@@ -8,6 +8,7 @@ pub mod assoc;
 pub mod curves;
 pub mod document;
 pub mod entity;
+pub mod fields;
 pub mod geom;
 pub mod hatch;
 pub mod ops;

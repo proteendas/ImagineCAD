@@ -139,6 +139,7 @@ impl App {
                 let mut t = Tab::new(doc, name);
                 if ["icad", "dxf", "dwg"].contains(&ext.as_str()) {
                     t.path = Some(p.to_path_buf());
+                    t.doc.file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
                 }
                 self.push_tab(t);
                 self.settings.push_recent(p.to_path_buf());
@@ -300,6 +301,7 @@ impl App {
             "DATUM" | "DATUMSYMBOL" => self.new_symbol(crate::symbol_ui::SymbolKind::Datum),
             "SURFFINISH" | "SF" | "ROUGHNESS" => self.new_symbol(crate::symbol_ui::SymbolKind::Surface),
             "WELD" | "WELDSYMBOL" => self.new_symbol(crate::symbol_ui::SymbolKind::Weld),
+            "ATTEXPORT" | "DATAEXTRACTION" | "ATTEXT" => self.export_attributes(),
             "AIHELP" => self.dlg.ai_help = true,
             "LAYER" | "LA" => self.dlg.layers = true,
             "PROPERTIES" | "PR" | "PROPS" => {
@@ -469,6 +471,7 @@ impl App {
             Ok(()) => {
                 let t = self.tab();
                 t.path = Some(path.clone());
+                t.doc.file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
                 t.name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Drawing").to_string();
                 t.dirty = false;
                 self.settings.push_recent(path.clone());
@@ -904,7 +907,7 @@ impl App {
         let clicked = resp.clicked_by(PointerButton::Primary);
         if wants.is_none() && resp.double_clicked() {
             if let Some(id) = hover_id {
-                if self.edit_text_of(id) || self.edit_symbol_of(id) {
+                if self.edit_text_of(id) || self.edit_symbol_of(id) || self.edit_attributes_of(id) {
                     return;
                 }
             }
@@ -1773,6 +1776,17 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                         let mut r = deg(ins.rotation);
                         dv(ui, "Rotation °", &mut r);
                         ins.rotation = norm_angle(rad(r));
+                        let tags: Vec<String> =
+                            t.doc.block(&ins.name).map(|b| b.attdefs().map(|a| a.tag.clone()).collect()).unwrap_or_default();
+                        for tag in tags {
+                            let mut v = ins.value_of(&tag).unwrap_or("").to_string();
+                            ui.label(RichText::new(&tag).color(theme::AI_ACCENT));
+                            if ui.text_edit_singleline(&mut v).changed() {
+                                ins.set_value(&tag, v);
+                                gflag.set(true);
+                            }
+                            ui.end_row();
+                        }
                     }
                     Shape::Leader(l) => {
                         ui.label("Text");
@@ -1784,6 +1798,24 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             dv(ui, &format!("Vertex {} X", i + 1), &mut p.x);
                             dv(ui, &format!("Vertex {} Y", i + 1), &mut p.y);
                         }
+                    }
+                    Shape::AttDef(a) => {
+                        for (label, v) in [("Tag", &mut a.tag), ("Prompt", &mut a.prompt), ("Default", &mut a.default)] {
+                            ui.label(label);
+                            if ui.text_edit_singleline(v).changed() {
+                                gflag.set(true);
+                            }
+                            ui.end_row();
+                        }
+                        ui.label("Invisible");
+                        if ui.checkbox(&mut a.invisible, "").changed() {
+                            gflag.set(true);
+                        }
+                        ui.end_row();
+                        dv(ui, "Position X", &mut a.text.pos.x);
+                        dv(ui, "Position Y", &mut a.text.pos.y);
+                        dv(ui, "Height", &mut a.text.height);
+                        a.text.height = a.text.height.max(1e-6);
                     }
                     Shape::Tolerance(_) | Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) => {
                         ui.end_row();

@@ -256,9 +256,48 @@ fn write_polyline(w: &mut W, pts: &[V2], closed: bool, layer: &str, owner: u64, 
 
 fn write_text(w: &mut W, t: &Text, layer: &str, owner: u64, st: Style) {
     w.ent("TEXT", layer, owner, Style { lt: None, ..st }, "AcDbText");
+    let v = text_groups(w, t, &t.content);
+    w.sub("AcDbText");
+    if v != 0 {
+        w.g(73, v);
+    }
+}
+
+/// Attribute (ATTRIB in an INSERT, or ATTDEF in a block): text groups, then
+/// the attribute subclass with tag, flags and vertical alignment.
+#[allow(clippy::too_many_arguments)]
+fn write_attribute(
+    w: &mut W,
+    def: bool,
+    t: &Text,
+    tag: &str,
+    value: &str,
+    prompt: &str,
+    invisible: bool,
+    layer: &str,
+    owner: u64,
+    st: Style,
+) {
+    w.ent(if def { "ATTDEF" } else { "ATTRIB" }, layer, owner, Style { lt: None, ..st }, "AcDbText");
+    let v = text_groups(w, t, value);
+    if def {
+        w.sub("AcDbAttributeDefinition");
+        w.g(3, encode_text(prompt));
+    } else {
+        w.sub("AcDbAttribute");
+    }
+    w.g(2, tag);
+    w.g(70, if invisible { 1 } else { 0 });
+    if v != 0 {
+        w.g(74, v);
+    }
+}
+
+/// Common TEXT groups; returns the vertical alignment code.
+fn text_groups(w: &mut W, t: &Text, content: &str) -> i32 {
     w.pt(10, t.pos);
     w.f(40, t.height);
-    w.g(1, encode_text(&t.content));
+    w.g(1, encode_text(content));
     if t.rotation.abs() > 1e-9 {
         w.f(50, deg(t.rotation));
     }
@@ -279,10 +318,7 @@ fn write_text(w: &mut W, t: &Text, layer: &str, owner: u64, st: Style) {
     if h != 0 || v != 0 {
         w.pt(11, t.pos);
     }
-    w.sub("AcDbText");
-    if v != 0 {
-        w.g(73, v);
-    }
+    v
 }
 
 fn style_of(e: &Entity) -> Style {
@@ -311,7 +347,6 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
     let st = style_of(e);
     let layer = e.layer.as_str();
     let modern = w.new2000();
-    let ctx = doc.ctx();
     match &e.shape {
         // Block contents (explode_dims) draw proxies as plain graphics.
         s if modern && !explode_dims && needs_proxy(s) => {
@@ -338,14 +373,39 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
             w.pt(10, *p);
         }
         Shape::Insert(ins) if doc.block(&ins.name).is_some() => {
+            let b = doc.block(&ins.name).unwrap();
+            let has_atts = b.attdefs().next().is_some();
+            let handle = w.next;
             w.ent("INSERT", layer, owner, st, "AcDbBlockReference");
+            if has_atts {
+                w.g(66, 1);
+            }
             w.g(2, &ins.name);
             w.pt(10, ins.pos);
             w.f(41, ins.sx);
             w.f(42, ins.sy);
             w.f(43, 1.0);
             w.f(50, deg(ins.rotation));
+            if has_atts {
+                let x = ins.xform(b.base);
+                for a in b.attdefs() {
+                    let value = ins.value_of(&a.tag).unwrap_or(&a.default).to_string();
+                    let t = match Prim::Text(a.text.clone()).transformed(&x) {
+                        Prim::Text(t) => t,
+                        _ => a.text.clone(),
+                    };
+                    write_attribute(w, false, &t, &a.tag, &value, "", a.invisible, layer, handle, st);
+                }
+                w.ent("SEQEND", layer, handle, Style::default(), "");
+            }
         }
+        // Fields: the current value, with the field codes kept as extended data.
+        Shape::Text(t) if modern && t.content.contains("{{") => {
+            let shown = Text { content: icad_core::fields::resolve(doc, &t.content), ..t.clone() };
+            write_text(w, &shown, layer, owner, st);
+            w.xdata(&e.shape);
+        }
+        Shape::AttDef(a) => write_attribute(w, true, &a.text, &a.tag, &a.default, &a.prompt, a.invisible, layer, owner, st),
         Shape::Ellipse { c, major, ratio, start, end } if modern => {
             w.ent("ELLIPSE", layer, owner, st, "AcDbEllipse");
             w.pt(10, *c);
@@ -391,7 +451,7 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
             w.f(41, m.width.max(0.0));
             w.g(71, m.attach.clamp(1, 9));
             w.g(72, 1);
-            let text = encode_text(&m.content).replace('\n', "\\P");
+            let text = encode_text(&icad_core::fields::resolve(doc, &m.content)).replace('\n', "\\P");
             let chunks: Vec<String> = text.chars().collect::<Vec<_>>().chunks(250).map(|c| c.iter().collect()).collect();
             for (i, c) in chunks.iter().enumerate() {
                 w.g(if i + 1 == chunks.len() { 1 } else { 3 }, c);
@@ -402,10 +462,13 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
             w.g(7, "Standard");
             w.pt(11, V2::polar(1.0, m.rotation));
             w.f(44, m.spacing);
+            if m.content.contains("{{") {
+                w.xdata(&e.shape);
+            }
         }
         Shape::Hatch(h) if modern => write_hatch(w, doc, h, layer, owner, st),
         _ => {
-            for p in e.shape.prims(&ctx) {
+            for p in doc.prims_of(e) {
                 write_prim(w, &p, layer, owner, st);
             }
         }
@@ -821,7 +884,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         write_entity(&mut w, doc, e, msp_br, opts.explode_dimensions, &mut counters);
     }
     if opts.include_sheet && doc.sheet.visible {
-        for (p, lw) in doc.sheet.prims() {
+        for (p, lw) in doc.sheet_prims() {
             let st = Style { lw: Some((lw * 100.0).round() as i32), ..Style::default() };
             write_prim(&mut w, &p, "TITLEBLOCK", msp_br, st);
         }
@@ -1149,28 +1212,14 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
             *k = j - 1;
             Some(Shape::Polyline { pts: bulge_points(&verts, closed), closed })
         }
-        "TEXT" | "ATTRIB" => {
-            let h = match r.i(72) {
-                1 | 4 => HAlign::Center,
-                2 => HAlign::Right,
-                _ => HAlign::Left,
-            };
-            let v = match r.i(73) {
-                1 => VAlign::Bottom,
-                2 => VAlign::Middle,
-                3 => VAlign::Top,
-                _ => VAlign::Baseline,
-            };
-            let pos = if (h != HAlign::Left || v != VAlign::Baseline) && r.has(11) { r.p(11) } else { r.p(10) };
-            Some(Shape::Text(Text {
-                pos,
-                height: r.f(40).max(1e-6),
-                rotation: norm_angle(rad(r.f(50))),
-                content: decode_text(r.s(1).unwrap_or("")),
-                halign: h,
-                valign: v,
-            }))
-        }
+        "TEXT" | "ATTRIB" => Some(Shape::Text(read_text(r))),
+        "ATTDEF" => Some(Shape::AttDef(AttDef {
+            tag: r.s(2).unwrap_or("").to_string(),
+            prompt: decode_text(r.s(3).unwrap_or("")),
+            default: decode_text(r.s(1).unwrap_or("")),
+            text: read_text(r),
+            invisible: r.i(70) & 1 != 0,
+        })),
         "MTEXT" => {
             let mut content: String = r.codes.iter().filter(|(c, _)| *c == 3).map(|(_, v)| v.as_str()).collect::<Vec<_>>().join("");
             content.push_str(r.s(1).unwrap_or(""));
@@ -1234,10 +1283,12 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
                 warn.insert(format!("INSERT of missing block {name}"));
                 return None;
             }
-            // Skip attribute entities that follow an INSERT.
+            // Attribute values follow the INSERT up to SEQEND.
+            let mut attribs = vec![];
             if r.i(66) == 1 {
                 let mut j = *k + 1;
                 while j < recs.len() && recs[j].kind == "ATTRIB" {
+                    attribs.push(Attrib { tag: recs[j].s(2).unwrap_or("").to_string(), value: decode_text(recs[j].s(1).unwrap_or("")) });
                     j += 1;
                 }
                 if j < recs.len() && recs[j].kind == "SEQEND" {
@@ -1245,13 +1296,45 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
                 }
                 *k = j - 1;
             }
-            Some(Shape::Insert(Insert { name, pos: r.p(10), sx: r.f_or(41, 1.0), sy: r.f_or(42, 1.0), rotation: norm_angle(rad(r.f(50))) }))
+            Some(Shape::Insert(Insert {
+                name,
+                pos: r.p(10),
+                sx: r.f_or(41, 1.0),
+                sy: r.f_or(42, 1.0),
+                rotation: norm_angle(rad(r.f(50))),
+                attribs,
+            }))
         }
-        "VERTEX" | "SEQEND" | "ATTDEF" | "VIEWPORT" => None,
+        "VERTEX" | "SEQEND" | "VIEWPORT" => None,
         other => {
             warn.insert(other.to_string());
             None
         }
+    }
+}
+
+/// TEXT, ATTRIB and ATTDEF share the text groups; attributes keep the
+/// vertical alignment in 74 (73 is their field length).
+fn read_text(r: &Rec) -> Text {
+    let h = match r.i(72) {
+        1 | 4 => HAlign::Center,
+        2 => HAlign::Right,
+        _ => HAlign::Left,
+    };
+    let v = match r.i(if r.kind == "TEXT" { 73 } else { 74 }) {
+        1 => VAlign::Bottom,
+        2 => VAlign::Middle,
+        3 => VAlign::Top,
+        _ => VAlign::Baseline,
+    };
+    let pos = if (h != HAlign::Left || v != VAlign::Baseline) && r.has(11) { r.p(11) } else { r.p(10) };
+    Text {
+        pos,
+        height: r.f(40).max(1e-6),
+        rotation: norm_angle(rad(r.f(50))),
+        content: decode_text(r.s(1).unwrap_or("")),
+        halign: h,
+        valign: v,
     }
 }
 
@@ -1662,6 +1745,54 @@ mod tests {
         // R12 explodes them into plain graphics.
         let r12 = read_dxf(&write_dxf(&d, &DxfOptions { version: DxfVersion::R12, include_sheet: false, ..Default::default() })).unwrap();
         assert!(r12.entities.len() > 20);
+    }
+
+    pub fn attributed() -> Document {
+        let mut d = Document::new();
+        let ent = |shape| Entity { id: 0, layer: "0".into(), color: Color::ByLayer, linetype: LtRef::ByLayer, lineweight: None, shape };
+        d.define_block(BlockDef {
+            name: "BALLOON".into(),
+            base: V2::ZERO,
+            entities: vec![
+                ent(Shape::Circle { c: V2::ZERO, r: 5.0 }),
+                ent(Shape::AttDef(AttDef {
+                    tag: "ITEM".into(),
+                    prompt: "Item number".into(),
+                    default: "1".into(),
+                    text: Text::new(V2::ZERO, 3.5, "").aligned(HAlign::Center, VAlign::Middle),
+                    invisible: false,
+                })),
+                ent(Shape::AttDef(AttDef {
+                    tag: "PART".into(),
+                    prompt: "Part number".into(),
+                    default: String::new(),
+                    text: Text::new(V2::new(0., -8.), 2.5, ""),
+                    invisible: true,
+                })),
+            ],
+            description: String::new(),
+        });
+        let mut ins = Insert::new("BALLOON", V2::new(50., 20.));
+        ins.set_value("ITEM", "12");
+        ins.set_value("PART", "ICP-0042");
+        d.add(Shape::Insert(ins));
+        d
+    }
+
+    #[test]
+    fn attributes_round_trip() {
+        let d = attributed();
+        let s = write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() });
+        assert!(s.contains("ATTDEF") && s.contains("ATTRIB") && s.contains("SEQEND"));
+        let r = read_dxf(&s).unwrap();
+        let b = r.block("BALLOON").unwrap();
+        let defs: Vec<&AttDef> = b.attdefs().collect();
+        assert_eq!(defs.len(), 2);
+        assert_eq!((defs[0].tag.as_str(), defs[0].prompt.as_str(), defs[0].default.as_str()), ("ITEM", "Item number", "1"));
+        assert!(defs[1].invisible);
+        let Shape::Insert(ins) = &r.entities[0].shape else { panic!("{:?}", r.entities[0].shape) };
+        assert_eq!((ins.value_of("item"), ins.value_of("PART")), (Some("12"), Some("ICP-0042")));
+        assert_eq!(r.entities.len(), 1, "attributes are not separate entities");
     }
 
     #[test]

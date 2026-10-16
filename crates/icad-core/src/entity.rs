@@ -498,11 +498,69 @@ pub struct Insert {
     pub sx: f64,
     pub sy: f64,
     pub rotation: f64,
+    /// Attribute values of this reference (by tag).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attribs: Vec<Attrib>,
+}
+
+/// Attribute definition inside a block: a labelled text slot whose value is
+/// entered per block reference.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AttDef {
+    pub tag: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub default: String,
+    /// Position, height, rotation and alignment (the content is ignored).
+    pub text: Text,
+    #[serde(default)]
+    pub invisible: bool,
+}
+
+/// An attribute value of a block reference.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Attrib {
+    pub tag: String,
+    pub value: String,
+}
+
+impl BlockDef {
+    /// The block's attribute definitions, in drawing order.
+    pub fn attdefs(&self) -> impl Iterator<Item = &AttDef> {
+        self.entities.iter().filter_map(|e| if let Shape::AttDef(a) = &e.shape { Some(a) } else { None })
+    }
 }
 
 impl Insert {
     pub fn new(name: impl Into<String>, pos: V2) -> Self {
-        Self { name: name.into(), pos, sx: 1.0, sy: 1.0, rotation: 0.0 }
+        Self { name: name.into(), pos, sx: 1.0, sy: 1.0, rotation: 0.0, attribs: vec![] }
+    }
+    /// Value of attribute `tag` (case-insensitive), if set on this reference.
+    pub fn value_of(&self, tag: &str) -> Option<&str> {
+        self.attribs.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)).map(|a| a.value.as_str())
+    }
+    /// Set (or add) the value of attribute `tag`.
+    pub fn set_value(&mut self, tag: &str, value: impl Into<String>) {
+        let value = value.into();
+        match self.attribs.iter_mut().find(|a| a.tag.eq_ignore_ascii_case(tag)) {
+            Some(a) => a.value = value,
+            None => self.attribs.push(Attrib { tag: tag.to_string(), value }),
+        }
+    }
+    /// Attribute texts of this reference in block coordinates (before the
+    /// insertion transform), with values filled in; invisible ones omitted.
+    pub fn attribute_texts(&self, block: &BlockDef) -> Vec<Text> {
+        block
+            .attdefs()
+            .filter(|a| !a.invisible)
+            .map(|a| {
+                let mut t = a.text.clone();
+                t.content = self.value_of(&a.tag).unwrap_or(&a.default).to_string();
+                t
+            })
+            .filter(|t| !t.content.is_empty())
+            .collect()
     }
     /// Block space → model space.
     pub fn xform(&self, base: V2) -> Xform {
@@ -578,6 +636,8 @@ pub enum Shape {
     Image(ImageRef),
     /// Geometric tolerance feature control frame.
     Tolerance(Fcf),
+    /// Attribute definition (in a block; shows its tag elsewhere).
+    AttDef(AttDef),
     /// Datum feature symbol.
     Datum(DatumFeature),
     /// Surface texture symbol.
@@ -737,6 +797,7 @@ impl Shape {
             Shape::Leader(_) => "Leader",
             Shape::Image(_) => "Raster Image",
             Shape::Tolerance(_) => "Tolerance",
+            Shape::AttDef(_) => "Attribute Definition",
             Shape::Datum(_) => "Datum Symbol",
             Shape::Surface(_) => "Surface Texture Symbol",
             Shape::Weld(_) => "Weld Symbol",
@@ -754,6 +815,7 @@ impl Shape {
                 | Shape::Datum(_)
                 | Shape::Surface(_)
                 | Shape::Weld(_)
+                | Shape::AttDef(_)
         )
     }
 
@@ -805,7 +867,15 @@ impl Shape {
                     Some(b) => {
                         let x = ins.xform(b.base);
                         let inner = ctx.deeper();
-                        b.entities.iter().flat_map(|e| e.shape.prims(&inner)).map(|p| p.transformed(&x)).collect()
+                        let mut out: Vec<Prim> = b
+                            .entities
+                            .iter()
+                            .filter(|e| !matches!(e.shape, Shape::AttDef(_)))
+                            .flat_map(|e| e.shape.prims(&inner))
+                            .map(|p| p.transformed(&x))
+                            .collect();
+                        out.extend(ins.attribute_texts(b).into_iter().map(|t| Prim::Text(t).transformed(&x)));
+                        out
                     }
                     None => point_marker(ins.pos, 2.0 * ctx.scale),
                 }
@@ -813,6 +883,11 @@ impl Shape {
             Shape::Leader(l) => leader_prims(l, ctx),
             Shape::Image(i) => vec![Prim::Image(i.clone())],
             Shape::Tolerance(f) => f.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
+            Shape::AttDef(a) => {
+                let mut t = a.text.clone();
+                t.content = a.tag.clone();
+                vec![Prim::Text(t)]
+            }
             Shape::Datum(d) => d.prims(ctx.ds.text_height * ctx.scale),
             Shape::Surface(s) => s.prims(ctx.ds.text_height * ctx.scale),
             Shape::Weld(w) => w.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
@@ -925,6 +1000,7 @@ impl Shape {
             Shape::Image(i) => i.corners().into_iter().map(|p| (End, p)).collect(),
             Shape::Hatch(_) => vec![],
             Shape::Tolerance(f) => vec![(Insertion, f.pos)],
+            Shape::AttDef(a) => vec![(Insertion, a.text.pos)],
             Shape::Datum(d) => vec![(Insertion, d.pos), (End, d.tip)],
             Shape::Surface(s) => vec![(Insertion, s.pos)],
             Shape::Weld(w) => vec![(End, w.tip), (Insertion, w.elbow)],
@@ -974,6 +1050,7 @@ impl Shape {
                 }
             }
             Shape::Tolerance(f) => std::iter::once(f.pos).chain(f.leader.iter().copied()).collect(),
+            Shape::AttDef(a) => vec![a.text.pos],
             Shape::Datum(d) => vec![d.pos, d.tip],
             Shape::Surface(s) => vec![s.pos],
             Shape::Weld(w) => vec![w.tip, w.elbow],
@@ -1098,6 +1175,7 @@ impl Shape {
                 }
             }
             Shape::Surface(s) => s.pos = p,
+            Shape::AttDef(a) => a.text.pos = p,
             Shape::Weld(w) => {
                 if i == 0 {
                     w.tip = p
@@ -1206,6 +1284,13 @@ impl Shape {
                 img.pos = b.min;
                 img.w = b.width();
                 img.h = b.height();
+            }
+            Shape::AttDef(a) => {
+                a.text.pos = x.apply(a.text.pos);
+                a.text.height *= k;
+                if !x.is_mirror() {
+                    a.text.rotation = norm_angle(x.apply_angle(a.text.rotation));
+                }
             }
             // Symbols move with the geometry but keep their paper size.
             Shape::Tolerance(f) => {

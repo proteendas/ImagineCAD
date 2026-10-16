@@ -65,6 +65,8 @@ pub struct Memory {
     /// Origin of ordinate dimensions.
     pub ordinate_datum: V2,
     pub qdim_mode: crate::commands_dim::QMode,
+    /// Block reference whose attributes should be edited next (after INSERT).
+    pub pending_attedit: Option<u64>,
 }
 
 impl Default for Memory {
@@ -90,6 +92,7 @@ impl Default for Memory {
             layiso_backup: vec![],
             ordinate_datum: V2::ZERO,
             qdim_mode: Default::default(),
+            pending_attedit: None,
         }
     }
 }
@@ -284,6 +287,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("DATUM", ""),
     ("SURFFINISH", "SF"),
     ("WELD", ""),
+    ("ATTDEF", "ATT"),
+    ("ATTEDIT", "ATE"),
+    ("ATTEXPORT", ""),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {

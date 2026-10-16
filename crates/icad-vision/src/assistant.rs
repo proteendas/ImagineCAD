@@ -92,7 +92,21 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
         Shape::XLine { p: q, dir } => format!("construction line through {} direction {}", p(*q), p(*dir)),
         Shape::Ray { p: q, dir } => format!("ray from {} direction {}", p(*q), p(*dir)),
         Shape::Hatch(h) => format!("hatch {} with {} boundary loop(s)", h.pattern, h.loops.len()),
-        Shape::Insert(i) => format!("block {:?} at {} scale {}x{} rotation {}°", i.name, p(i.pos), n(i.sx), n(i.sy), deg(i.rotation)),
+        Shape::Insert(i) => {
+            let atts: Vec<String> = i.attribs.iter().map(|a| format!("{}={:?}", a.tag, a.value)).collect();
+            format!(
+                "block {:?} at {} scale {}x{} rotation {}°{}",
+                i.name,
+                p(i.pos),
+                n(i.sx),
+                n(i.sy),
+                deg(i.rotation),
+                if atts.is_empty() { String::new() } else { format!(" attributes {}", atts.join(" ")) }
+            )
+        }
+        Shape::AttDef(a) => {
+            format!("attribute definition tag {:?} prompt {:?} default {:?} at {}", a.tag, a.prompt, a.default, p(a.text.pos))
+        }
         Shape::Leader(l) => format!("leader arrow at {} text {:?}", p(l.pts.first().copied().unwrap_or(V2::ZERO)), l.text),
         Shape::Image(i) => format!("image {:?} at {} size {}x{}", i.path, p(i.pos), n(i.w), n(i.h)),
         Shape::Tolerance(f) => {

@@ -857,7 +857,17 @@ impl InsertCmd {
         let (Some(name), Some(pos)) = (self.name.clone(), self.pos) else { return Flow::Done };
         let k = self.scale.unwrap_or(1.0);
         cx.checkpoint();
-        cx.doc().add(Shape::Insert(Insert { name: name.clone(), pos, sx: k, sy: k, rotation: norm_angle(rot) }));
+        let mut ins = Insert { name: name.clone(), pos, sx: k, sy: k, rotation: norm_angle(rot), attribs: vec![] };
+        let defs: Vec<(String, String)> =
+            cx.tab.doc.block(&name).map(|b| b.attdefs().map(|a| (a.tag.clone(), a.default.clone())).collect()).unwrap_or_default();
+        for (tag, default) in &defs {
+            ins.set_value(tag, default.clone());
+        }
+        let id = cx.doc().add(Shape::Insert(ins));
+        // Ask for the attribute values right away.
+        if !defs.is_empty() {
+            cx.mem.pending_attedit = Some(id);
+        }
         cx.mem.last_block = name;
         Flow::Done
     }

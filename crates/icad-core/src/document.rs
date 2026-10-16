@@ -31,6 +31,9 @@ pub struct Document {
     /// Parametric part the drawing was generated from, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<PartRecord>,
+    /// File name for the FILENAME field (set by the application; not saved).
+    #[serde(skip)]
+    pub file_name: String,
 }
 
 /// A parametric part (shaft, plate) and the entities generated from it, so the
@@ -101,6 +104,7 @@ impl Document {
             next_id: 1,
             blocks: vec![],
             part: None,
+            file_name: String::new(),
         }
     }
 
@@ -225,7 +229,43 @@ impl Document {
     }
 
     pub fn prims_of(&self, e: &Entity) -> Vec<Prim> {
-        e.shape.prims(&self.ctx())
+        e.shape.prims(&self.ctx()).into_iter().map(|p| self.resolve_prim(p)).collect()
+    }
+
+    /// Text with `{{FIELD}}` placeholders replaced by their current values.
+    fn resolve_prim(&self, p: Prim) -> Prim {
+        match p {
+            Prim::Text(mut t) if t.content.contains("{{") => {
+                t.content = crate::fields::resolve(self, &t.content);
+                Prim::Text(t)
+            }
+            p => p,
+        }
+    }
+
+    /// Border, zones and title block: the built-in title block, or the block
+    /// chosen in `sheet.title_block` with its attributes filled from the
+    /// title fields (each attribute tag names a field: COMPANY, TITLE, SCALE…).
+    pub fn sheet_prims(&self) -> Vec<(Prim, f64)> {
+        let sh = &self.sheet;
+        let Some(b) = sh.title_block.as_deref().and_then(|n| self.block(n)) else { return sh.prims() };
+        let mut out = sh.prims_with(false);
+        let mut ins = Insert::new(b.name.clone(), sh.title_anchor());
+        ins.sx = sh.scale;
+        ins.sy = sh.scale;
+        for a in b.attdefs() {
+            if let Some(v) = sh.field(&a.tag) {
+                ins.set_value(&a.tag, v);
+            }
+        }
+        let x = ins.xform(b.base);
+        let ctx = self.ctx();
+        for e in b.entities.iter().filter(|e| !matches!(e.shape, Shape::AttDef(_))) {
+            let lw = e.lineweight.unwrap_or(0.25);
+            out.extend(e.shape.prims(&ctx).into_iter().map(|p| (self.resolve_prim(p.transformed(&x)), lw)));
+        }
+        out.extend(ins.attribute_texts(b).into_iter().map(|t| (self.resolve_prim(Prim::Text(t).transformed(&x)), 0.25)));
+        out
     }
 
     /// Primitives with resolved colour/linetype/lineweight. Objects inside a
@@ -264,6 +304,17 @@ impl Document {
                     if self.layer(&sub.layer).is_some_and(|l| !l.visible) {
                         continue;
                     }
+                    // Attribute definitions show this reference's value.
+                    if let Shape::AttDef(a) = &sub.shape {
+                        if a.invisible {
+                            continue;
+                        }
+                        let mut t = a.text.clone();
+                        t.content = ins.value_of(&a.tag).unwrap_or(&a.default).to_string();
+                        let shown = Entity { shape: Shape::Text(t), ..sub.clone() };
+                        self.collect_items(&shown, Some(&proxy), bx, depth + 1, out);
+                        continue;
+                    }
                     self.collect_items(sub, Some(&proxy), bx, depth + 1, out);
                 }
                 return;
@@ -271,7 +322,7 @@ impl Document {
         }
         let ctx = self.ctx();
         for p in e.shape.prims(&ctx) {
-            out.push(RenderItem { prim: p.transformed(&x), color, linetype, lineweight });
+            out.push(RenderItem { prim: self.resolve_prim(p.transformed(&x)), color, linetype, lineweight });
         }
     }
 
@@ -375,16 +426,25 @@ impl Document {
         if let Shape::Insert(ins) = &e.shape {
             let b = self.block(&ins.name)?;
             let x = ins.xform(b.base);
+            // Attribute definitions become plain text holding this reference's values.
             return Some(
                 b.entities
                     .iter()
-                    .map(|sub| {
+                    .filter_map(|sub| {
                         let mut n = sub.clone();
+                        if let Shape::AttDef(a) = &sub.shape {
+                            if a.invisible {
+                                return None;
+                            }
+                            let mut t = a.text.clone();
+                            t.content = ins.value_of(&a.tag).unwrap_or(&a.default).to_string();
+                            n.shape = Shape::Text(t);
+                        }
                         n.shape.transform(&x);
                         if n.layer == "0" {
                             n.layer = e.layer.clone();
                         }
-                        n
+                        Some(n)
                     })
                     .collect(),
             );
@@ -469,6 +529,48 @@ pub fn compose(a: &Xform, b: &Xform) -> Xform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_title_block_is_filled_from_the_title_fields() {
+        let mut d = Document::new();
+        d.sheet.title.company = "ACME".into();
+        d.sheet.scale = 5.0;
+        let builtin = d.sheet_prims();
+        let entities = d
+            .sheet
+            .title_block_template()
+            .into_iter()
+            .map(|(shape, lw)| Entity {
+                id: 0,
+                layer: "0".into(),
+                color: Color::ByLayer,
+                linetype: LtRef::ByLayer,
+                lineweight: Some(lw),
+                shape,
+            })
+            .collect::<Vec<_>>();
+        assert!(entities.iter().filter(|e| matches!(e.shape, Shape::AttDef(_))).count() >= 14);
+        d.define_block(BlockDef { name: "TB".into(), base: V2::ZERO, entities, description: String::new() });
+        d.sheet.title_block = Some("TB".into());
+        let custom = d.sheet_prims();
+        let texts = |v: &[(Prim, f64)]| {
+            let mut t: Vec<(String, i64, i64)> = v
+                .iter()
+                .filter_map(|(p, _)| {
+                    if let Prim::Text(t) = p {
+                        Some((t.content.clone(), t.pos.x.round() as i64, t.pos.y.round() as i64))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            t.sort();
+            t
+        };
+        // Same texts in the same places as the built-in title block.
+        assert_eq!(texts(&custom), texts(&builtin));
+        assert!(texts(&custom).iter().any(|t| t.0 == "ACME") && texts(&custom).iter().any(|t| t.0 == "1:5"));
+    }
 
     #[test]
     fn block_insert_renders_transformed_and_inherits() {

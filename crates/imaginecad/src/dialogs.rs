@@ -238,6 +238,7 @@ pub struct Dialogs {
     pub ai_check: Option<Receiver<Result<Vec<ModelInfo>, String>>>,
     pub ai_models: Vec<ModelInfo>,
     pub symbol: Option<crate::symbol_ui::SymbolDialog>,
+    pub attedit: Option<crate::attributes::AttEditDialog>,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -328,6 +329,7 @@ impl App {
         self.text_edit_dialog(ctx);
         self.units_dialog(ctx);
         self.symbol_dialog(ctx);
+        self.attedit_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -954,8 +956,11 @@ impl App {
         let mut open = true;
         let mut fit = false;
         let mut save_defaults = false;
+        let mut make_template = false;
         let t = &mut self.tabs[self.active];
         let before = t.doc.sheet.clone();
+        // Blocks with attributes can serve as the title block.
+        let tb_blocks: Vec<String> = t.doc.blocks.iter().filter(|b| b.attdefs().next().is_some()).map(|b| b.name.clone()).collect();
         egui::Window::new("Page Setup & Title Block").open(&mut open).default_width(520.0).show(ctx, |ui| {
             let sh = &mut t.doc.sheet;
             ui.label(RichText::new("Sheet").strong());
@@ -998,6 +1003,26 @@ impl App {
             }
             ui.separator();
             ui.label(RichText::new("Title block").strong());
+            ui.horizontal(|ui| {
+                ui.label("Layout");
+                let shown = sh.title_block.clone().unwrap_or_else(|| "Built-in (ISO 7200)".into());
+                egui::ComboBox::from_id_salt("tb_block").width(200.0).selected_text(shown).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut sh.title_block, None, "Built-in (ISO 7200)");
+                    for n in &tb_blocks {
+                        ui.selectable_value(&mut sh.title_block, Some(n.clone()), n);
+                    }
+                });
+                if ui
+                    .small_button("Create editable copy")
+                    .on_hover_text(
+                        "Adds the built-in title block as a block with attributes and uses it. Insert and explode it, change it, \
+                         and redefine it with BLOCK under the same name. Attribute tags name the fields that fill it in.",
+                    )
+                    .clicked()
+                {
+                    make_template = true;
+                }
+            });
             let tb = &mut sh.title;
             egui::Grid::new("tb").num_columns(2).spacing([10.0, 5.0]).show(ui, |ui| {
                 for (label, v) in [
@@ -1038,6 +1063,37 @@ impl App {
                 save_defaults = true;
             }
         });
+        if make_template {
+            let mut name = "TITLE_BLOCK".to_string();
+            let mut k = 2;
+            while t.doc.block(&name).is_some() {
+                name = format!("TITLE_BLOCK_{k}");
+                k += 1;
+            }
+            t.checkpoint();
+            let entities = t
+                .doc
+                .sheet
+                .title_block_template()
+                .into_iter()
+                .map(|(shape, lw)| icad_core::Entity {
+                    id: t.doc.alloc_id(),
+                    layer: "0".into(),
+                    color: Default::default(),
+                    linetype: Default::default(),
+                    lineweight: Some(lw),
+                    shape,
+                })
+                .collect();
+            t.doc.define_block(icad_core::BlockDef {
+                name: name.clone(),
+                base: icad_core::V2::ZERO,
+                entities,
+                description: "Title block: base point at its bottom-right corner; attribute tags name the title fields".into(),
+            });
+            t.doc.sheet.title_block = Some(name.clone());
+            self.log.push(format!("Title block block {name} created and in use."));
+        }
         if fit {
             let ext = t.doc.extents();
             if !ext.is_empty() {

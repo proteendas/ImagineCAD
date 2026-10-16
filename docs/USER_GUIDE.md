@@ -192,6 +192,32 @@ Manual editing works alongside the chat at all times.
 The chat uses the engine chosen in **AI Settings** (any cloud key, Ollama or a
 local server). From a terminal: `imaginecad ask part.icad "make the bore 12 mm" -o part.icad`.
 
+## Block attributes
+
+`ATTDEF` (`ATT`) defines an attribute: a tag (e.g. `PART_NO`), the prompt shown
+when the block is inserted, and a default value; then pick where its text goes.
+Include attribute definitions when you create the block with `BLOCK`. Each
+reference of the block then carries its own values:
+
+- **Inserting** a block with attributes asks for the values right away.
+- **Double-click** a block reference, use `ATTEDIT` (`ATE`), or the Properties
+  palette to change them.
+- `ATTEXPORT` writes every block reference's attributes to a CSV file (block,
+  position and one column per tag), for parts lists and bills of materials.
+- `EXPLODE` turns attributes into plain text with their values.
+
+Attributes are written to DXF/DWG as standard attribute definitions and values.
+
+## Fields
+
+Text, multiline text, leaders and attributes can contain fields that always
+show the current value: `{{TITLE}}`, `{{COMPANY}}`, `{{DWG_NO}}`, `{{REV}}`,
+`{{SCALE}}`, `{{SIZE}}`, `{{DATE}}`, `{{TODAY}}`, `{{FILENAME}}`,
+`{{MATERIAL}}`… and object fields such as `{{LENGTH:12}}`, `{{AREA:12}}`,
+`{{DIAMETER:12}}` (object id from `LIST`) or `{{COUNT:BOLT}}`. In the text
+editor, **Insert field ▾** lists them. Exports show the values; ImagineCAD keeps
+the field codes in DXF/DWG.
+
 ## Sheet, scale and title block
 
 **Annotate → Title Block** (or click the scale in the status bar): paper size,
@@ -199,6 +225,14 @@ orientation, plot scale, **Fit sheet to drawing**, and the title block fields
 (company, title, drawing number, revision, drawn/checked/approved by, date,
 material, finish, sheet, units, general tolerances, projection).
 **Use company & drawn-by as defaults** applies them to new drawings.
+
+**Your own title block.** Under *Layout*, choose a block with attributes
+instead of the built-in title block: it is placed at the frame's bottom-right
+corner (its base point) at the sheet scale, and each attribute whose tag names
+a title field (COMPANY, TITLE, DWG_NO, REV, SHEET, SIZE, MATERIAL, FINISH,
+SCALE, UNITS, DRAWN, CHECKED, APPROVED, DATE, TOLERANCE_1/2) is filled in
+automatically. **Create editable copy** adds the built-in title block as such a
+block to start from.
 `UNITS` sets the unit label and precision.
 
 ## Files

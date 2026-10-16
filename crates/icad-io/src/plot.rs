@@ -95,7 +95,7 @@ pub fn plot_items(doc: &Document, opts: &PlotOptions) -> Vec<PlotItem> {
         }
     }
     if opts.include_sheet && doc.sheet.visible {
-        for (p, w) in doc.sheet.prims() {
+        for (p, w) in doc.sheet_prims() {
             out.push(PlotItem { prim: to_paper(doc, &p), rgb: [0, 0, 0], dash: vec![], width: lw(w) });
         }
     }

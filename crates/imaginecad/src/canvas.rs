@@ -402,7 +402,7 @@ pub fn draw_sheet(painter: &Painter, view: &View, doc: &Document, layout: bool, 
     }
     let col = if layout { Color32::from_gray(25) } else { Color32::from_rgb(150, 160, 175) };
     let mut out = vec![];
-    for (p, w) in sh.prims() {
+    for (p, w) in doc.sheet_prims() {
         let st = Style { color: col, width: if lineweights { (w * 3.2).clamp(1.0, 4.0) as f32 } else { 1.0 }, dash: vec![] };
         match &p {
             Prim::Text(t) => draw_text(painter, view, t, col),

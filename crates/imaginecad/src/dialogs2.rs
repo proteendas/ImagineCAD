@@ -147,9 +147,21 @@ impl App {
                 ui.label(
                     RichText::new("Use Ø ° ± directly; for dimensions, <> inserts the measured value.").size(11.0).color(theme::TEXT_DIM),
                 );
-                if ui.button("OK").clicked() {
-                    ok = true;
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        ok = true;
+                    }
+                    ui.menu_button("Insert field ▾", |ui| {
+                        for (f, desc) in icad_core::fields::FIELDS {
+                            if ui.button(format!("{desc}   {f}")).clicked() {
+                                text.push_str(f);
+                                ui.close_menu();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Fields always show the current value (title, scale, date, object length…)");
+                });
             },
         );
         if ok {

@@ -16,7 +16,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "QDIM" => Box::new(QDimCmd::default()),
         "DIMREASSOCIATE" | "DRE" => Box::new(AssocCmd { on: true }),
         "DIMDISASSOCIATE" | "DDA" => Box::new(AssocCmd { on: false }),
-        _ => return None,
+        other => return crate::attributes::create(other),
     };
     Some(c)
 }

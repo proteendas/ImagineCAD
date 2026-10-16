@@ -66,3 +66,42 @@ fn dwg_save_and_reopen() {
     assert!(r.entities.iter().any(|e| e.shape == Shape::Weld(weld.clone())), "weld symbol survives DWG");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn dwg_keeps_block_attributes() {
+    if icad_io::dwg::find_converter().is_none() {
+        return;
+    }
+    let mut d = Document::new();
+    d.define_block(BlockDef {
+        name: "TAG".into(),
+        base: V2::ZERO,
+        entities: vec![Entity {
+            id: 0,
+            layer: "0".into(),
+            color: Default::default(),
+            linetype: Default::default(),
+            lineweight: None,
+            shape: Shape::AttDef(AttDef {
+                tag: "NO".into(),
+                prompt: "Number".into(),
+                default: "0".into(),
+                text: icad_core::Text::new(V2::ZERO, 3.5, ""),
+                invisible: false,
+            }),
+        }],
+        description: String::new(),
+    });
+    let mut ins = Insert::new("TAG", V2::new(10., 10.));
+    ins.set_value("NO", "42");
+    d.add(Shape::Insert(ins));
+    let dir = std::env::temp_dir().join(format!("icad-dwg-att-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("att.dwg");
+    icad_io::save(&d, &path, &Default::default()).unwrap();
+    let r = icad_io::open(&path).unwrap();
+    let ins = r.entities.iter().find_map(|e| if let Shape::Insert(i) = &e.shape { Some(i.clone()) } else { None }).expect("insert");
+    assert_eq!(ins.value_of("NO"), Some("42"));
+    assert_eq!(r.block("TAG").unwrap().attdefs().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

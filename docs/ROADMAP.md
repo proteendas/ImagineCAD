@@ -36,7 +36,7 @@ added).
 
 ## Next (0.3)
 
-- [ ] Block attributes (`ATTDEF`, `ATTEDIT`) and dynamic title blocks
+- [x] Block attributes (`ATTDEF`, `ATTEDIT`) and dynamic title blocks
 - [ ] Multileader styles, tables (`TABLE`), fields
 - [ ] Text styles with TrueType fonts; spell check
 - [x] Ordinate and arc-length dimensions, `QDIM`, dimension associativity

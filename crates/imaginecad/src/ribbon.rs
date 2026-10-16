@@ -332,6 +332,13 @@ const LAYER_MORE: &[Item] = &[
     (Icon::Erase, "Purge Unused", "PURGE"),
 ];
 const BLOCKS: &[Item] = &[(Icon::Insert, "Blocks Palette", "BLOCKS"), (Icon::Insert, "Insert by Name", "INSERT")];
+const BLOCK_MORE: &[Item] = &[
+    (Icon::Block, "Create Block", "BLOCK"),
+    (Icon::Text, "Define Attributes", "ATTDEF"),
+    (Icon::Properties, "Edit Attributes", "ATTEDIT"),
+    (Icon::List, "Export Attributes (CSV)", "ATTEXPORT"),
+    (Icon::Explode, "Explode", "EXPLODE"),
+];
 const MEASURES: &[Item] = &[
     (Icon::Measure, "Distance", "DIST"),
     (Icon::Area, "Area", "AREA"),
@@ -397,11 +404,11 @@ fn home(ui: &mut Ui, st: RibbonState, out: &mut Vec<String>) {
             });
         });
     });
-    panel(ui, "Block", &[], out, |ui, out| {
+    panel(ui, "Block", BLOCK_MORE, out, |ui, out| {
         big_split(ui, Icon::Insert, "Insert", "Blocks palette / INSERT (I)", "BLOCKS", BLOCKS, out);
         column(ui, |ui| {
             small(ui, Icon::Block, "Create", "BLOCK (B) — make a block from objects", "BLOCK", out);
-            small(ui, Icon::Explode, "Explode", "EXPLODE (X)", "EXPLODE", out);
+            small(ui, Icon::Properties, "Edit Attributes", "ATTEDIT — values of a block reference (or double-click it)", "ATTEDIT", out);
         });
     });
     panel(ui, "Properties", &[], out, |ui, out| {
@@ -437,6 +444,11 @@ fn insert(ui: &mut Ui, out: &mut Vec<String>) {
     panel(ui, "Block", &[], out, |ui, out| {
         big_split(ui, Icon::Insert, "Insert", "Blocks palette / INSERT (I)", "BLOCKS", BLOCKS, out);
         big(ui, Icon::Block, "Create", "BLOCK (B)", "BLOCK", out);
+        column(ui, |ui| {
+            small(ui, Icon::Text, "Define Attributes", "ATTDEF — tag, prompt and default value of a block attribute", "ATTDEF", out);
+            small(ui, Icon::Properties, "Edit Attributes", "ATTEDIT — values of a block reference (or double-click it)", "ATTEDIT", out);
+            small(ui, Icon::List, "Export Attributes", "ATTEXPORT — all block attributes to a CSV file (parts list)", "ATTEXPORT", out);
+        });
     });
     panel(ui, "Reference", &[], out, |ui, out| {
         big(ui, Icon::Image, "Attach\nImage", "IMAGEATTACH (IAT) — raster underlay", "IMAGEATTACH", out);

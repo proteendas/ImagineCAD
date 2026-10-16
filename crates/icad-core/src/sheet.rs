@@ -122,11 +122,23 @@ pub struct Sheet {
     pub origin: V2,
     pub visible: bool,
     pub title: TitleBlock,
+    /// Block drawn as the title block instead of the built-in one; its
+    /// attributes are filled from the title fields by tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_block: Option<String>,
 }
 
 impl Default for Sheet {
     fn default() -> Self {
-        Self { paper: PaperSize::A3, landscape: true, scale: 1.0, origin: V2::ZERO, visible: true, title: TitleBlock::default() }
+        Self {
+            paper: PaperSize::A3,
+            landscape: true,
+            scale: 1.0,
+            origin: V2::ZERO,
+            visible: true,
+            title: TitleBlock::default(),
+            title_block: None,
+        }
     }
 }
 
@@ -256,6 +268,11 @@ impl Sheet {
     /// Border, zones, title block and projection symbol as model-space primitives,
     /// each with a lineweight in mm.
     pub fn prims(&self) -> Vec<(Prim, f64)> {
+        self.prims_with(true)
+    }
+
+    /// Border and zones, plus the built-in title block when `builtin_title`.
+    pub fn prims_with(&self, builtin_title: bool) -> Vec<(Prim, f64)> {
         let mut out: Vec<(Prim, f64)> = Vec::new();
         let (w, h) = self.paper_mm();
         let s = self.scale;
@@ -295,10 +312,64 @@ impl Sheet {
             out.push((text(f.max.x + 5.0, yc, 2.5, &label, HAlign::Center, VAlign::Middle), 0.25));
         }
 
+        if builtin_title {
+            self.draw_title(&mut out, &|tag| self.field(tag).unwrap_or_default());
+        }
+        out
+    }
+
+    /// Title block field by tag (as used by title block attributes and text
+    /// fields): COMPANY, TITLE, DWG_NO, REV, SHEET, SIZE, MATERIAL, FINISH,
+    /// SCALE, UNITS, DRAWN, CHECKED, APPROVED, DATE, TOLERANCE, PROJECTION.
+    pub fn field(&self, tag: &str) -> Option<String> {
+        let tb = &self.title;
+        let key = tag.trim().to_ascii_uppercase().replace([' ', '-', '.'], "_");
+        Some(match key.as_str() {
+            "COMPANY" => tb.company.clone(),
+            "TITLE" => tb.title.clone(),
+            "DWG_NO" | "DWGNO" | "DRAWING_NO" | "DRAWING_NUMBER" | "NUMBER" => tb.drawing_no.clone(),
+            "REV" | "REVISION" => tb.revision.clone(),
+            "SHEET" | "SHEET_NO" => tb.sheet_no.clone(),
+            "SIZE" | "PAPER" => self.paper.name().to_string(),
+            "MATERIAL" => tb.material.clone(),
+            "FINISH" => tb.finish.clone(),
+            "SCALE" => self.scale_label(),
+            "UNITS" => tb.units.clone(),
+            "DRAWN" | "DRAWN_BY" | "DRAWNBY" => tb.drawn_by.clone(),
+            "CHECKED" | "CHECKED_BY" => tb.checked_by.clone(),
+            "APPROVED" | "APPROVED_BY" => tb.approved_by.clone(),
+            "DATE" => tb.date.clone(),
+            "TOLERANCE" | "TOLERANCES" | "GENERAL_TOLERANCES" => tb.tolerance.clone(),
+            // The tolerance note as laid out on two lines in the title block.
+            "TOLERANCE_1" | "TOLERANCE_2" => {
+                let lines = split_two(&tb.tolerance);
+                lines.get(if key.ends_with('1') { 0 } else { 1 }).cloned().unwrap_or_default()
+            }
+            "PROJECTION" => match tb.projection {
+                Projection::FirstAngle => "First angle".into(),
+                Projection::ThirdAngle => "Third angle".into(),
+            },
+            _ => return None,
+        })
+    }
+
+    /// Model position of the frame's bottom-right corner (title block anchor).
+    pub fn title_anchor(&self) -> V2 {
+        let f = self.frame_mm();
+        self.p2m(f.max.x, f.min.y)
+    }
+
+    /// The built-in title block with each value from `value(tag)`.
+    fn draw_title(&self, out: &mut Vec<(Prim, f64)>, value: &dyn Fn(&str) -> String) {
+        let s = self.scale;
+        let p = |x: f64, y: f64| self.p2m(x, y);
+        let rect = |x0: f64, y0: f64, x1: f64, y1: f64| Prim::Poly(vec![p(x0, y0), p(x1, y0), p(x1, y1), p(x0, y1)], true);
+        let line = |x0: f64, y0: f64, x1: f64, y1: f64| Prim::Line(p(x0, y0), p(x1, y1));
+        let text = |x: f64, y: f64, ht: f64, t: &str, ha: HAlign, va: VAlign| Prim::Text(Text::new(p(x, y), ht * s, t).aligned(ha, va));
+        let f = self.frame_mm();
         // Title block anchored at the frame's bottom-right corner.
         let x0 = f.max.x - TB_W;
         let y0 = f.min.y;
-        let tb = &self.title;
         out.push((rect(x0, y0, f.max.x, y0 + TB_H), 0.7));
         for r in 1..5 {
             let y = y0 + 12.0 * r as f64;
@@ -317,33 +388,74 @@ impl Sheet {
         };
         let c = |dx: f64| x0 + dx;
         // Row 0: drawing number, revision, sheet, size.
-        cell(&mut out, c(0.0), 0, "DWG NO.", &tb.drawing_no, 4.0);
-        cell(&mut out, c(95.0), 0, "REV", &tb.revision, 4.0);
-        cell(&mut out, c(115.0), 0, "SHEET", &tb.sheet_no, 3.0);
-        cell(&mut out, c(145.0), 0, "SIZE", self.paper.name(), 3.5);
+        cell(out, c(0.0), 0, "DWG NO.", &value("DWG_NO"), 4.0);
+        cell(out, c(95.0), 0, "REV", &value("REV"), 4.0);
+        cell(out, c(115.0), 0, "SHEET", &value("SHEET"), 3.0);
+        cell(out, c(145.0), 0, "SIZE", &value("SIZE"), 3.5);
         // Row 1: material, finish, scale, units.
-        cell(&mut out, c(0.0), 1, "MATERIAL", &tb.material, 3.0);
-        cell(&mut out, c(70.0), 1, "FINISH", &tb.finish, 3.0);
-        cell(&mut out, c(115.0), 1, "SCALE", &self.scale_label(), 3.5);
-        cell(&mut out, c(145.0), 1, "UNITS", &tb.units, 3.5);
+        cell(out, c(0.0), 1, "MATERIAL", &value("MATERIAL"), 3.0);
+        cell(out, c(70.0), 1, "FINISH", &value("FINISH"), 3.0);
+        cell(out, c(115.0), 1, "SCALE", &value("SCALE"), 3.5);
+        cell(out, c(145.0), 1, "UNITS", &value("UNITS"), 3.5);
         // Row 2: people, date and projection.
-        cell(&mut out, c(0.0), 2, "DRAWN", &tb.drawn_by, 2.5);
-        cell(&mut out, c(40.0), 2, "CHECKED", &tb.checked_by, 2.5);
-        cell(&mut out, c(80.0), 2, "APPROVED", &tb.approved_by, 2.5);
-        cell(&mut out, c(115.0), 2, "DATE", &tb.date, 2.5);
-        cell(&mut out, c(145.0), 2, "PROJECTION", "", 2.5);
-        self.projection_symbol(&mut out, c(150.0), y0 + 24.0 + 1.2, tb.projection);
+        cell(out, c(0.0), 2, "DRAWN", &value("DRAWN"), 2.5);
+        cell(out, c(40.0), 2, "CHECKED", &value("CHECKED"), 2.5);
+        cell(out, c(80.0), 2, "APPROVED", &value("APPROVED"), 2.5);
+        cell(out, c(115.0), 2, "DATE", &value("DATE"), 2.5);
+        cell(out, c(145.0), 2, "PROJECTION", "", 2.5);
+        self.projection_symbol(out, c(150.0), y0 + 24.0 + 1.2, self.title.projection);
         // Row 3: title.
-        cell(&mut out, c(0.0), 3, "TITLE", "", 2.5);
-        out.push((text(c(90.0), y0 + 36.0 + 4.5, 5.0, &tb.title, HAlign::Center, VAlign::Middle), 0.35));
+        cell(out, c(0.0), 3, "TITLE", "", 2.5);
+        out.push((text(c(90.0), y0 + 36.0 + 4.5, 5.0, &value("TITLE"), HAlign::Center, VAlign::Middle), 0.35));
         // Row 4: company and general tolerance.
         out.push((line(c(125.0), y0 + 48.0, c(125.0), y0 + 60.0), 0.35));
-        out.push((text(c(62.5), y0 + 54.0, 6.0, &tb.company, HAlign::Center, VAlign::Middle), 0.5));
+        out.push((text(c(62.5), y0 + 54.0, 6.0, &value("COMPANY"), HAlign::Center, VAlign::Middle), 0.5));
         out.push((text(c(126.2), y0 + 60.0 - 1.2, 1.8, "GENERAL TOLERANCES", HAlign::Left, VAlign::Top), 0.18));
-        for (i, part) in split_two(&tb.tolerance).iter().enumerate() {
-            out.push((text(c(126.5), y0 + 54.4 - i as f64 * 3.3, 2.2, part, HAlign::Left, VAlign::Middle), 0.18));
+        for (i, tag) in ["TOLERANCE_1", "TOLERANCE_2"].into_iter().enumerate() {
+            let v = value(tag);
+            if !v.is_empty() {
+                out.push((text(c(126.5), y0 + 54.4 - i as f64 * 3.3, 2.2, &v, HAlign::Left, VAlign::Middle), 0.18));
+            }
         }
-        out
+    }
+
+    /// The built-in title block as block contents in paper millimetres, base
+    /// point at its bottom-right corner, with an attribute definition for each
+    /// value (tags as in `field`). The starting point for a custom title block.
+    pub fn title_block_template(&self) -> Vec<(crate::entity::Shape, f64)> {
+        use crate::entity::{AttDef, Shape};
+        let mut unit = self.clone();
+        unit.scale = 1.0;
+        let f = unit.frame_mm();
+        unit.origin = V2::new(-f.max.x, -f.min.y);
+        let mut prims = vec![];
+        unit.draw_title(&mut prims, &|tag| format!("%{tag}%"));
+        prims
+            .into_iter()
+            .filter_map(|(p, lw)| {
+                let s = match p {
+                    Prim::Line(a, b) => Shape::Line { a, b },
+                    Prim::Poly(pts, closed) => Shape::Polyline { pts, closed },
+                    Prim::Circle(c, r) => Shape::Circle { c, r },
+                    Prim::Arc { c, r, start, end } => Shape::Arc { c, r, start, end },
+                    Prim::Text(t) => match t.content.strip_prefix('%').and_then(|x| x.strip_suffix('%')) {
+                        Some(tag) => {
+                            let prompt = tag.replace('_', " ").to_lowercase();
+                            Shape::AttDef(AttDef {
+                                tag: tag.to_string(),
+                                prompt: prompt[..1].to_uppercase() + &prompt[1..],
+                                default: self.field(tag).unwrap_or_default(),
+                                text: Text { content: String::new(), ..t },
+                                invisible: false,
+                            })
+                        }
+                        None => Shape::Text(t),
+                    },
+                    Prim::Fill(_) | Prim::Image(_) => return None,
+                };
+                Some((s, lw))
+            })
+            .collect()
     }
 
     fn projection_symbol(&self, out: &mut Vec<(Prim, f64)>, x: f64, y: f64, proj: Projection) {
