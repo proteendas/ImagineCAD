@@ -76,6 +76,7 @@ pub fn tr1(template: &str, arg: &str) -> String {
 
 /// The system's language, if it is one of ours.
 pub fn system_language() -> Option<&'static str> {
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut candidates: Vec<String> = ["LC_ALL", "LC_MESSAGES", "LANG"].iter().filter_map(|k| std::env::var(k).ok()).collect();
     #[cfg(target_os = "macos")]
     if let Ok(out) = std::process::Command::new("defaults").args(["read", "-g", "AppleLanguages"]).output() {
