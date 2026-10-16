@@ -16,4 +16,4 @@ pub mod refine;
 pub mod solve;
 pub mod trace;
 
-pub use pipeline::{apply, convert, Conversion, ConvertOptions};
+pub use pipeline::{apply, convert, overlay, Conversion, ConvertOptions};

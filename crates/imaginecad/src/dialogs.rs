@@ -811,6 +811,13 @@ impl App {
                             for w in &c.warnings {
                                 ui.label(RichText::new(format!("⚠ {w}")).size(11.5).color(theme::WARN));
                             }
+                            if c.underlay.is_some() {
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut d.opts.overlay_sketch, "Overlay the sketch to review the result")
+                                        .on_hover_text("The photo goes under the drawing on layer AI-SKETCH-IMAGE (not plotted); turn the layer off or change Fade in Properties when done");
+                                    ui.add_enabled(d.opts.overlay_sketch, egui::Slider::new(&mut d.opts.overlay_fade, 0..=90).text("fade %"));
+                                });
+                            }
                             ui.horizontal(|ui| {
                                 if ui.button("Open as new drawing").clicked() {
                                     action = Some("new");
@@ -853,6 +860,14 @@ impl App {
                     t.checkpoint();
                     icad_vision::apply(&conv, &mut t.doc);
                     self.view_req = Some(ViewReq::Extents);
+                }
+                if d.opts.overlay_sketch {
+                    if let Some(p) = &d.path {
+                        let (fade, doc) = (d.opts.overlay_fade, &mut self.tabs[self.active].doc);
+                        if icad_vision::overlay(&conv, doc, &p.display().to_string(), fade) {
+                            self.log.push("The sketch is overlaid on layer AI-SKETCH-IMAGE for review (not plotted).".into());
+                        }
+                    }
                 }
                 self.log.push(format!("Image to CAD: inserted {} objects ({} dimensions applied).", conv.shapes.len(), conv.dims_applied));
                 // Remember conversion preferences.

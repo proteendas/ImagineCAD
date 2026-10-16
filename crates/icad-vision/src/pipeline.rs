@@ -32,7 +32,17 @@ pub struct ConvertOptions {
     /// Let the AI describe the whole part (shaft / plate) and build it exactly.
     #[serde(default = "yes")]
     pub reconstruct_parts: bool,
+    /// Put the sketch under the result (faded, not plotted) to review it.
+    #[serde(default = "yes")]
+    pub overlay_sketch: bool,
+    /// Fade of that overlay, 0 = opaque … 90.
+    #[serde(default = "overlay_fade")]
+    pub overlay_fade: u8,
     pub ai: AiSettings,
+}
+
+fn overlay_fade() -> u8 {
+    60
 }
 
 impl Default for ConvertOptions {
@@ -44,6 +54,8 @@ impl Default for ConvertOptions {
             fallback_size_mm: 100.0,
             center_marks: true,
             reconstruct_parts: true,
+            overlay_sketch: true,
+            overlay_fade: overlay_fade(),
             ai: AiSettings::default(),
         }
     }
@@ -65,6 +77,10 @@ pub struct Conversion {
     pub reconstructed: Option<String>,
     /// The reconstructed part, kept with the drawing so it can be regenerated.
     pub part: Option<crate::parts::PartSpec>,
+    /// Where the whole sketch image lies in the result (corner, size in mm),
+    /// for a review overlay. Approximate: the sketch is not to scale, the
+    /// result is.
+    pub underlay: Option<(V2, V2)>,
 }
 
 fn yes() -> bool {
@@ -123,6 +139,7 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
                             switched_model: r.switched_model,
                             reconstructed: Some(desc),
                             part: Some(spec),
+                            underlay: None,
                         });
                     }
                 }
@@ -305,6 +322,10 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         snap_deg: opts.snap_deg,
     };
     beautify::run(&mut geometry, &t);
+    let snapped = align_views(&mut geometry, tol);
+    if snapped > 0 {
+        log.push(format!("Lined up {snapped} edge(s) between projected views"));
+    }
     log.push(format!(
         "{} geometry primitives after clean-up; {} annotation strokes hidden; {} strokes flagged for review",
         geometry.len(),
@@ -378,6 +399,8 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         warnings.push(format!("Dimension \"{}\" contradicts the sketch and was not enforced", labels[*l].text));
     }
     let map = |p: V2| V2::new(rx.mapper.map(p.x), ry.mapper.map(p.y));
+    let underlay_at = map(V2::ZERO);
+    let underlay_size = map(V2::new(gray.w as f64, gray.h as f64)) - underlay_at;
 
     // ---- Build CAD entities.
     let mut shapes: Vec<(String, Shape)> = vec![];
@@ -626,7 +649,113 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         switched_model: None,
         reconstructed: None,
         part: None,
+        underlay: Some((underlay_at, underlay_size)),
     })
+}
+
+/// Separate views of a multi-view sketch: geometry clusters whose boxes touch.
+fn views(geometry: &[Geo], tol: f64) -> Vec<(Vec<usize>, BBox)> {
+    let boxes: Vec<BBox> = geometry.iter().map(|g| g.bbox().expand(tol)).collect();
+    let mut parent: Vec<usize> = (0..geometry.len()).collect();
+    fn root(p: &mut [usize], mut i: usize) -> usize {
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    for i in 0..boxes.len() {
+        for j in i + 1..boxes.len() {
+            let (a, b) = (&boxes[i], &boxes[j]);
+            if a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y {
+                let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
+                parent[ri] = rj;
+            }
+        }
+    }
+    let mut out: Vec<(usize, Vec<usize>, BBox)> = vec![];
+    for i in 0..geometry.len() {
+        let r = root(&mut parent, i);
+        match out.iter_mut().find(|v| v.0 == r) {
+            Some(v) => {
+                v.1.push(i);
+                v.2 = v.2.union(&geometry[i].bbox());
+            }
+            None => out.push((r, vec![i], geometry[i].bbox())),
+        }
+    }
+    out.into_iter().map(|v| (v.1, v.2)).collect()
+}
+
+/// Projected views (front above top, side beside front) share their edges:
+/// snap each view's vertical edges and centres to the matching ones of the
+/// view above/below it (horizontal ones for views side by side), so the
+/// hand-drawn misalignment does not survive into the CAD drawing.
+/// Returns the number of coordinates moved.
+fn align_views(geometry: &mut [Geo], tol: f64) -> usize {
+    let vs = views(geometry, tol);
+    let mut moved = 0;
+    for axis_x in [true, false] {
+        // Stations of a view along the axis: line ends square to it and centres.
+        let stations = |g: &[Geo], ids: &[usize]| -> Vec<f64> {
+            let mut s: Vec<f64> = vec![];
+            for &i in ids {
+                match g[i] {
+                    Geo::Line(a, b) if (axis_x && (a.x - b.x).abs() < 1e-9) || (!axis_x && (a.y - b.y).abs() < 1e-9) => {
+                        s.push(if axis_x { a.x } else { a.y })
+                    }
+                    Geo::Circle(c, _) | Geo::Arc { c, .. } => s.push(if axis_x { c.x } else { c.y }),
+                    _ => {}
+                }
+            }
+            s
+        };
+        for a in 0..vs.len() {
+            for b in 0..vs.len() {
+                let (ba, bb) = (&vs[a].1, &vs[b].1);
+                // `a` is the reference: the bigger view of a stacked pair.
+                if a == b || ba.width() * ba.height() < bb.width() * bb.height() {
+                    continue;
+                }
+                let (lo, hi, len_a, len_b, apart) = if axis_x {
+                    (ba.min.x.max(bb.min.x), ba.max.x.min(bb.max.x), ba.width(), bb.width(), ba.max.y < bb.min.y || bb.max.y < ba.min.y)
+                } else {
+                    (ba.min.y.max(bb.min.y), ba.max.y.min(bb.max.y), ba.height(), bb.height(), ba.max.x < bb.min.x || bb.max.x < ba.min.x)
+                };
+                if !apart || hi - lo < 0.5 * len_a.min(len_b) {
+                    continue;
+                }
+                let snap = (2.0 * tol).max(0.03 * len_a.max(len_b));
+                let ref_st = stations(geometry, &vs[a].0);
+                let mut own = stations(geometry, &vs[b].0);
+                own.sort_by(f64::total_cmp);
+                own.dedup_by(|p, q| (*p - *q).abs() < 1e-9);
+                for v in own {
+                    let Some(&t) = ref_st.iter().min_by(|p, q| (*p - v).abs().total_cmp(&(*q - v).abs())) else { continue };
+                    if (t - v).abs() < 1e-9 || (t - v).abs() > snap {
+                        continue;
+                    }
+                    let set = |p: &mut V2| {
+                        let c = if axis_x { &mut p.x } else { &mut p.y };
+                        if (*c - v).abs() < 1e-9 {
+                            *c = t;
+                        }
+                    };
+                    for &i in &vs[b].0 {
+                        match &mut geometry[i] {
+                            Geo::Line(p, q) => {
+                                set(p);
+                                set(q);
+                            }
+                            Geo::Circle(c, _) | Geo::Arc { c, .. } => set(c),
+                        }
+                    }
+                    moved += 1;
+                }
+            }
+        }
+    }
+    moved
 }
 
 pub(crate) struct Outline<'a> {
@@ -915,6 +1044,27 @@ fn enclosed_holes(mask: &raster::Mask, comp_labels: &[u32], ncomp: usize, min_ar
     holes
 }
 
+/// Put the sketch image `path` under a conversion inserted with [`apply`],
+/// on its own layer (not plotted), faded by `fade` (0–90).
+pub fn overlay(conv: &Conversion, doc: &mut Document, path: &str, fade: u8) -> bool {
+    let Some((pos, size)) = conv.underlay else { return false };
+    if size.x <= 0.0 || size.y <= 0.0 {
+        return false;
+    }
+    let mut l = Layer::new(layers::AI_IMAGE, 8, LineType::Continuous, 0.13);
+    l.plot = false;
+    doc.ensure_layer(l);
+    doc.add_on(
+        layers::AI_IMAGE,
+        Shape::Image(icad_core::prim::ImageRef { path: path.into(), pos, w: size.x, h: size.y, fade: fade.min(90) }),
+    );
+    // Drawn first, under the geometry.
+    if let Some(e) = doc.entities.pop() {
+        doc.entities.insert(0, e);
+    }
+    true
+}
+
 /// Insert a conversion into a document: creates the AI layers, adds the
 /// entities, fills the title, and fits the sheet/title block around them.
 pub fn apply(conv: &Conversion, doc: &mut Document) {
@@ -1046,6 +1196,15 @@ mod tests {
         assert_eq!(conv.dims_applied, 3, "{:?} {measured:?}", conv.log);
         // The sketched dimension lines are not part of the outline.
         assert!(conv.shapes.iter().any(|(l, _)| l == layers::AI_SKETCH));
+        // Review overlay: the whole image under the result, drawn first, not plotted.
+        let mut doc = Document::new();
+        apply(&conv, &mut doc);
+        assert!(overlay(&conv, &mut doc, "sketch.png", 60));
+        let Shape::Image(img) = &doc.entities[0].shape else { panic!("overlay is not drawn first") };
+        // 1200 px wide image, 800 px of it the 200 mm part; the margins use the median scale.
+        assert!((280.0..340.0).contains(&img.w) && img.fade == 60, "{img:?}");
+        assert!(img.pos.x < bb.min.x && img.pos.x + img.w > bb.max.x && img.pos.y < bb.min.y && img.pos.y + img.h > bb.max.y);
+        assert!(!doc.layer(layers::AI_IMAGE).unwrap().plot);
     }
 
     #[test]
@@ -1117,5 +1276,56 @@ mod tests {
             .filter_map(|(_, s)| if let Shape::Dim(d) = s { Some(format!("{:?} {:.3}", d.kind, d.measurement())) } else { None })
             .collect();
         assert_eq!(conv.dims_applied, 5, "{kinds:?} {ctx}");
+    }
+
+    #[test]
+    fn stacked_views_stay_aligned() {
+        let (w, h) = (1200usize, 900usize);
+        let mut g = Gray { w, h, px: vec![245; w * h] };
+        let rect = |g: &mut Gray, x0: f64, y0: f64, x1: f64, y1: f64| {
+            stroke(g, (x0, y0), (x1, y0), 5.0, 1.0);
+            stroke(g, (x1, y0), (x1, y1), 5.0, 1.0);
+            stroke(g, (x1, y1), (x0, y1), 5.0, 1.0);
+            stroke(g, (x0, y1), (x0, y0), 5.0, 1.0);
+        };
+        // Front view above, top view below; hand-drawn a little out of line.
+        rect(&mut g, 150., 100., 950., 300.);
+        rect(&mut g, 166., 420., 934., 720.);
+        // Width on the front view only.
+        stroke(&mut g, (150., 85.), (150., 30.), 3.0, 0.0);
+        stroke(&mut g, (950., 85.), (950., 30.), 3.0, 0.0);
+        stroke(&mut g, (150., 45.), (950., 45.), 3.0, 0.0);
+        // Heights on the right of each view.
+        for (y0, y1) in [(100., 300.), (420., 720.)] {
+            stroke(&mut g, (965., y0), (1040., y0), 3.0, 0.0);
+            stroke(&mut g, (965., y1), (1040., y1), 3.0, 0.0);
+            stroke(&mut g, (1025., y0), (1025., y1), 3.0, 0.0);
+        }
+        let hh = h as f64;
+        let labels = vec![
+            label("200", 520., 5., 580., 35., hh),
+            label("60", 1032., 185., 1070., 215., hh),
+            label("90", 1032., 555., 1070., 585., hh),
+        ];
+        let opts = ConvertOptions {
+            ai: AiSettings { provider: Provider::Disabled, use_tesseract: false, ..Default::default() },
+            ..Default::default()
+        };
+        let conv = convert_gray(&g, labels, &opts, &mut |_, _| {}).unwrap();
+        let ctx = format!("log: {:?}\nwarn: {:?}", conv.log, conv.warnings);
+        let verticals: Vec<f64> = conv
+            .shapes
+            .iter()
+            .filter(|(l, _)| l == layers::OUTLINE)
+            .filter_map(|(_, s)| if let Shape::Line { a, b } = s { ((a.x - b.x).abs() < 1e-9).then_some(a.x) } else { None })
+            .collect();
+        assert_eq!(verticals.len(), 4, "{verticals:?} {ctx}");
+        let mut xs = verticals.clone();
+        xs.sort_by(f64::total_cmp);
+        // Both views: the same two edges, 200 apart.
+        assert!((xs[1] - xs[0]).abs() < 1e-6 && (xs[3] - xs[2]).abs() < 1e-6, "{xs:?} {ctx}");
+        assert!((xs[2] - xs[0] - 200.0).abs() < 1e-6, "{xs:?} {ctx}");
+        assert_eq!(conv.dims_applied, 3, "{ctx}");
+        assert!(conv.log.iter().any(|l| l.starts_with("Lined up")), "{ctx}");
     }
 }
