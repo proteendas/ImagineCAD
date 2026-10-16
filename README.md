@@ -10,6 +10,29 @@
   Built in Rust · macOS · Windows · Linux · GPL-3.0 open source, commercial licenses available
 </p>
 
+<p align="center">
+  <img alt="Status: early alpha" src="https://img.shields.io/badge/status-early%20alpha-orange">
+  <img alt="Version 0.2" src="https://img.shields.io/badge/version-0.2-blue">
+  <img alt="License: GPL-3.0 or commercial" src="https://img.shields.io/badge/license-GPL--3.0%20%7C%20commercial-green">
+  <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-B7410E?logo=rust">
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey">
+  <br>
+  <img alt="2D CAD" src="https://img.shields.io/badge/2D-CAD-informational">
+  <img alt="DWG and DXF" src="https://img.shields.io/badge/files-DWG%20%7C%20DXF%20%7C%20PDF%20%7C%20SVG-informational">
+  <img alt="Mechanical drafting" src="https://img.shields.io/badge/mechanical-drafting-informational">
+  <img alt="GD&T" src="https://img.shields.io/badge/GD%26T-ISO%201101-informational">
+  <img alt="AI sketch to CAD" src="https://img.shields.io/badge/AI-sketch%20to%20CAD-blueviolet">
+  <img alt="AI chat editing" src="https://img.shields.io/badge/AI-chat%20editing-blueviolet">
+  <img alt="Any AI provider or local models" src="https://img.shields.io/badge/AI-any%20provider%20%7C%20Ollama-blueviolet">
+</p>
+
+> [!WARNING]
+> **Early alpha access.** ImagineCAD is still under active development. Features,
+> commands, file formats and the user interface may change between releases, and
+> you may run into bugs or missing pieces. Keep backups of important drawings
+> (DWG/DXF exports are a good safety net), and please report problems or ideas
+> through the repository's issues.
+
 ---
 
 ![ImagineCAD main window](docs/images/main.png)
