@@ -139,6 +139,11 @@ pub fn signed_area(pts: &[V2]) -> f64 {
     (0..n).map(|i| pts[i].cross(pts[(i + 1) % n])).sum::<f64>() / 2.0
 }
 
+/// Whether `p` lies in the region (even–odd over all loops).
+pub fn region_contains(loops: &[Vec<V2>], p: V2) -> bool {
+    loops.iter().filter(|l| point_in(p, l)).count() % 2 == 1
+}
+
 fn point_in(p: V2, pts: &[V2]) -> bool {
     crate::prim::point_in_poly(p, pts)
 }

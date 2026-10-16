@@ -303,6 +303,27 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
     let tol = (2.5 * stroke).max(0.008 * diag) * k;
     let mut all: Vec<Geo> = geos.iter().map(|g| g.0).collect();
     beautify::snap_angles(&mut all, opts.snap_deg);
+    // Drafting conventions: dashed hidden and centre lines, section hatching.
+    let dashed = crate::marks::find_dashed(&all, tol, diag);
+    let mut gone = vec![false; all.len()];
+    for d in &dashed {
+        d.members.iter().for_each(|m| gone[*m] = true);
+    }
+    let hatching = crate::marks::find_hatching(&all, &gone, tol, diag);
+    for h in &hatching {
+        h.members.iter().for_each(|m| gone[*m] = true);
+    }
+    if !dashed.is_empty() || !hatching.is_empty() {
+        log.push(format!(
+            "Recognised {} hidden line(s), {} centre line(s) and {} hatched area(s)",
+            dashed.iter().filter(|d| !d.center).count(),
+            dashed.iter().filter(|d| d.center).count(),
+            hatching.len()
+        ));
+        let keep: Vec<usize> = (0..all.len()).filter(|i| !gone[*i]).collect();
+        geos = keep.iter().map(|i| geos[*i]).collect();
+        all = keep.iter().map(|i| all[*i]).collect();
+    }
     let part_flags: Vec<bool> = geos.iter().map(|g| part_comp[g.1 as usize]).collect();
 
     progress(0.8, "Matching dimension values to features");
@@ -496,6 +517,37 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
             (&geometry[*gi], &shapes[k].1)
         {
             circles_mm.push((*pc, *pr, *c, *r));
+        }
+    }
+    // Hidden and centre lines, and hatching filling its region of the outline.
+    for d in &dashed {
+        let layer = if d.center { layers::CENTER } else { layers::HIDDEN };
+        shapes.push((layer.into(), Shape::Line { a: moves.apply(map(d.a)), b: moves.apply(map(d.b)) }));
+    }
+    if !hatching.is_empty() {
+        let segs = outline_segments(&shapes[..geo_of.len()]);
+        for h in &hatching {
+            // Every region the strokes cover (a section is often in two halves).
+            let mut regions: Vec<Vec<Vec<V2>>> = vec![];
+            for p in &h.points {
+                let q = moves.apply(map(*p));
+                if regions.iter().any(|loops| icad_core::hatch::region_contains(loops, q)) {
+                    continue;
+                }
+                if let Some(loops) = icad_core::hatch::find_boundary(&segs, q) {
+                    regions.push(loops);
+                }
+            }
+            if regions.is_empty() {
+                warnings.push("A hatched area is not closed by the outline; its hatching was left out.".into());
+            }
+            let angle = norm_angle(h.angle - std::f64::consts::FRAC_PI_4);
+            for loops in regions {
+                shapes.push((
+                    layers::HATCH.into(),
+                    Shape::Hatch(icad_core::entity::Hatch { loops, pattern: "ANSI31".into(), scale: 1.0, angle }),
+                ));
+            }
         }
     }
     let mut mbox = BBox::empty();
@@ -1067,6 +1119,38 @@ fn enclosed_holes(mask: &raster::Mask, comp_labels: &[u32], ncomp: usize, min_ar
     holes
 }
 
+/// Straight segments of outline shapes (curves flattened), for boundaries.
+fn outline_segments(shapes: &[(String, Shape)]) -> Vec<(V2, V2)> {
+    let mut out = vec![];
+    for (_, s) in shapes {
+        match s {
+            Shape::Line { a, b } => out.push((*a, *b)),
+            Shape::Polyline { pts, closed } => {
+                out.extend(pts.windows(2).map(|w| (w[0], w[1])));
+                if *closed && pts.len() > 2 {
+                    out.push((pts[pts.len() - 1], pts[0]));
+                }
+            }
+            Shape::Circle { c, r } => {
+                let n = 64;
+                let tau = std::f64::consts::TAU;
+                out.extend(
+                    (0..n).map(|i| (*c + V2::polar(*r, tau * i as f64 / n as f64), *c + V2::polar(*r, tau * (i + 1) as f64 / n as f64))),
+                );
+            }
+            Shape::Arc { c, r, start, end } => {
+                let sw = arc_sweep(*start, *end);
+                let n = ((sw / 0.1).ceil() as usize).max(2);
+                out.extend((0..n).map(|i| {
+                    (*c + V2::polar(*r, start + sw * i as f64 / n as f64), *c + V2::polar(*r, start + sw * (i + 1) as f64 / n as f64))
+                }));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 fn ids_of_dims(doc: &Document) -> Vec<u64> {
     doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_))).map(|e| e.id).collect()
 }
@@ -1366,5 +1450,56 @@ mod tests {
         assert!((xs[2] - xs[0] - 200.0).abs() < 1e-6, "{xs:?} {ctx}");
         assert_eq!(conv.dims_applied, 3, "{ctx}");
         assert!(conv.log.iter().any(|l| l.starts_with("Lined up")), "{ctx}");
+    }
+
+    #[test]
+    fn hatching_and_hidden_lines_are_recognised() {
+        let (w, h) = (1200usize, 800usize);
+        let mut g = Gray { w, h, px: vec![245; w * h] };
+        // Part 800 × 400 px, divided at x = 500; the left part hatched.
+        stroke(&mut g, (100., 150.), (900., 150.), 5.0, 1.0);
+        stroke(&mut g, (900., 150.), (900., 550.), 5.0, 1.0);
+        stroke(&mut g, (900., 550.), (100., 550.), 5.0, 1.0);
+        stroke(&mut g, (100., 550.), (100., 150.), 5.0, 1.0);
+        stroke(&mut g, (500., 150.), (500., 550.), 5.0, 1.0);
+        for i in 1..16 {
+            // 45° strokes from edge to edge of the left area, 50 px apart along x.
+            let o = i as f64 * 50.0;
+            let (mut a, mut b) = ((100.0 + o, 550.0), (100.0, 550.0 - o));
+            if a.0 > 500.0 {
+                a = (500.0, 550.0 - (a.0 - 500.0));
+            }
+            if b.1 < 150.0 {
+                b = (100.0 + (150.0 - b.1), 150.0);
+            }
+            if a.1 > b.1 + 20.0 {
+                stroke(&mut g, (a.0 - 6.0, a.1 - 6.0), (b.0 + 6.0, b.1 + 6.0), 3.0, 0.0);
+            }
+        }
+        // Hidden line across the right area: dashes.
+        let mut x = 520.0;
+        while x < 870.0 {
+            stroke(&mut g, (x, 350.), (x + 22.0, 350.), 3.0, 0.0);
+            x += 36.0;
+        }
+        let opts = ConvertOptions {
+            ai: AiSettings { provider: Provider::Disabled, use_tesseract: false, ..Default::default() },
+            ..Default::default()
+        };
+        let conv = convert_gray(&g, vec![], &opts, &mut |_, _| {}).unwrap();
+        let ctx = format!("log: {:?}\nwarn: {:?}", conv.log, conv.warnings);
+        let hatches = conv.shapes.iter().filter(|(l, s)| l == layers::HATCH && matches!(s, Shape::Hatch(_))).count();
+        let hidden = conv.shapes.iter().filter(|(l, s)| l == layers::HIDDEN && matches!(s, Shape::Line { .. })).count();
+        assert_eq!((hatches, hidden), (1, 1), "{ctx}");
+        // The hatch fills the left area only, and its strokes are not outline.
+        let Some(Shape::Hatch(hh)) = conv.shapes.iter().map(|x| &x.1).find(|s| matches!(s, Shape::Hatch(_))) else { unreachable!() };
+        let hb = BBox::of(hh.loops.iter().flatten().copied());
+        let outline = conv.shapes.iter().filter(|(l, _)| l == layers::OUTLINE).count();
+        assert!(outline <= 7, "hatch strokes left in the outline: {outline} {ctx}");
+        let all = BBox::of(conv.shapes.iter().filter(|(l, _)| l == layers::OUTLINE).flat_map(|(_, s)| match s {
+            Shape::Line { a, b } => vec![*a, *b],
+            _ => vec![],
+        }));
+        assert!(hb.width() < all.width() * 0.6 && hb.width() > all.width() * 0.4, "{hb:?} {all:?}");
     }
 }
