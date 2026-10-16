@@ -172,6 +172,29 @@ fn arc_ok(sub: &[V2], p: &FitParams) -> Option<Geo> {
     if sag < p.eps * 0.9 {
         return None;
     }
+    // No sharp corner inside (an obtuse polyline corner also fits a big circle).
+    let w = ((3.0 * p.stroke).ceil() as usize).max(3);
+    if sub.len() > 2 * w {
+        for k in w..sub.len() - w {
+            let (din, dout) = (sub[k] - sub[k - w], sub[k + w] - sub[k]);
+            let turn = din.cross(dout).atan2(din.dot(dout)).abs();
+            let expect = (din.len() + dout.len()) / (2.0 * r);
+            if turn > expect + 20f64.to_radians() {
+                return None;
+            }
+        }
+    }
+    // Evenly curved: a straight run joined to a tangent fillet also fits a
+    // big circle, but turns unevenly along its length.
+    if sub.len() >= 12 && travel.abs() < 300f64.to_radians() {
+        let n = sub.len() - 1;
+        let chord = |i: usize, j: usize| (sub[j] - sub[i]).angle();
+        let (t1, t2, t3) = (chord(0, n / 3), chord(n / 3, 2 * n / 3), chord(2 * n / 3, n));
+        let (a, b) = (norm_angle(t2 - t1 + PI) - PI, norm_angle(t3 - t2 + PI) - PI);
+        if (a - b).abs() > 0.4 * a.abs().max(b.abs()) + 6f64.to_radians() {
+            return None;
+        }
+    }
     if travel.abs() > 300f64.to_radians() {
         return Some(Geo::Circle(c, r));
     }
@@ -261,5 +284,14 @@ mod tests {
         }
         let g = fit_path(&pts, false, &FitParams { eps: 3.0, stroke: 3.0, diag: 1000.0 });
         assert_eq!(g.len(), 2);
+    }
+
+    #[test]
+    fn obtuse_corner_is_not_an_arc() {
+        // 600 px along, then a 37° turn: a big circle fits within tolerance.
+        let mut pts: Vec<V2> = (0..=600).map(|i| V2::new(i as f64, 0.0)).collect();
+        pts.extend((1..=250).map(|i| V2::new(600.0 + 0.8 * i as f64, 0.6 * i as f64)));
+        let g = fit_path(&pts, false, &FitParams { eps: 6.0, stroke: 4.0, diag: 1400.0 });
+        assert!(g.iter().all(|g| matches!(g, Geo::Line(..))), "{g:?}");
     }
 }

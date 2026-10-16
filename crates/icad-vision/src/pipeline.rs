@@ -404,12 +404,52 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
             }
         }
     };
-    for g in &geometry {
+    let mut geo_of: Vec<usize> = vec![];
+    for (gi, g) in geometry.iter().enumerate() {
         if let Some(sh) = map_geo(g) {
-            if let (Geo::Circle(pc, pr) | Geo::Arc { c: pc, r: pr, .. }, Shape::Circle { c, r } | Shape::Arc { c, r, .. }) = (g, &sh) {
-                circles_mm.push((*pc, *pr, *c, *r));
-            }
+            geo_of.push(gi);
             shapes.push((layers::OUTLINE.into(), sh));
+        }
+    }
+    // Feature point on the geometry for an extension-line origin.
+    let feature = |axis_x: bool, v: f64, near: f64| -> Option<V2> {
+        let mut best: Option<(f64, V2)> = None;
+        for g in &geometry {
+            let pts: Vec<V2> = match *g {
+                Geo::Line(a, b) => vec![a, b],
+                Geo::Circle(c, _) => vec![c],
+                Geo::Arc { c, .. } => {
+                    let (a, b) = g.endpoints().unwrap();
+                    vec![a, b, c]
+                }
+            };
+            for p in pts {
+                let (along, across) = if axis_x { (p.x, p.y) } else { (p.y, p.x) };
+                if (along - v).abs() <= 2.0 * tol {
+                    let d = (across - near).abs();
+                    if best.is_none_or(|b| d < b.0) {
+                        best = Some((d, p));
+                    }
+                }
+            }
+        }
+        best.map(|b| b.1)
+    };
+    progress(0.94, "Enforcing slanted, angular and radius dimensions");
+    let moves = refine_outline(
+        &mut shapes,
+        &Outline { geometry: &geometry, geo_of: &geo_of, cls: &cls, labels: &labels },
+        &map,
+        &feature,
+        tol,
+        s,
+        &mut warnings,
+    );
+    for (k, gi) in geo_of.iter().enumerate() {
+        if let (Geo::Circle(pc, pr) | Geo::Arc { c: pc, r: pr, .. }, Shape::Circle { c, r } | Shape::Arc { c, r, .. }) =
+            (&geometry[*gi], &shapes[k].1)
+        {
+            circles_mm.push((*pc, *pr, *c, *r));
         }
     }
     let mut mbox = BBox::empty();
@@ -437,33 +477,9 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         }
     }
 
-    // Feature point on the geometry for an extension-line origin.
-    let feature = |axis_x: bool, v: f64, near: f64| -> Option<V2> {
-        let mut best: Option<(f64, V2)> = None;
-        for g in &geometry {
-            let pts: Vec<V2> = match *g {
-                Geo::Line(a, b) => vec![a, b],
-                Geo::Circle(c, _) => vec![c],
-                Geo::Arc { c, .. } => {
-                    let (a, b) = g.endpoints().unwrap();
-                    vec![a, b, c]
-                }
-            };
-            for p in pts {
-                let (along, across) = if axis_x { (p.x, p.y) } else { (p.y, p.x) };
-                if (along - v).abs() <= 2.0 * tol {
-                    let d = (across - near).abs();
-                    if best.is_none_or(|b| d < b.0) {
-                        best = Some((d, p));
-                    }
-                }
-            }
-        }
-        best.map(|b| b.1)
-    };
     let min_off = extent * 0.07;
     let mut dims_applied = 0;
-    for sp in &cls.spans {
+    for (si, sp) in cls.spans.iter().enumerate() {
         let l = &labels[sp.label];
         let dim = match sp.kind {
             SpanKind::X | SpanKind::Y => {
@@ -475,7 +491,7 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
                 let m_across = if ax { ry.mapper.map(across) } else { rx.mapper.map(across) };
                 let end = |f: Option<V2>, v: f64| -> V2 {
                     match (f, ax) {
-                        (Some(p), _) => map(p),
+                        (Some(p), _) => moves.apply(map(p)),
                         (None, true) => V2::new(rx.mapper.map(v), m_across),
                         (None, false) => V2::new(m_across, ry.mapper.map(v)),
                     }
@@ -499,18 +515,20 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
                 }
             }
             SpanKind::Aligned => {
-                let d = Dimension {
-                    kind: DimKind::Aligned,
-                    p1: map(sp.a),
-                    p2: map(sp.b),
-                    loc: map(sp.line_pt),
-                    text: None,
-                    center: None,
-                    assoc: None,
-                };
-                if (d.measurement() - l.value).abs() > 0.01 * l.value {
+                let (p1, p2) = moves
+                    .aligned
+                    .iter()
+                    .find(|a| a.0 == si)
+                    .map(|a| (a.1, a.2))
+                    .unwrap_or((moves.apply(map(sp.a)), moves.apply(map(sp.b))));
+                // Keep the sketched offset of the dimension line from the edge.
+                let n = (p2 - p1).norm().perp();
+                let off = (moves.apply(map(sp.line_pt)) - p1).dot(n);
+                let off = if off.abs() < min_off * 0.5 { min_off.copysign(if off == 0.0 { 1.0 } else { off }) } else { off };
+                let d = Dimension::new(DimKind::Aligned, p1, p2, p1.mid(p2) + n * off);
+                if (d.measurement() - l.value).abs() > (0.002 * l.value).max(0.01) {
                     warnings.push(format!(
-                        "Slanted dimension \"{}\" measures {:.2} mm in the result (slanted dimensions are not enforced yet)",
+                        "Slanted dimension \"{}\" measures {:.2} mm in the result (could not be enforced)",
                         l.text,
                         d.measurement()
                     ));
@@ -518,7 +536,7 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
                 d
             }
         };
-        if [SpanKind::X, SpanKind::Y].contains(&sp.kind) && (dim.measurement() - l.value).abs() < (0.002 * l.value).max(0.01) {
+        if (dim.measurement() - l.value).abs() < (0.002 * l.value).max(0.01) {
             dims_applied += 1;
         }
         shapes.push((layers::DIMENSIONS.into(), Shape::Dim(dim)));
@@ -544,6 +562,19 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         let dim = Dimension { kind, p1: c, p2: c + u * r, loc, text: None, center: None, assoc: None };
         if (dim.measurement() - want).abs() < (0.002 * want).max(0.01) {
             dims_applied += 1;
+        }
+        shapes.push((layers::DIMENSIONS.into(), Shape::Dim(dim)));
+    }
+    for (v, a, b, label) in &moves.angles {
+        let l = &labels[*label];
+        let sweep = norm_angle((*b - *v).angle() - (*a - *v).angle());
+        let reach = v.dist(*a).min(v.dist(*b)) * 0.5;
+        let loc = *v + V2::polar(reach.max(extent * 0.05), (*a - *v).angle() + sweep / 2.0);
+        let dim = Dimension::angular(*v, *a, *b, loc);
+        if (dim.measurement() - l.value).abs() < 0.05 {
+            dims_applied += 1;
+        } else {
+            warnings.push(format!("Angle \"{}\" measures {:.2}° in the result (could not be enforced)", l.text, dim.measurement()));
         }
         shapes.push((layers::DIMENSIONS.into(), Shape::Dim(dim)));
     }
@@ -575,10 +606,11 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         }
     }
     log.push(format!(
-        "{} label(s) → {} linear and {} radial dimension(s); scale ≈ {:.4} mm/px; {} dimension(s) satisfied exactly",
+        "{} label(s) → {} linear, {} radial and {} angular dimension(s); scale ≈ {:.4} mm/px; {} dimension(s) satisfied exactly",
         labels.len(),
         cls.spans.len(),
         cls.radials.len(),
+        cls.angles.len(),
         s,
         dims_applied
     ));
@@ -595,6 +627,240 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         reconstructed: None,
         part: None,
     })
+}
+
+pub(crate) struct Outline<'a> {
+    geometry: &'a [Geo],
+    /// Geometry index of each outline shape (shapes[k] comes from geometry[geo_of[k]]).
+    geo_of: &'a [usize],
+    cls: &'a solve::Classified,
+    labels: &'a [Label],
+}
+
+/// How the refinement moved the outline, for placing dimensions.
+#[derive(Default)]
+pub(crate) struct Moves {
+    from: Vec<V2>,
+    to: Vec<V2>,
+    /// (span index, p1, p2) of enforced slanted dimensions.
+    aligned: Vec<(usize, V2, V2)>,
+    /// (vertex, end a, end b, label) of angle dimensions.
+    angles: Vec<(V2, V2, V2, usize)>,
+}
+
+impl Moves {
+    /// Move a point with its nearest outline vertex.
+    fn apply(&self, p: V2) -> V2 {
+        match self.from.iter().enumerate().min_by(|a, b| a.1.dist(p).total_cmp(&b.1.dist(p))) {
+            Some((i, f)) => p + (self.to[i] - *f),
+            None => p,
+        }
+    }
+}
+
+/// Enforce the dimensions the per-axis solve cannot: slanted lengths,
+/// angles, arc radii, and tangency of fillets, over the outline vertices
+/// (see [`crate::refine`]). Outline shapes are rebuilt in place.
+#[allow(clippy::too_many_arguments)]
+fn refine_outline(
+    shapes: &mut [(String, Shape)],
+    o: &Outline,
+    map: &dyn Fn(V2) -> V2,
+    feature: &dyn Fn(bool, f64, f64) -> Option<V2>,
+    tol: f64,
+    s: f64,
+    warnings: &mut Vec<String>,
+) -> Moves {
+    use crate::refine::Con;
+    let n_out = o.geo_of.len();
+    let eps = (0.5 * tol * s).max(1e-6);
+    let mut pts: Vec<V2> = vec![];
+    let vid = |p: V2, pts: &mut Vec<V2>| -> usize {
+        if let Some(i) = pts.iter().position(|q| q.dist(p) < eps) {
+            return i;
+        }
+        pts.push(p);
+        pts.len() - 1
+    };
+    enum Kind {
+        Line(usize, usize),
+        Arc(usize, usize, usize),
+        Circle(usize),
+    }
+    let mut kinds = vec![];
+    for (_, sh) in shapes.iter().take(n_out) {
+        kinds.push(match *sh {
+            Shape::Line { a, b } => Kind::Line(vid(a, &mut pts), vid(b, &mut pts)),
+            Shape::Arc { c, r, start, end } => {
+                let (i, j) = (vid(c + V2::polar(r, start), &mut pts), vid(c + V2::polar(r, end), &mut pts));
+                Kind::Arc(vid(c, &mut pts), i, j)
+            }
+            Shape::Circle { c, .. } => Kind::Circle(vid(c, &mut pts)),
+            _ => Kind::Circle(usize::MAX),
+        });
+    }
+    let nearest = |p: V2, pts: &[V2]| -> usize { (0..pts.len()).min_by(|a, b| pts[*a].dist(p).total_cmp(&pts[*b].dist(p))).unwrap_or(0) };
+    let mut cons: Vec<Con> = vec![];
+    let mut what: Vec<String> = vec![];
+    let ext = pts.iter().fold(BBox::empty(), |mut b, p| {
+        b.add(*p);
+        b
+    });
+    let scale = ext.width().max(ext.height()).max(1.0);
+    let flat = scale * 1e-9;
+    for k in &kinds {
+        match *k {
+            Kind::Line(a, b) if a != b => {
+                if (pts[a].y - pts[b].y).abs() < flat {
+                    cons.push(Con::Horizontal { a, b });
+                    what.push(String::new());
+                } else if (pts[a].x - pts[b].x).abs() < flat {
+                    cons.push(Con::Vertical { a, b });
+                    what.push(String::new());
+                }
+            }
+            Kind::Arc(c, p, q) => {
+                cons.push(Con::Equal { c, p, q });
+                what.push(String::new());
+                // Tangent where a line continues the arc smoothly.
+                for end in [p, q] {
+                    for k2 in &kinds {
+                        let Kind::Line(a, b) = *k2 else { continue };
+                        let other = if a == end {
+                            b
+                        } else if b == end {
+                            a
+                        } else {
+                            continue;
+                        };
+                        let (r, t) = ((pts[end] - pts[c]).norm(), (pts[other] - pts[end]).norm());
+                        if r.dot(t).abs() < 10f64.to_radians().sin() {
+                            cons.push(Con::Tangent { c, p: end, q: other });
+                            what.push(String::new());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut strong = 0;
+    // Radius and diameter labels on arcs (circles get their size directly).
+    for rd in &o.cls.radials {
+        let l = &o.labels[rd.label];
+        let r = if l.kind == LabelKind::Diameter { l.value / 2.0 } else { l.value };
+        let hit = o.geo_of.iter().position(
+            |gi| matches!(o.geometry[*gi], Geo::Arc { c, r: gr, .. } if c.dist(rd.center) < 2.0 * tol && (gr - rd.r).abs() < 2.0 * tol),
+        );
+        if let Some(Kind::Arc(c, p, _)) = hit.map(|k| &kinds[k]) {
+            cons.push(Con::Radius { c: *c, p: *p, value: r });
+            what.push(l.text.clone());
+            strong += 1;
+        }
+    }
+    // Hold the horizontal/vertical dimensions already met by the axis solve.
+    for sp in &o.cls.spans {
+        let ax = match sp.kind {
+            SpanKind::X => true,
+            SpanKind::Y => false,
+            SpanKind::Aligned => continue,
+        };
+        let (va, vb, across) = if ax { (sp.a.x, sp.b.x, sp.line_pt.y) } else { (sp.a.y, sp.b.y, sp.line_pt.x) };
+        let (Some(fa), Some(fb)) = (feature(ax, va, across), feature(ax, vb, across)) else { continue };
+        let (a, b) = (nearest(map(fa), &pts), nearest(map(fb), &pts));
+        if a != b {
+            cons.push(if ax { Con::Dx { a, b, value: pts[b].x - pts[a].x } } else { Con::Dy { a, b, value: pts[b].y - pts[a].y } });
+            what.push(o.labels[sp.label].text.clone());
+        }
+    }
+    // Slanted dimensions: the outline vertices at the ends of the dimension line.
+    let mut aligned: Vec<(usize, usize, usize)> = vec![];
+    let ends: Vec<V2> = o
+        .geometry
+        .iter()
+        .flat_map(|g| match *g {
+            Geo::Line(a, b) => vec![a, b],
+            Geo::Arc { .. } => g.endpoints().map(|(a, b)| vec![a, b]).unwrap_or_default(),
+            Geo::Circle(c, _) => vec![c],
+        })
+        .collect();
+    for (si, sp) in o.cls.spans.iter().enumerate() {
+        if sp.kind != SpanKind::Aligned {
+            continue;
+        }
+        let d = (sp.b - sp.a).norm();
+        let n = d.perp();
+        let pick = |end: V2| -> Option<V2> {
+            ends.iter()
+                .filter(|v| (**v - end).dot(d).abs() < 2.0 * tol)
+                .min_by(|a, b| {
+                    ((**a - end).dot(d).abs() + 0.2 * (**a - end).dot(n).abs())
+                        .total_cmp(&((**b - end).dot(d).abs() + 0.2 * (**b - end).dot(n).abs()))
+                })
+                .copied()
+        };
+        let (Some(fa), Some(fb)) = (pick(sp.a), pick(sp.b)) else { continue };
+        let (a, b) = (nearest(map(fa), &pts), nearest(map(fb), &pts));
+        if a != b {
+            let l = &o.labels[sp.label];
+            cons.push(Con::Dist { a, b, value: l.value });
+            what.push(l.text.clone());
+            aligned.push((si, a, b));
+            strong += 1;
+        }
+    }
+    let mut angles: Vec<(usize, usize, usize, usize)> = vec![];
+    for ad in &o.cls.angles {
+        let (v, a, b) = (nearest(map(ad.v), &pts), nearest(map(ad.a), &pts), nearest(map(ad.b), &pts));
+        if v != a && v != b && a != b {
+            let l = &o.labels[ad.label];
+            cons.push(Con::Angle { v, a, b, value: l.value.to_radians() });
+            what.push(l.text.clone());
+            angles.push((v, a, b, ad.label));
+            strong += 1;
+        }
+    }
+    let tangents = cons.iter().any(|c| matches!(c, Con::Tangent { .. }));
+    let mut moves = Moves { from: pts.clone(), to: pts.clone(), ..Default::default() };
+    if strong > 0 || tangents {
+        if pts.len() > crate::refine::MAX_POINTS {
+            warnings.push(format!(
+                "The outline has {} vertices; slanted, angular and arc radius dimensions were not enforced (limit {})",
+                pts.len(),
+                crate::refine::MAX_POINTS
+            ));
+        } else {
+            let r = crate::refine::refine(&pts, &cons, scale);
+            let mut named: Vec<&str> = r.unmet.iter().map(|i| what[*i].as_str()).filter(|w| !w.is_empty()).collect();
+            named.dedup();
+            if !named.is_empty() {
+                warnings.push(format!(
+                    "Dimension(s) {} conflict with the rest of the drawing and are only approximately met",
+                    named.join(", ")
+                ));
+            }
+            moves.to = r.pts;
+        }
+    }
+    let x = &moves.to;
+    for (k, (_, sh)) in shapes.iter_mut().take(n_out).enumerate() {
+        match kinds[k] {
+            Kind::Line(a, b) => *sh = Shape::Line { a: x[a], b: x[b] },
+            Kind::Arc(c, p, q) => {
+                let r = (x[c].dist(x[p]) + x[c].dist(x[q])) / 2.0;
+                *sh = Shape::Arc { c: x[c], r, start: norm_angle((x[p] - x[c]).angle()), end: norm_angle((x[q] - x[c]).angle()) };
+            }
+            Kind::Circle(c) if c != usize::MAX => {
+                if let Shape::Circle { r, .. } = *sh {
+                    *sh = Shape::Circle { c: x[c], r };
+                }
+            }
+            _ => {}
+        }
+    }
+    moves.aligned = aligned.iter().map(|(si, a, b)| (*si, x[*a], x[*b])).collect();
+    moves.angles = angles.iter().map(|(v, a, b, l)| (x[*v], x[*a], x[*b], *l)).collect();
+    moves
 }
 
 /// Number of significant enclosed background regions ("holes") per ink
@@ -780,5 +1046,76 @@ mod tests {
         assert_eq!(conv.dims_applied, 3, "{:?} {measured:?}", conv.log);
         // The sketched dimension lines are not part of the outline.
         assert!(conv.shapes.iter().any(|(l, _)| l == layers::AI_SKETCH));
+    }
+
+    #[test]
+    fn slanted_angle_and_fillet_dimensions_are_enforced() {
+        let (w, h) = (1200usize, 800usize);
+        let mut g = Gray { w, h, px: vec![245; w * h] };
+        // Plate with a chamfered bottom-right corner and a filleted top-left one.
+        stroke(&mut g, (180., 150.), (900., 150.), 5.0, 1.0);
+        stroke(&mut g, (900., 150.), (900., 400.), 5.0, 1.0);
+        stroke(&mut g, (900., 400.), (700., 550.), 5.0, 1.0);
+        stroke(&mut g, (700., 550.), (100., 550.), 5.0, 1.0);
+        stroke(&mut g, (100., 550.), (100., 230.), 5.0, 1.0);
+        for i in 0..30 {
+            let a0 = std::f64::consts::PI + i as f64 / 30.0 * std::f64::consts::FRAC_PI_2;
+            let a1 = std::f64::consts::PI + (i + 1) as f64 / 30.0 * std::f64::consts::FRAC_PI_2;
+            stroke(&mut g, (180. + 80. * a0.cos(), 230. + 80. * a0.sin()), (180. + 80. * a1.cos(), 230. + 80. * a1.sin()), 5.0, 0.0);
+        }
+        // Overall width below, height on the left.
+        stroke(&mut g, (100., 565.), (100., 670.), 3.0, 0.0);
+        stroke(&mut g, (900., 415.), (900., 670.), 3.0, 0.0);
+        stroke(&mut g, (100., 655.), (900., 655.), 3.0, 0.0);
+        stroke(&mut g, (85., 150.), (55., 150.), 3.0, 0.0);
+        stroke(&mut g, (85., 550.), (55., 550.), 3.0, 0.0);
+        stroke(&mut g, (70., 150.), (70., 550.), 3.0, 0.0);
+        let hh = h as f64;
+        let labels = vec![
+            label("200", 470., 615., 530., 645., hh),
+            label("120", 15., 335., 63., 365., hh),
+            // Out of proportion with the sketch on purpose.
+            label("60", 815., 495., 845., 520., hh),
+            label("135°", 835., 345., 885., 370., hh),
+            label("R15", 120., 175., 170., 200., hh),
+        ];
+        let opts = ConvertOptions {
+            ai: AiSettings { provider: Provider::Disabled, use_tesseract: false, ..Default::default() },
+            ..Default::default()
+        };
+        let conv = convert_gray(&g, labels, &opts, &mut |_, _| {}).unwrap();
+        let ctx = format!("log: {:?}\nwarn: {:?}", conv.log, conv.warnings);
+        let outline: Vec<&Shape> = conv.shapes.iter().filter(|(l, _)| l == layers::OUTLINE).map(|(_, s)| s).collect();
+        let lines: Vec<(V2, V2)> =
+            outline.iter().filter_map(|s| if let Shape::Line { a, b } = s { Some((*a, *b)) } else { None }).collect();
+        let arcs: Vec<(V2, f64, f64, f64)> = outline
+            .iter()
+            .filter_map(|s| if let Shape::Arc { c, r, start, end } = s { Some((*c, *r, *start, *end)) } else { None })
+            .collect();
+        assert_eq!((lines.len(), arcs.len()), (5, 1), "{outline:?}\n{ctx}");
+        let slant = lines.iter().find(|(a, b)| (a.x - b.x).abs() > 1.0 && (a.y - b.y).abs() > 1.0).expect("slanted edge");
+        assert!((slant.0.dist(slant.1) - 60.0).abs() < 1e-3, "slant {} {ctx}", slant.0.dist(slant.1));
+        let tilt = (slant.1 - slant.0).angle().to_degrees().rem_euclid(180.0);
+        // 135° inside the corner with the vertical edge: the edge runs at 225°.
+        assert!((tilt - 45.0).abs() < 0.01, "slant at {tilt}° {ctx}");
+        for (a, b) in lines.iter().filter(|l| *l != slant) {
+            assert!((a.x - b.x).abs() < 1e-6 || (a.y - b.y).abs() < 1e-6, "{a:?} {b:?} no longer square");
+        }
+        let (c, r, st, en) = arcs[0];
+        assert!((r - 15.0).abs() < 1e-3, "r {r} {ctx}");
+        // Tangent to both edges it joins.
+        let (p, q) = (c + V2::polar(r, st), c + V2::polar(r, en));
+        assert!(
+            lines.iter().any(|(a, b)| a.dist(p) < 1e-3 || b.dist(p) < 1e-3)
+                && lines.iter().any(|(a, b)| a.dist(q) < 1e-3 || b.dist(q) < 1e-3)
+        );
+        let bb = BBox::of(lines.iter().flat_map(|l| [l.0, l.1]));
+        assert!((bb.width() - 200.0).abs() < 1e-3 && (bb.height() - 120.0).abs() < 1e-3, "{bb:?} {ctx}");
+        let kinds: Vec<String> = conv
+            .shapes
+            .iter()
+            .filter_map(|(_, s)| if let Shape::Dim(d) = s { Some(format!("{:?} {:.3}", d.kind, d.measurement())) } else { None })
+            .collect();
+        assert_eq!(conv.dims_applied, 5, "{kinds:?} {ctx}");
     }
 }

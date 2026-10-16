@@ -48,10 +48,21 @@ pub struct Radial {
     pub r: f64,
 }
 
+/// An angle label between two outline edges meeting at `v` (px): the angle
+/// runs counter-clockwise from the edge towards `a` to the edge towards `b`.
+#[derive(Clone, Debug)]
+pub struct AngleDim {
+    pub label: usize,
+    pub v: V2,
+    pub a: V2,
+    pub b: V2,
+}
+
 #[derive(Default)]
 pub struct Classified {
     pub spans: Vec<Span>,
     pub radials: Vec<Radial>,
+    pub angles: Vec<AngleDim>,
     /// Indices of lines recognised as dimension / extension / leader lines.
     pub claimed: Vec<usize>,
     pub matched: Vec<bool>,
@@ -104,6 +115,29 @@ pub fn associate(geos: &[Geo], part: &[bool], labels: &[Label], tol: f64) -> Cla
         let Geo::Line(p, q) = geos[gi] else { continue };
         let l = &labels[li];
         let tl = l.size();
+        // An outline edge is only a dimension line when extension lines meet
+        // it square at both ends; otherwise the label dimensions the edge.
+        if part[gi] {
+            let d = dir_of(p, q);
+            let square_at = |end: V2| {
+                geos.iter().enumerate().any(|(k, g)| match *g {
+                    Geo::Line(e1, e2) if k != gi => dist_point_segment(end, e1, e2) < tol * 1.5 && dir_of(e1, e2).dot(d).abs() < 0.17,
+                    _ => false,
+                })
+            };
+            if !(square_at(p) && square_at(q)) {
+                let kind = if is_h(&geos[gi]) {
+                    SpanKind::X
+                } else if is_v(&geos[gi]) {
+                    SpanKind::Y
+                } else {
+                    SpanKind::Aligned
+                };
+                out.matched[li] = true;
+                out.spans.push(Span { label: li, kind, a: p, b: q, line_pt: l.center(), has_line: false });
+                continue;
+            }
+        }
         claimed[gi] = true;
         out.claimed.push(gi);
         out.matched[li] = true;
@@ -294,6 +328,67 @@ pub fn associate(geos: &[Geo], part: &[bool], labels: &[Label], tol: f64) -> Cla
             }
         }
     }
+
+    // --- Angle labels → the corner of two outline edges they sit in.
+    for (li, l) in labels.iter().enumerate() {
+        if l.kind != LabelKind::Angle {
+            continue;
+        }
+        let c = l.center();
+        let tl = l.size().max(1.0);
+        let want = l.value.to_radians();
+        let mut best: Option<(f64, AngleDim)> = None;
+        for (i, gi) in geos.iter().enumerate() {
+            let Geo::Line(p1, q1) = *gi else { continue };
+            if !part[i] || claimed[i] {
+                continue;
+            }
+            for (j, gj) in geos.iter().enumerate().skip(i + 1) {
+                let Geo::Line(p2, q2) = *gj else { continue };
+                if !part[j] || claimed[j] || dir_of(p1, q1).cross(dir_of(p2, q2)).abs() < 0.1 {
+                    continue;
+                }
+                // Shared corner and the far ends.
+                let Some((v, a, b)) = [(p1, q1, p2, q2), (p1, q1, q2, p2), (q1, p1, p2, q2), (q1, p1, q2, p2)]
+                    .into_iter()
+                    .filter(|(s1, _, s2, _)| s1.dist(*s2) < 2.0 * tol)
+                    .map(|(s1, f1, s2, f2)| (s1.mid(s2), f1, f2))
+                    .next()
+                else {
+                    continue;
+                };
+                let dist = c.dist(v);
+                if dist > 10.0 * tl + 4.0 * tol {
+                    continue;
+                }
+                let inside = |a: V2, b: V2| angle_on_arc((c - v).angle(), (a - v).angle(), (b - v).angle());
+                for (a, b) in [(a, b), (b, a)] {
+                    let sweep = norm_angle((b - v).angle() - (a - v).angle());
+                    let off = (sweep - want).abs();
+                    if off > 30f64.to_radians() {
+                        continue;
+                    }
+                    let score = dist / tl + off.to_degrees() / 10.0 + if inside(a, b) { 0.0 } else { 1.0 };
+                    if best.as_ref().is_none_or(|x| score < x.0) {
+                        best = Some((score, AngleDim { label: li, v, a, b }));
+                    }
+                }
+            }
+        }
+        if let Some((_, ad)) = best {
+            out.matched[li] = true;
+            // The sketched dimension arc around the corner is annotation.
+            for (k, g) in geos.iter().enumerate() {
+                if let Geo::Arc { c: ac, r, .. } = *g {
+                    if !claimed[k] && ac.dist(ad.v) < 3.0 * tol && (c.dist(ad.v) - r).abs() < 2.0 * tl + tol {
+                        claimed[k] = true;
+                        out.claimed.push(k);
+                    }
+                }
+            }
+            out.angles.push(ad);
+        }
+    }
     out
 }
 
@@ -347,7 +442,7 @@ pub struct AxisResult {
 }
 
 #[allow(clippy::needless_range_loop)]
-fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+pub(crate) fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = b.len();
     for col in 0..n {
         let piv = (col..n).max_by(|i, j| a[*i][col].abs().total_cmp(&a[*j][col].abs()))?;

@@ -12,6 +12,7 @@ pub mod parts;
 pub mod pipeline;
 pub mod providers;
 pub mod raster;
+pub mod refine;
 pub mod solve;
 pub mod trace;
 
