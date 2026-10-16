@@ -63,6 +63,11 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, open: Vec<PathBuf>) -> Self {
         theme::apply(&cc.egui_ctx);
         let mut settings = Settings::load();
+        crate::i18n::set_language(if settings.language.is_empty() {
+            crate::i18n::system_language().unwrap_or("en")
+        } else {
+            &settings.language
+        });
         if let Some(k) = crate::secrets::load() {
             settings.convert.ai.api_key = k;
         }
@@ -80,9 +85,9 @@ impl App {
             cmd: None,
             last_cmd: None,
             mem: Memory::default(),
-            log: vec![
-                "Welcome to ImagineCAD. Type a command (e.g. LINE or L), use the ribbon, or open the AI tab to convert a sketch.".into()
-            ],
+            log: vec![crate::i18n::tr(
+                "Welcome to ImagineCAD. Type a command (e.g. LINE or L), use the ribbon, or open the AI tab to convert a sketch.",
+            )],
             input: String::new(),
             ribbon_tab: 0,
             cursor: V2::ZERO,
@@ -280,6 +285,24 @@ impl App {
             },
             "PLOT" | "PRINT" => self.export("pdf"),
             "PLOTSTAMP" | "STAMP" => self.dlg.plotstamp = true,
+            "LANGUAGE" | "LANG" => match args.first() {
+                Some(code) => {
+                    let code = code.to_ascii_lowercase();
+                    if code == "system" || crate::i18n::LANGUAGES.iter().any(|l| l.0 == code) {
+                        self.settings.language = if code == "system" { String::new() } else { code };
+                        crate::i18n::set_language(if self.settings.language.is_empty() {
+                            crate::i18n::system_language().unwrap_or("en")
+                        } else {
+                            &self.settings.language
+                        });
+                        self.settings.save();
+                    } else {
+                        let codes: Vec<&str> = crate::i18n::LANGUAGES.iter().map(|l| l.0).collect();
+                        self.log.push(format!("LANGUAGE: one of {}, or SYSTEM", codes.join(", ")));
+                    }
+                }
+                None => self.dlg.language = true,
+            },
             "PLUGINS" => {
                 if arg == "RELOAD" {
                     let (p, problems) = crate::plugins::reload();
@@ -1308,7 +1331,10 @@ impl App {
                         if ui.add(egui::Button::new("?").frame(false)).on_hover_text("Help (F1)").clicked() {
                             self.dlg.help = true;
                         }
-                        if ui.add(egui::Button::new(RichText::new("Image to CAD").color(theme::AI_ACCENT)).frame(false)).clicked() {
+                        if ui
+                            .add(egui::Button::new(RichText::new(crate::i18n::tr("Image to CAD")).color(theme::AI_ACCENT)).frame(false))
+                            .clicked()
+                        {
                             self.run("IMAGETOCAD");
                         }
                     });
@@ -1400,7 +1426,7 @@ impl App {
                         let cx = Cx { tab: &mut self.tabs[self.active], log: &mut vec![], mem: &mut self.mem, view_req: &mut None };
                         format!("{name} {}", c.prompt(&cx))
                     }
-                    None => "Type a command".into(),
+                    None => crate::i18n::tr("Type a command"),
                 };
                 let frame = egui::Frame::NONE
                     .fill(Color32::from_rgb(26, 31, 38))
@@ -1555,7 +1581,7 @@ impl App {
             .frame(egui::Frame::NONE.fill(theme::PANEL).inner_margin(egui::Margin::same(8)))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("PROPERTIES").strong().color(theme::TEXT));
+                    ui.label(RichText::new(crate::i18n::tr("PROPERTIES")).strong().color(theme::TEXT));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.add(egui::Button::new("×").frame(false)).clicked() {
                             self.settings.show_properties = false;
@@ -1588,13 +1614,13 @@ impl App {
                 ui.set_min_width(180.0);
                 let has_sel = !self.tabs[self.active].selection.is_empty();
                 let mut item = |ui: &mut egui::Ui, label: &str, cmd: &str, enabled: bool, me: &mut App| {
-                    if ui.add_enabled(enabled, egui::Button::new(label).frame(false)).clicked() {
+                    if ui.add_enabled(enabled, egui::Button::new(crate::i18n::tr(label)).frame(false)).clicked() {
                         me.run(cmd);
                         close = true;
                     }
                 };
                 if let Some(last) = self.last_cmd.clone() {
-                    item(ui, &format!("Repeat {last}"), &last, true, self);
+                    item(ui, &crate::i18n::tr1("Repeat {}", &last), &last, true, self);
                     ui.separator();
                 }
                 item(ui, "Move", "MOVE", has_sel, self);
@@ -1747,29 +1773,32 @@ fn layer_combo(ui: &mut egui::Ui, t: &mut Tab) {
 fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
     let sel: Vec<u64> = t.selection.iter().copied().filter(|id| t.doc.get(*id).is_some()).collect();
     if sel.is_empty() {
-        ui.label(RichText::new("No selection").color(theme::TEXT_DIM));
+        use crate::i18n::tr;
+        ui.label(RichText::new(tr("No selection")).color(theme::TEXT_DIM));
         ui.add_space(6.0);
         egui::Grid::new("doc_info").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-            ui.label("Current layer");
+            ui.label(tr("Current layer"));
             ui.label(&t.doc.current_layer);
             ui.end_row();
-            ui.label("Objects");
+            ui.label(tr("Objects"));
             ui.label(t.doc.entities.len().to_string());
             ui.end_row();
-            ui.label("Sheet");
+            ui.label(tr("Sheet"));
             ui.label(format!(
                 "{} {} @ {}",
                 t.doc.sheet.paper.name(),
-                if t.doc.sheet.landscape { "landscape" } else { "portrait" },
+                tr(if t.doc.sheet.landscape { "landscape" } else { "portrait" }),
                 t.doc.sheet.scale_label()
             ));
             ui.end_row();
-            ui.label("Units");
+            ui.label(tr("Units"));
             ui.label(&t.doc.sheet.title.units);
             ui.end_row();
         });
         ui.add_space(10.0);
-        ui.label(RichText::new("Tip: select objects to edit their properties and exact coordinates.").size(11.5).color(theme::TEXT_DIM));
+        ui.label(
+            RichText::new(tr("Tip: select objects to edit their properties and exact coordinates.")).size(11.5).color(theme::TEXT_DIM),
+        );
         return false;
     }
     let first = t.doc.get(sel[0]).unwrap().clone();

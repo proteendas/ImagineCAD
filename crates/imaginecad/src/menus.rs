@@ -234,6 +234,7 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("-", ""),
             ("Run Script…", "SCRIPT"),
             ("Plugins…", "PLUGINS"),
+            ("Language…", "LANGUAGE"),
             ("-", ""),
             ("Isolate Layers", "LAYISO"),
             ("Unisolate Layers", "LAYUNISO"),
@@ -300,14 +301,14 @@ fn alias(cmd: &str) -> &'static str {
 /// The menu bar; chosen commands are pushed to `out`.
 pub fn menu_bar(ui: &mut Ui, out: &mut Vec<String>) {
     for (name, entries) in MENUS {
-        ui.menu_button(*name, |ui| {
+        ui.menu_button(crate::i18n::tr(name), |ui| {
             ui.set_min_width(210.0);
             for (label, cmd) in *entries {
                 if *label == "-" {
                     ui.separator();
                     continue;
                 }
-                let b = egui::Button::new(label.replace("&&", "&")).shortcut_text(alias(cmd));
+                let b = egui::Button::new(crate::i18n::tr(label).replace("&&", "&")).shortcut_text(alias(cmd));
                 if ui.add(b).on_hover_text(*cmd).clicked() {
                     out.push(cmd.to_string());
                     ui.close_menu();

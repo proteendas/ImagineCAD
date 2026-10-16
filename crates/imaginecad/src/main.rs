@@ -19,6 +19,7 @@ mod commands_views;
 mod constraints_ui;
 mod dialogs;
 mod dialogs2;
+mod i18n;
 mod icons;
 mod layouts_ui;
 #[cfg(target_os = "macos")]

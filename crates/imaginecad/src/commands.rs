@@ -326,6 +326,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("PLOTSTAMP", ""),
     ("SCRIPT", "SCR"),
     ("PLUGINS", ""),
+    ("LANGUAGE", "LANG"),
     ("XATTACH", "XA"),
     ("XREF", "XR"),
     ("REVCLOUD", "RC"),

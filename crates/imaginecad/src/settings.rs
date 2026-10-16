@@ -57,6 +57,8 @@ pub struct Settings {
     pub plot_stamp: icad_io::plot::PlotStamp,
     /// Write PDF as PDF/A-2b (archival).
     pub pdfa: bool,
+    /// Interface language code ("" = the system's).
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -84,6 +86,7 @@ impl Default for Settings {
             otrack: true,
             plot_stamp: Default::default(),
             pdfa: false,
+            language: String::new(),
         }
     }
 }

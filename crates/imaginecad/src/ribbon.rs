@@ -11,6 +11,7 @@
 //! menu, and any that still do not fit go under a final "More" button, so
 //! the ribbon never scrolls and every tool stays one click away.
 
+use crate::i18n::tr;
 use crate::icons::{self, Icon};
 use crate::theme;
 use eframe::egui::{self, vec2, Align2, Color32, FontId, Id, PopupCloseBehavior, Rect, Response, RichText, Sense, Ui};
@@ -71,6 +72,7 @@ fn label_w(ui: &Ui, s: &str, size: f32) -> f32 {
 
 /// One row of a dropdown menu.
 fn menu_item(ui: &mut Ui, (icon, label, cmd): Item, out: &mut Vec<String>) {
+    let label = &tr(label);
     let w = (label_w(ui, label, 12.5) + 34.0).max(ui.available_width()).max(170.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 23.0), Sense::click());
     let p = ui.painter();
@@ -105,15 +107,17 @@ fn arrow(p: &egui::Painter, at: egui::Pos2, col: Color32) {
 /// Large button; with `items`, the lower strip (▾) opens the variants.
 fn big_split(ui: &mut Ui, icon: Icon, label: &str, tip: &str, cmd: &str, items: &[Item], out: &mut Vec<String>) {
     if in_menu() {
+        // Menu rows translate their own labels.
         menu_row(ui, (icon, &label.replace('\n', " "), cmd), out);
         for it in items {
             menu_row(ui, *it, out);
         }
         return;
     }
+    let id = ui.id().with(("big", label));
+    let label = &tr(label);
     let w = (label.split('\n').map(|l| label_w(ui, l, 11.5)).fold(0.0, f32::max) + 12.0).max(50.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 72.0), Sense::hover());
-    let id = ui.id().with(("big", label));
     let split = !items.is_empty();
     let main_r = if split { Rect::from_min_max(rect.min, rect.max - vec2(0.0, 15.0)) } else { rect };
     let main = ui.interact(main_r, id.with("main"), Sense::click());
@@ -165,9 +169,10 @@ fn small_split(ui: &mut Ui, icon: Icon, label: &str, tip: &str, cmd: &str, items
         return;
     }
     let split = !items.is_empty();
+    let id = ui.id().with(("small", label, cmd));
+    let label = &tr(label);
     let w = 26.0 + label_w(ui, label, 12.0) + if split { 16.0 } else { 4.0 };
     let (rect, _) = ui.allocate_exact_size(vec2(w.max(30.0), 21.0), Sense::hover());
-    let id = ui.id().with(("small", label, cmd));
     let main_r = if split { Rect::from_min_max(rect.min, rect.max - vec2(14.0, 0.0)) } else { rect };
     let main = ui.interact(main_r, id.with("main"), Sense::click());
     let p = ui.painter().clone();
@@ -214,9 +219,10 @@ fn tool(ui: &mut Ui, icon: Icon, label: &str, tip: &str, cmd: &str, out: &mut Ve
 /// Toggle-style small button (highlighted when on).
 pub fn toggle(ui: &mut Ui, icon: Icon, label: &str, tip: &str, on: bool, cmd: &str, out: &mut Vec<String>) {
     if in_menu() {
-        let name = format!("{label}{}", if on { "  ✓" } else { "" });
+        let name = format!("{}{}", tr(label), if on { "  ✓" } else { "" });
         return menu_row(ui, (icon, &name, cmd), out);
     }
+    let label = &tr(label);
     let w = 26.0 + label_w(ui, label, 12.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 21.0), Sense::click());
     let p = ui.painter();
@@ -245,6 +251,7 @@ fn draw_panel(ui: &mut Ui, title: &str, more: &[Item], out: &mut Vec<String>, ad
     let r = resp.response.rect;
     let bar = Rect::from_min_max(egui::pos2(r.left() - 2.0, r.bottom() - 17.0), egui::pos2(r.right() + 2.0, r.bottom()));
     let id = ui.id().with(("panel", title));
+    let title = &tr(title);
     let b = ui.interact(bar, id, if more.is_empty() { Sense::hover() } else { Sense::click() });
     let p = ui.painter().clone();
     p.rect_filled(bar, 0.0, if b.hovered() && !more.is_empty() { theme::HOVER } else { theme::RIBBON_PANEL_TITLE });
@@ -254,7 +261,7 @@ fn draw_panel(ui: &mut Ui, title: &str, more: &[Item], out: &mut Vec<String>, ad
         let tw = label_w(ui, title, 11.0);
         p.text(bar.center() - vec2(5.0, 0.0), Align2::CENTER_CENTER, title, FontId::proportional(11.0), theme::TEXT_DIM);
         arrow(&p, bar.center() + vec2(tw / 2.0 + 4.0, 0.0), theme::TEXT_DIM);
-        let open = b.clone().on_hover_text(format!("More {title} tools")).clicked();
+        let open = b.clone().on_hover_text(crate::i18n::tr1("More {} tools", title)).clicked();
         dropdown(ui, id.with("more"), &b, open, more, out);
     }
     let x = r.right() + 5.0;
@@ -314,6 +321,7 @@ fn panel_menu(ui: &mut Ui, p: Panel, out: &mut Vec<String>) {
 
 /// A big button standing for a whole panel; it drops the panel down as a menu.
 fn collapsed_button(ui: &mut Ui, id: Id, icon: Icon, title: &str) -> Response {
+    let title = &tr(title);
     let w = collapsed_w(ui, title);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, RIBBON_H - 6.0), Sense::click());
     let p = ui.painter();
@@ -335,7 +343,7 @@ fn collapsed_button(ui: &mut Ui, id: Id, icon: Icon, title: &str) -> Response {
 }
 
 fn collapsed_w(ui: &Ui, title: &str) -> f32 {
-    (label_w(ui, title, 11.5) + 16.0).max(52.0)
+    (label_w(ui, &tr(title), 11.5) + 16.0).max(52.0)
 }
 
 const GAP: f32 = 10.0;
@@ -345,7 +353,8 @@ const GAP: f32 = 10.0;
 fn layout(ui: &mut Ui, tab: usize, panels: Vec<Panel>, out: &mut Vec<String>) {
     let avail = ui.available_width();
     let n = panels.len();
-    let key = |t: &str| Id::new(("ribbon_panel_w", tab, t.to_string()));
+    let lang = crate::i18n::language();
+    let key = |t: &str| Id::new(("ribbon_panel_w", tab, t.to_string(), lang.clone()));
     let full: Vec<f32> = panels.iter().map(|p| ui.ctx().data(|d| d.get_temp::<f32>(key(p.title))).unwrap_or(160.0)).collect();
     let small: Vec<f32> = panels.iter().map(|p| collapsed_w(ui, p.title) + GAP).collect();
     let mut collapsed = vec![false; n];
@@ -370,7 +379,7 @@ fn layout(ui: &mut Ui, tab: usize, panels: Vec<Panel>, out: &mut Vec<String>) {
         } else if collapsed[i] {
             let id = ui.id().with(("collapsed", tab, p.title));
             let b = collapsed_button(ui, id, p.icon, p.title);
-            let b = b.on_hover_text(format!("{} tools", p.title));
+            let b = b.on_hover_text(tr(p.title));
             if b.clicked() {
                 ui.memory_mut(|m| m.toggle_popup(id));
                 LISTED.with(|l| l.borrow_mut().clear());
@@ -399,7 +408,7 @@ fn layout(ui: &mut Ui, tab: usize, panels: Vec<Panel>, out: &mut Vec<String>) {
             LISTED.with(|l| l.borrow_mut().clear());
             egui::ScrollArea::vertical().max_height(ui.ctx().screen_rect().height() * 0.75).show(ui, |ui| {
                 for p in rest {
-                    ui.label(RichText::new(p.title).size(11.0).color(theme::TEXT_DIM));
+                    ui.label(RichText::new(tr(p.title)).size(11.0).color(theme::TEXT_DIM));
                     panel_menu(ui, p, out);
                     ui.separator();
                 }
@@ -426,7 +435,8 @@ pub fn show(ui: &mut Ui, tab: &mut usize, st: RibbonState, out: &mut Vec<String>
         ui.spacing_mut().item_spacing.x = 2.0;
         for (i, t) in TABS.iter().enumerate() {
             let sel = *tab == i;
-            let txt = if *t == "AI" { RichText::new("AI").color(theme::AI_ACCENT).strong() } else { RichText::new(*t).color(theme::TEXT) };
+            let txt =
+                if *t == "AI" { RichText::new(tr("AI")).color(theme::AI_ACCENT).strong() } else { RichText::new(tr(t)).color(theme::TEXT) };
             let b = egui::Button::new(txt).fill(if sel { theme::RIBBON } else { theme::RIBBON_TABS }).corner_radius(egui::CornerRadius {
                 nw: 3,
                 ne: 3,

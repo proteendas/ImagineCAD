@@ -252,6 +252,7 @@ pub struct Dialogs {
     pub lookup: bool,
     pub plotstamp: bool,
     pub plugins: bool,
+    pub language: bool,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -353,6 +354,7 @@ impl App {
         self.lookup_dialog(ctx);
         self.plot_stamp_dialog(ctx);
         self.plugins_dialog(ctx);
+        self.language_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -1222,6 +1224,35 @@ impl App {
             t.dirty = true;
         }
         self.dlg.dimstyle = open;
+    }
+
+    fn language_dialog(&mut self, ctx: &egui::Context) {
+        if !self.dlg.language {
+            return;
+        }
+        let mut open = true;
+        let mut pick = None;
+        egui::Window::new(crate::i18n::tr("Language…").trim_end_matches('…').to_string())
+            .id(egui::Id::new("language_dialog"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(crate::i18n::tr("Interface language"));
+                let cur = self.settings.language.clone();
+                if ui.radio(cur.is_empty(), crate::i18n::tr("System default")).clicked() {
+                    pick = Some("system".to_string());
+                }
+                for (code, name) in crate::i18n::LANGUAGES {
+                    if ui.radio(cur == *code, *name).clicked() {
+                        pick = Some(code.to_string());
+                    }
+                }
+            });
+        self.dlg.language = open;
+        if let Some(c) = pick {
+            self.run(&format!("LANGUAGE {c}"));
+        }
     }
 
     fn plugins_dialog(&mut self, ctx: &egui::Context) {
