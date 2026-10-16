@@ -16,7 +16,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
     let c: Box<dyn Command> = match name {
         "ATTDEF" | "ATT" => Box::new(AttDefCmd::default()),
         "ATTEDIT" | "ATE" | "EATTEDIT" => Box::new(AttEditCmd),
-        _ => return None,
+        other => return crate::commands_region::create(other),
     };
     Some(c)
 }

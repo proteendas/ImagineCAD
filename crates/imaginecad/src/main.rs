@@ -12,6 +12,7 @@ mod cli;
 mod commands;
 mod commands_dim;
 mod commands_ext;
+mod commands_region;
 mod dialogs;
 mod dialogs2;
 mod icons;
@@ -24,6 +25,7 @@ mod tab;
 mod tables;
 mod text_ui;
 mod theme;
+mod tracking;
 mod view;
 
 use eframe::egui;

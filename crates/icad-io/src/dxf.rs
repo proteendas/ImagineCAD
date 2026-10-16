@@ -139,7 +139,7 @@ fn needs_proxy(s: &Shape) -> bool {
     match s {
         Shape::Dim(d) => d.kind == DimKind::ArcLength,
         Shape::Tolerance(f) => !f.leader.is_empty(),
-        Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) | Shape::Table(_) => true,
+        Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) | Shape::Table(_) | Shape::Region(_) => true,
         Shape::Leader(l) => l.style.is_some(),
         _ => false,
     }

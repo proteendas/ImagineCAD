@@ -14,6 +14,7 @@ pub mod geom;
 pub mod hatch;
 pub mod ops;
 pub mod prim;
+pub mod region;
 pub mod sheet;
 pub mod style;
 pub mod symbols;

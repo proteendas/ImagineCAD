@@ -192,6 +192,29 @@ Manual editing works alongside the chat at all times.
 The chat uses the engine chosen in **AI Settings** (any cloud key, Ollama or a
 local server). From a terminal: `imaginecad ask part.icad "make the bore 12 mm" -o part.icad`.
 
+## Regions and mass properties
+
+- `BOUNDARY` (`BO`): click inside closed areas to create closed polylines
+  along their boundaries (islands included); **O** switches the object type to
+  regions.
+- `REGION` (`REG`): turn closed objects, or lines and arcs that join into loops,
+  into regions.
+- `UNION` (`UNI`), `SUBTRACT` (`SU`: first the regions to keep, then those to
+  remove), `INTERSECT` (`IN`): combine regions.
+- `MASSPROP`: area, perimeter, bounding box, centroid, moments and product of
+  inertia, radii of gyration and principal moments of regions or closed
+  objects.
+
+## Precision aids
+
+- **Object snap tracking** (`OTRACK`, F11, status bar): rest the cursor on an
+  object snap point for a moment to acquire it (a green +). Moving away then
+  shows dotted tracking lines horizontally, vertically and at polar angles from
+  acquired points; where two meet, the cursor snaps to the intersection.
+  Resting on an acquired point again releases it.
+- **Selection cycling**: where objects overlap, click the same spot again to
+  select the next one (the command line names it).
+
 ## Text styles and spelling
 
 `STYLE` (`ST`) manages **text styles**: any installed TrueType/OpenType font

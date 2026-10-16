@@ -137,6 +137,9 @@ pub fn describe_shape(doc: &Document, s: &Shape) -> String {
                 t.cells.iter().take(40).map(|r| r.iter().map(|c| c.text.replace('\n', " ")).collect::<Vec<_>>().join(" | ")).collect();
             format!("table at {} ({}x{} cells, text {}): {}", p(t.pos), t.rows(), t.cols(), n(t.text_height), rows.join(" / "))
         }
+        Shape::Region(r) => {
+            format!("region area {} with {} loop(s), bounds {} to {}", n(r.area()), r.loops.len(), p(r.bbox().min), p(r.bbox().max))
+        }
         Shape::Datum(d) => format!("datum feature symbol {:?} at {} on feature {}", d.letter, p(d.pos), p(d.tip)),
         Shape::Surface(s) => format!("surface texture symbol at {} {:?} {:?} method {:?}", p(s.pos), s.process, s.requirement, s.method),
         Shape::Weld(w) => format!(

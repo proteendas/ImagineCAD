@@ -272,6 +272,8 @@ const DRAW_MORE: &[Item] = &[
     (Icon::Point, "Divide", "DIVIDE"),
     (Icon::Measure, "Measure", "MEASURE"),
     (Icon::Hatch, "Hatch", "HATCH"),
+    (Icon::Polyline, "Boundary", "BOUNDARY"),
+    (Icon::Region, "Region", "REGION"),
 ];
 const TRIMS: &[Item] = &[(Icon::Trim, "Trim", "TRIM"), (Icon::Extend, "Extend", "EXTEND")];
 const CORNERS: &[Item] = &[(Icon::Fillet, "Fillet", "FILLET"), (Icon::Chamfer, "Chamfer", "CHAMFER")];
@@ -289,6 +291,9 @@ const MODIFY_MORE: &[Item] = &[
     (Icon::Measure, "Measure", "MEASURE"),
     (Icon::Erase, "Overkill (delete duplicates)", "OVERKILL"),
     (Icon::Undo, "Oops (restore erased)", "OOPS"),
+    (Icon::Region, "Union (regions)", "UNION"),
+    (Icon::Region, "Subtract (regions)", "SUBTRACT"),
+    (Icon::Region, "Intersect (regions)", "INTERSECT"),
 ];
 const TEXTS: &[Item] = &[
     (Icon::MText, "Multiline Text", "MTEXT"),
@@ -356,6 +361,7 @@ const MEASURES: &[Item] = &[
     (Icon::Area, "Area", "AREA"),
     (Icon::Point, "Point Coordinates", "ID"),
     (Icon::List, "List", "LIST"),
+    (Icon::Region, "Mass Properties", "MASSPROP"),
 ];
 const SELECTS: &[Item] = &[(Icon::QSelect, "Quick Select", "QSELECT"), (Icon::SelectAll, "Select All", "SELECTALL")];
 

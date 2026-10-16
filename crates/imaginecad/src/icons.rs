@@ -85,6 +85,7 @@ pub enum Icon {
     Unlock,
     Table,
     Check,
+    Region,
     Link,
     Unlink,
     Block,
@@ -584,6 +585,13 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 ln(p, pos2(x, tl.y), pos2(x, bl.y), Stroke::new(1.0f32, crate::theme::TEXT_DIM));
             }
             ln(p, bl, br, s);
+        }
+        Icon::Region => {
+            let r = Rect::from_min_max(tl + vec2(0.0, u * 0.2), br - vec2(0.0, u * 0.2));
+            p.rect_filled(r, 2.0, crate::theme::ACTIVE);
+            p.rect_stroke(r, 2.0, s, eframe::egui::StrokeKind::Middle);
+            p.circle_filled(r.center(), u * 0.38, crate::theme::RIBBON);
+            p.circle_stroke(r.center(), u * 0.38, Stroke::new(s.width, accent));
         }
         Icon::Check => {
             p.text(c + vec2(-u * 0.25, -u * 0.25), Align2::CENTER_CENTER, "abc", FontId::proportional(u * 0.85), col);

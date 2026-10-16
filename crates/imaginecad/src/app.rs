@@ -48,6 +48,11 @@ pub struct App {
     /// optional IMAGINECAD_RUN="CMD;CMD" executed first (see `screenshot_hook`).
     pub shot: Option<(PathBuf, u32)>,
     pub chat: crate::chat::ChatPanel,
+    /// Object snap tracking: acquired points and the lines the cursor is on.
+    pub tracker: crate::tracking::Tracker,
+    pub track_rays: Vec<crate::tracking::Ray>,
+    /// Selection cycling: last click position, the objects under it, and which was chosen.
+    pub cycle: Option<(egui::Pos2, Vec<u64>, usize)>,
 }
 
 impl App {
@@ -86,6 +91,9 @@ impl App {
             polar_hit: None,
             shot: std::env::var_os("IMAGINECAD_SCREENSHOT").map(|p| (PathBuf::from(p), 0)),
             chat: Default::default(),
+            tracker: Default::default(),
+            track_rays: vec![],
+            cycle: None,
         };
         app.new_drawing();
         if let Some(p) = open {
@@ -286,6 +294,7 @@ impl App {
                 t.doc.layers.iter_mut().for_each(|l| l.visible = true);
             }
             "POLAR" => self.settings.polar = !self.settings.polar,
+            "OTRACK" => self.settings.otrack = !self.settings.otrack,
             "IMAGEATTACH" | "IAT" | "ATTACH" => {
                 if let Some(p) =
                     rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp"]).pick_file()
@@ -597,6 +606,7 @@ impl App {
                         Key::F9 => self.settings.snap = !self.settings.snap,
                         Key::F12 => self.settings.dyn_input = !self.settings.dyn_input,
                         Key::F10 => self.settings.polar = !self.settings.polar,
+                        Key::F11 => self.settings.otrack = !self.settings.otrack,
                         _ => {}
                     }
                     if typing_elsewhere {
@@ -761,8 +771,27 @@ impl App {
             if self.settings.osnap && wants == Some(Want::Point) {
                 self.snap = canvas::find_snap(&t.doc, &t.view, raw, base, &self.settings.osnap_modes, 12.0);
             }
+            // Object snap tracking: acquire snap points by resting on them.
+            self.track_rays.clear();
+            let tracking = self.settings.osnap && self.settings.otrack && wants == Some(Want::Point);
+            if tracking {
+                if self.tracker.update(self.snap.map(|s| s.1), std::time::Instant::now()) {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
+                }
+            } else {
+                self.tracker.clear();
+            }
+            let aligned = if tracking && self.snap.is_none() {
+                crate::tracking::align(&self.tracker.points, p, t.view.px(8.0), self.settings.polar.then_some(self.settings.polar_angle))
+            } else {
+                None
+            };
             if let Some((_, s)) = self.snap {
                 p = s;
+            } else if let Some((q, rays)) = aligned {
+                p = q;
+                self.polar_hit = None;
+                self.track_rays = rays;
             } else {
                 if self.settings.snap {
                     let sp = self.settings.snap_spacing.max(1e-9);
@@ -838,6 +867,27 @@ impl App {
             let t = &self.tabs[self.active];
             if let Some((k, p)) = self.snap {
                 canvas::draw_snap_marker(&painter, t.view.to_screen(p), k);
+            }
+            // Tracking: acquired points (+), dotted lines and the distance.
+            let green = Color32::from_rgb(120, 255, 140);
+            for q in &self.tracker.points {
+                let s = t.view.to_screen(*q);
+                painter.line_segment([s - vec2(5.0, 0.0), s + vec2(5.0, 0.0)], Stroke::new(1.5f32, green));
+                painter.line_segment([s - vec2(0.0, 5.0), s + vec2(0.0, 5.0)], Stroke::new(1.5f32, green));
+            }
+            for r in &self.track_rays {
+                canvas::draw_tracking_ray(&painter, &t.view, r.from, r.angle, rect);
+            }
+            if let Some(r) = self.track_rays.first() {
+                let d = self.cursor.dist(r.from);
+                let what = if self.track_rays.len() > 1 { "Intersection" } else { "Tracking" };
+                painter.text(
+                    t.view.to_screen(self.cursor) + vec2(14.0, -22.0),
+                    Align2::LEFT_BOTTOM,
+                    format!("{what}: {} < {}°", commands::fmt(d), commands::fmt(r.angle)),
+                    FontId::proportional(11.5),
+                    green,
+                );
             }
             if let (Some(a), Some(b)) = (self.polar_hit, base) {
                 canvas::draw_tracking_ray(&painter, &t.view, b, a, rect);
@@ -952,6 +1002,29 @@ impl App {
                         {
                             self.cmd = Some(Box::new(GripCmd { id, grip: gi, from: gp }));
                             return;
+                        }
+                    }
+                    // Selection cycling: clicking the same spot again picks the next
+                    // of the objects lying under the cursor.
+                    let at = resp.interact_pointer_pos().unwrap_or(pos2(0.0, 0.0));
+                    let mut hover_id = hover_id;
+                    if clicked && hover_id.is_some() {
+                        let t = &self.tabs[self.active];
+                        let under: Vec<u64> = t.doc.pick_all(r, t.view.px(5.0)).into_iter().filter(|id| t.editable(*id)).collect();
+                        let again = self.cycle.as_ref().filter(|(p, ids, _)| p.distance(at) < 4.0 && *ids == under).map(|c| c.2);
+                        if let (Some(prev), true) = (again, under.len() > 1) {
+                            let next = (prev + 1) % under.len();
+                            let sel = &mut self.tabs[self.active].selection;
+                            if !shift {
+                                sel.retain(|x| *x != under[prev]);
+                            }
+                            hover_id = Some(under[next]);
+                            let name = self.tabs[self.active].doc.get(under[next]).map(|e| e.shape.type_name()).unwrap_or("");
+                            self.log.push(format!("Selection cycling: {} of {} ({name})", next + 1, under.len()));
+                            self.cycle = Some((at, under, next));
+                        } else {
+                            let first = under.iter().position(|id| Some(*id) == hover_id).unwrap_or(0);
+                            self.cycle = Some((at, under, first));
                         }
                     }
                     match hover_id {
@@ -1264,6 +1337,11 @@ impl App {
                                 }
                             }
                         });
+                        if chip(ui, "OTRACK", self.settings.otrack, "Object snap tracking (F11): rest on a snap point to track from it")
+                            .clicked()
+                        {
+                            self.settings.otrack ^= true;
+                        }
                         if chip(ui, "ORTHO", self.settings.ortho, "Ortho mode (F8)").clicked() {
                             self.settings.ortho ^= true;
                         }
@@ -1849,6 +1927,22 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             dv(ui, &format!("Vertex {} X", i + 1), &mut p.x);
                             dv(ui, &format!("Vertex {} Y", i + 1), &mut p.y);
                         }
+                    }
+                    Shape::Region(rg) => {
+                        let m = rg.mass_properties();
+                        for (label, v) in [
+                            ("Area", commands::fmt(m.area)),
+                            ("Perimeter", commands::fmt(m.perimeter)),
+                            ("Centroid", format!("{}, {}", commands::fmt(m.centroid.x), commands::fmt(m.centroid.y))),
+                            ("Loops", rg.loops.len().to_string()),
+                        ] {
+                            ui.label(label);
+                            ui.label(v);
+                            ui.end_row();
+                        }
+                        ui.label("");
+                        ui.label(RichText::new("MASSPROP for moments of inertia").size(11.0).color(theme::TEXT_DIM));
+                        ui.end_row();
                     }
                     Shape::Table(tb) => {
                         ui.label("Size");

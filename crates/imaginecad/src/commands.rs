@@ -302,6 +302,13 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("MLEADERSTYLE", "MLS"),
     ("STYLE", "ST"),
     ("SPELL", "SP"),
+    ("BOUNDARY", "BO"),
+    ("REGION", "REG"),
+    ("UNION", "UNI"),
+    ("SUBTRACT", "SU"),
+    ("INTERSECT", "IN"),
+    ("MASSPROP", ""),
+    ("OTRACK", ""),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {

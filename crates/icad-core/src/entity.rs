@@ -7,6 +7,7 @@ use crate::curves::*;
 use crate::geom::*;
 use crate::hatch;
 use crate::prim::*;
+use crate::region::Region;
 use crate::style::*;
 use crate::symbols::*;
 use crate::table::*;
@@ -649,6 +650,8 @@ pub enum Shape {
     /// Geometric tolerance feature control frame.
     Tolerance(Fcf),
     Table(Table),
+    /// Closed area with holes (REGION, BOUNDARY, booleans, MASSPROP).
+    Region(Region),
     /// Attribute definition (in a block; shows its tag elsewhere).
     AttDef(AttDef),
     /// Datum feature symbol.
@@ -811,6 +814,7 @@ impl Shape {
             Shape::Image(_) => "Raster Image",
             Shape::Tolerance(_) => "Tolerance",
             Shape::Table(_) => "Table",
+            Shape::Region(_) => "Region",
             Shape::AttDef(_) => "Attribute Definition",
             Shape::Datum(_) => "Datum Symbol",
             Shape::Surface(_) => "Surface Texture Symbol",
@@ -899,6 +903,7 @@ impl Shape {
             Shape::Image(i) => vec![Prim::Image(i.clone())],
             Shape::Tolerance(f) => f.prims(ctx.ds.text_height * ctx.scale, ctx.ds.arrow_size * ctx.scale),
             Shape::Table(t) => t.prims(),
+            Shape::Region(r) => r.loops.iter().map(|l| Prim::Poly(l.clone(), true)).collect(),
             Shape::AttDef(a) => {
                 let mut t = a.text.clone();
                 t.content = a.tag.clone();
@@ -935,6 +940,7 @@ impl Shape {
             }
             Shape::Ray { p, dir } => vec![Curve::Seg(*p, *p + dir.norm() * INFINITE)],
             Shape::Leader(l) => poly_curves(&l.pts, false),
+            Shape::Region(r) => r.loops.iter().flat_map(|l| poly_curves(l, true)).collect(),
             _ => vec![],
         }
     }
@@ -1017,6 +1023,7 @@ impl Shape {
             Shape::Hatch(_) => vec![],
             Shape::Tolerance(f) => vec![(Insertion, f.pos)],
             Shape::Table(t) => vec![(Insertion, t.pos)],
+            Shape::Region(r) => r.loops.iter().flatten().map(|p| (End, *p)).collect(),
             Shape::AttDef(a) => vec![(Insertion, a.text.pos)],
             Shape::Datum(d) => vec![(Insertion, d.pos), (End, d.tip)],
             Shape::Surface(s) => vec![(Insertion, s.pos)],
@@ -1068,6 +1075,14 @@ impl Shape {
             }
             Shape::Tolerance(f) => std::iter::once(f.pos).chain(f.leader.iter().copied()).collect(),
             Shape::Table(t) => vec![t.pos],
+            Shape::Region(r) => {
+                let b = r.bbox();
+                if b.is_empty() {
+                    vec![]
+                } else {
+                    vec![b.center()]
+                }
+            }
             Shape::AttDef(a) => vec![a.text.pos],
             Shape::Datum(d) => vec![d.pos, d.tip],
             Shape::Surface(s) => vec![s.pos],
@@ -1194,6 +1209,10 @@ impl Shape {
             }
             Shape::Surface(s) => s.pos = p,
             Shape::Table(t) => t.pos = p,
+            Shape::Region(r) => {
+                let d = p - r.bbox().center();
+                r.loops.iter_mut().flatten().for_each(|q| *q += d);
+            }
             Shape::AttDef(a) => a.text.pos = p,
             Shape::Weld(w) => {
                 if i == 0 {
@@ -1304,6 +1323,13 @@ impl Shape {
                 img.w = b.width();
                 img.h = b.height();
             }
+            Shape::Region(r) => {
+                r.loops.iter_mut().flatten().for_each(|p| *p = x.apply(*p));
+                // Mirroring flips orientation; keep outer boundaries counter-clockwise.
+                if x.is_mirror() {
+                    r.loops.iter_mut().for_each(|l| l.reverse());
+                }
+            }
             Shape::Table(t) => {
                 t.pos = x.apply(t.pos);
                 t.col_widths.iter_mut().for_each(|w| *w *= k);
@@ -1368,6 +1394,7 @@ impl Shape {
             | Shape::Table(_) => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) if !h.is_solid() => Some(from_prims(self.prims(ctx))),
             Shape::Hatch(h) => Some(h.loops.iter().map(|l| Shape::Polyline { pts: l.clone(), closed: true }).collect()),
+            Shape::Region(r) => Some(r.loops.iter().map(|l| Shape::Polyline { pts: l.clone(), closed: true }).collect()),
             _ => None,
         }
     }
@@ -1399,6 +1426,7 @@ impl Shape {
             Shape::Polyline { pts, closed: true } => Some(hatch::signed_area(pts).abs()),
             Shape::Ellipse { major, ratio, start, end, .. } if is_full_ellipse(*start, *end) => Some(PI * major.len().powi(2) * ratio),
             Shape::Hatch(h) => Some(h.area()),
+            Shape::Region(r) => Some(r.area()),
             _ => self.closed_loop().map(|l| hatch::signed_area(&l).abs()),
         }
     }
@@ -1412,6 +1440,7 @@ impl Shape {
                 Some(v)
             }
             Shape::Polyline { pts, closed: true } => Some(pts.clone()),
+            Shape::Region(r) => r.loops.first().cloned(),
             Shape::Ellipse { c, major, ratio, start, end } if is_full_ellipse(*start, *end) => {
                 let mut v = ellipse_points(*c, *major, *ratio, 0.0, TAU, ellipse_tol(*major));
                 v.pop();

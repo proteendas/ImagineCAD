@@ -669,7 +669,15 @@ impl Command for HatchCmd {
         Flow::Continue
     }
     fn selected(&mut self, cx: &mut Cx, ids: Vec<u64>) -> Flow {
-        let loops: Vec<Vec<V2>> = ids.iter().filter_map(|id| cx.tab.doc.get(*id)).filter_map(|e| e.shape.closed_loop()).collect();
+        // Regions bring their holes along.
+        let loops: Vec<Vec<V2>> = ids
+            .iter()
+            .filter_map(|id| cx.tab.doc.get(*id))
+            .flat_map(|e| match &e.shape {
+                Shape::Region(r) => r.loops.clone(),
+                s => s.closed_loop().into_iter().collect(),
+            })
+            .collect();
         if loops.is_empty() {
             cx.msg("No closed objects selected (circles, closed polylines, ellipses, closed splines).");
         } else {
