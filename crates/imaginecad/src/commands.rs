@@ -135,6 +135,8 @@ impl Cx<'_> {
         let layer = dim_layer(self);
         self.tab.doc.associate_dim(&mut d);
         let id = self.tab.doc.add_on(&layer, Shape::Dim(d));
+        // Its text moves clear of other text and of the part.
+        self.tab.doc.declutter_dim(id);
         self.mem.last_dim = Some(id);
         id
     }
@@ -317,6 +319,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("XATTACH", "XA"),
     ("XREF", "XR"),
     ("REVCLOUD", "RC"),
+    ("DIMARRANGE", "DARR"),
     ("BOM", ""),
     ("BALLOON", "BAL"),
 ];
@@ -1979,8 +1982,15 @@ impl Command for GripCmd {
     }
     fn point(&mut self, cx: &mut Cx, p: V2) -> Flow {
         cx.checkpoint();
+        let mut dim = false;
         if let Some(e) = cx.doc().get_mut(self.id) {
             e.shape.set_grip(self.grip, p);
+            dim = matches!(e.shape, Shape::Dim(_));
+        }
+        // A dimension whose measured points moved keeps its text clear
+        // (dragging the text itself, grip 2, is left where it is put).
+        if dim && self.grip != 2 {
+            cx.doc().declutter_dim(self.id);
         }
         cx.tab.selection = vec![self.id];
         Flow::Done

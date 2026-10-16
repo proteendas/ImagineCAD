@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Proteen Das
 
 //! REVCLOUD (revision clouds), BOM (bill of materials table) and BALLOON
-//! (item balloons matching the BOM).
+//! (item balloons matching the BOM), and DIMARRANGE (dimension text kept
+//! clear of other annotation).
 
 use crate::commands::{dim_layer, fmt, num, rect_pts, Command, Cx, Flow, Want};
 use icad_core::entity::{Leader, Shape};
@@ -15,6 +16,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "REVCLOUD" | "RC" => Box::new(RevCloudCmd::default()),
         "BOM" | "PARTSLIST" | "BILLOFMATERIALS" => Box::new(BomCmd { table: None }),
         "BALLOON" | "BAL" => Box::new(BalloonCmd::default()),
+        "DIMARRANGE" | "DARR" | "DIMDECLUTTER" => Box::new(ArrangeCmd),
         _ => return None,
     };
     Some(c)
@@ -319,5 +321,37 @@ impl Command for BalloonCmd {
         }
         cx.msg(format!("{n} balloon(s) placed, numbered as in the bill of materials."));
         Flow::Done
+    }
+}
+
+// ------------------------------------------------------------------ DIMARRANGE
+
+/// Move dimension text clear of other text and of the part.
+struct ArrangeCmd;
+
+impl Command for ArrangeCmd {
+    fn name(&self) -> &'static str {
+        "DIMARRANGE"
+    }
+    fn prompt(&self, _: &Cx) -> String {
+        "Select dimensions to tidy <all>:".into()
+    }
+    fn wants(&self) -> Want {
+        Want::Select
+    }
+    fn selected(&mut self, cx: &mut Cx, ids: Vec<u64>) -> Flow {
+        let picked = !ids.is_empty();
+        let dims: Vec<u64> = ids.into_iter().filter(|id| matches!(cx.tab.doc.get(*id).map(|e| &e.shape), Some(Shape::Dim(_)))).collect();
+        if picked && dims.is_empty() {
+            cx.msg("No dimensions in the selection.");
+            return Flow::Done;
+        }
+        cx.checkpoint();
+        let n = cx.doc().declutter_dims(&dims);
+        cx.msg(format!("DIMARRANGE moved {n} dimension text(s) clear of other annotation and the part."));
+        Flow::Done
+    }
+    fn enter(&mut self, cx: &mut Cx) -> Flow {
+        self.selected(cx, vec![])
     }
 }

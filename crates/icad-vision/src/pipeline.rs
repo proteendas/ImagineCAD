@@ -1067,6 +1067,10 @@ fn enclosed_holes(mask: &raster::Mask, comp_labels: &[u32], ncomp: usize, min_ar
     holes
 }
 
+fn ids_of_dims(doc: &Document) -> Vec<u64> {
+    doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_))).map(|e| e.id).collect()
+}
+
 /// Put the sketch image `path` under a conversion inserted with [`apply`],
 /// on its own layer (not plotted), faded by `fade` (0–90).
 pub fn overlay(conv: &Conversion, doc: &mut Document, path: &str, fade: u8) -> bool {
@@ -1118,8 +1122,10 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
     if let Some(spec) = &conv.part {
         doc.part = Some(icad_core::document::PartRecord { spec: spec.to_json(), ids });
     }
-    // Dimensions follow the geometry they measure when it is edited.
+    // Dimensions follow the geometry they measure when it is edited, and
+    // their text keeps clear of other text and of the part.
     doc.associate_all_dims();
+    doc.declutter_dims(&ids_of_dims(doc));
     if let Some(t) = &conv.title {
         doc.sheet.title.title = t.to_uppercase();
     }

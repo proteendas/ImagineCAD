@@ -4,6 +4,7 @@
 //! ImagineCAD core: geometry, the entity model, layers, the drawing sheet and
 //! editing operations. This crate has no GUI or I/O dependencies.
 
+pub mod arrange;
 pub mod assoc;
 pub mod curves;
 pub mod document;

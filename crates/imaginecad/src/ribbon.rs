@@ -543,6 +543,7 @@ const ANNOT_MORE: &[Item] = &[
     (Icon::CenterMark, "Center Mark", "CENTERMARK"),
     (Icon::DimStyle, "Dimension Style", "DIMSTYLE"),
     (Icon::DimStyle, "Multileader Style", "MLEADERSTYLE"),
+    (Icon::DimStyle, "Tidy Dimension Text", "DIMARRANGE"),
     (Icon::Link, "Reassociate Dimensions", "DIMREASSOCIATE"),
     (Icon::Unlink, "Disassociate Dimensions", "DIMDISASSOCIATE"),
 ];

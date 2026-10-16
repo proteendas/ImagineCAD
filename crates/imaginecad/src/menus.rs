@@ -168,6 +168,7 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("Surface Texture", "SURFFINISH"),
             ("Weld Symbol", "WELD"),
             ("-", ""),
+            ("Tidy Dimension Text", "DIMARRANGE"),
             ("Reassociate", "DIMREASSOCIATE"),
             ("Disassociate", "DIMDISASSOCIATE"),
             ("Dimension Style…", "DIMSTYLE"),
