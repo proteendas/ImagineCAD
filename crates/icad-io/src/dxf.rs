@@ -1524,8 +1524,16 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     let mut insert_xrefs: Vec<(String, String)> = Vec::new();
     let mut recs: Vec<Rec> = Vec::new();
     let mut block_recs: Vec<(String, V2, Vec<Rec>)> = Vec::new();
+    let mut vars: Vec<(String, String)> = Vec::new();
     while i < ps.len() {
         let p = &ps[i];
+        if section == "HEADER" && p.code == 9 {
+            if let Some(v) = ps.get(i + 1) {
+                vars.push((p.val.clone(), v.val.clone()));
+            }
+            i += 2;
+            continue;
+        }
         if p.code == 0 && p.val == "SECTION" {
             section = ps.get(i + 1).map(|x| x.val.clone()).unwrap_or_default();
             i += 2;
@@ -1690,11 +1698,42 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     }
     // Dimensions follow the geometry they measure.
     doc.associate_all_dims();
+    // Annotation scale and dimension style from the header.
+    let var = |name: &str| vars.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).and_then(|(_, v)| v.trim().parse::<f64>().ok());
+    let dimscale = var("$DIMSCALE").filter(|v| *v > 0.0);
+    for (name, field) in [
+        ("$DIMTXT", &mut doc.dimstyle.text_height),
+        ("$DIMASZ", &mut doc.dimstyle.arrow_size),
+        ("$DIMEXO", &mut doc.dimstyle.ext_offset),
+        ("$DIMEXE", &mut doc.dimstyle.ext_beyond),
+        ("$DIMGAP", &mut doc.dimstyle.text_gap),
+    ] {
+        if let Some(v) = var(name).filter(|v| *v > 0.0) {
+            *field = v;
+        }
+    }
+    if let Some(v) = var("$DIMDEC").filter(|v| (0.0..=8.0).contains(v)) {
+        doc.dimstyle.decimals = v as usize;
+    }
     if !doc.entities.is_empty() {
         doc.current_layer = "0".into();
-        let ext = doc.extents();
+        // Fit the paper to the drawing itself, not to an exported border.
+        let ext = doc
+            .entities
+            .iter()
+            .filter(|e| !e.layer.eq_ignore_ascii_case("TITLEBLOCK"))
+            .fold(icad_core::geom::BBox::empty(), |b, e| b.union(&doc.entity_bbox(e)));
+        let ext = if ext.is_empty() { doc.extents() } else { ext };
         doc.sheet.fit_to(&ext);
         doc.sheet.visible = false;
+    }
+    // Keep the drawing's own annotation scale: text and arrows stay the size
+    // they were drawn at.
+    if let Some(s) = dimscale {
+        doc.sheet.scale = s;
+        if let Some(lt) = var("$LTSCALE").filter(|v| *v > 0.0) {
+            doc.ltscale = lt / s;
+        }
     }
     if !warn.is_empty() {
         eprintln!("DXF import: skipped {warn:?}");
@@ -1820,6 +1859,20 @@ mod tests {
         });
         d.add(Shape::Insert(Insert::new("WASHER", V2::new(120., 20.))));
         d
+    }
+
+    #[test]
+    fn annotation_scale_survives_export_with_sheet() {
+        let mut d = Document::new();
+        d.add(Shape::Line { a: V2::new(0.0, 0.0), b: V2::new(2800.0, 0.0) });
+        d.add(Shape::Line { a: V2::new(0.0, 0.0), b: V2::new(0.0, 180.0) });
+        d.sheet.scale = 20.0;
+        d.sheet.visible = true;
+        d.dimstyle.text_height = 2.5;
+        // The exported border is much bigger than the part; it must not change the scale.
+        let r = read_dxf(&write_dxf(&d, &DxfOptions::default())).unwrap();
+        assert_eq!(r.sheet.scale, 20.0);
+        assert_eq!(r.dimstyle.text_height, 2.5);
     }
 
     #[test]

@@ -741,6 +741,7 @@ impl App {
                     t.view.fit(&b);
                 }
                 ViewReq::Window(b) => t.view.fit(&b),
+                ViewReq::Scale(f) => t.view.zoom *= f,
                 ViewReq::Previous => {
                     // The current view was just pushed; drop it and restore the one before.
                     t.view_history.pop();
@@ -1157,9 +1158,21 @@ impl App {
                             self.run(cmd);
                         }
                     }
+                    ui.add_space(6.0);
+                    let mut picked = vec![];
+                    egui::menu::bar(ui, |ui| crate::menus::menu_bar(ui, &mut picked));
+                    for c in picked {
+                        self.run(&c);
+                    }
+                    // The title goes in the middle of whatever room the menus leave.
                     let title = format!("ImagineCAD  —  {}", self.tabs[self.active].title());
-                    let center = ui.max_rect().center();
-                    ui.painter().text(pos2(center.x, center.y), Align2::CENTER_CENTER, title, FontId::proportional(13.0), theme::TEXT);
+                    let font = FontId::proportional(13.0);
+                    let tw = ui.fonts(|f| f.layout_no_wrap(title.clone(), font.clone(), theme::TEXT).size().x);
+                    let (left, right) = (ui.cursor().left() + 12.0, ui.max_rect().right() - 130.0);
+                    if right - left > tw {
+                        let x = ui.max_rect().center().x.clamp(left + tw / 2.0, right - tw / 2.0);
+                        ui.painter().text(pos2(x, ui.max_rect().center().y), Align2::CENTER_CENTER, title, font, theme::TEXT);
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.add(egui::Button::new("?").frame(false)).on_hover_text("Help (F1)").clicked() {
                             self.dlg.help = true;
@@ -1311,10 +1324,30 @@ impl App {
                     );
                     ui.separator();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let sc = self.tabs[self.active].doc.sheet.scale_label();
-                        if ui.button(format!("Scale {sc}")).on_hover_text("Sheet / annotation scale — click for Page Setup").clicked() {
-                            self.dlg.page = true;
-                        }
+                        // Annotation scale: dimension text, arrows and the sheet follow it.
+                        let cur = self.tabs[self.active].doc.sheet.scale;
+                        ui.menu_button(format!("Scale {}", icad_core::sheet::scale_label(cur)), |ui| {
+                            ui.label(RichText::new("Annotation scale").size(11.0).color(theme::TEXT_DIM));
+                            for sc in [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0] {
+                                if ui.selectable_label((cur - sc).abs() < 1e-9, icad_core::sheet::scale_label(sc)).clicked() {
+                                    let t = self.tab();
+                                    t.checkpoint();
+                                    t.doc.sheet.scale = sc;
+                                    self.log.push(format!(
+                                        "Annotation scale {}: dimension text and arrows resized.",
+                                        icad_core::sheet::scale_label(sc)
+                                    ));
+                                    ui.close_menu();
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Page Setup…").clicked() {
+                                self.dlg.page = true;
+                                ui.close_menu();
+                            }
+                        })
+                        .response
+                        .on_hover_text("Annotation scale — sizes dimension text and arrows for the plot (like the sheet scale)");
                         let chip = |ui: &mut egui::Ui, label: &str, on: bool, tip: &str| -> egui::Response {
                             let txt = RichText::new(label).size(11.5).color(if on { Color32::WHITE } else { theme::TEXT_DIM });
                             ui.add(egui::Button::new(txt).fill(if on { theme::ACTIVE } else { Color32::TRANSPARENT }).corner_radius(2))
@@ -1481,8 +1514,9 @@ impl App {
         self.shot = Some((path.clone(), frame + 1));
         if frame == 3 {
             if let Ok(cmds) = std::env::var("IMAGINECAD_RUN") {
+                // Typed as on the command line (commands and their input).
                 for c in cmds.split(';') {
-                    self.run(c.trim());
+                    self.submit(c.trim());
                 }
             }
         }

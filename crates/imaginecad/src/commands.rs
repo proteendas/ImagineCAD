@@ -36,6 +36,8 @@ pub enum ViewReq {
     Window(BBox),
     Sheet,
     Previous,
+    /// Zoom by a factor about the view centre (ZOOM 2X).
+    Scale(f64),
 }
 
 /// Values remembered between command invocations (like CAD system variables).
@@ -1834,7 +1836,7 @@ impl Command for ZoomCmd {
     }
     fn prompt(&self, _: &Cx) -> String {
         if self.first.is_none() {
-            "Specify corner of window or [All/Extents/Previous/Window] <Extents>:".into()
+            "Specify corner of window, scale factor (nX), or [All/Extents/Previous/Window] <Extents>:".into()
         } else {
             "Specify opposite corner:".into()
         }
@@ -1867,6 +1869,10 @@ impl Command for ZoomCmd {
             "W" | "WINDOW" => Flow::Continue,
             "P" | "PREVIOUS" => {
                 *cx.view_req = Some(ViewReq::Previous);
+                Flow::Done
+            }
+            f if f.trim_end_matches('X').parse::<f64>().is_ok_and(|v| v > 0.0) => {
+                *cx.view_req = Some(ViewReq::Scale(f.trim_end_matches('X').parse().unwrap_or(1.0)));
                 Flow::Done
             }
             _ => {

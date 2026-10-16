@@ -17,6 +17,7 @@ mod dialogs;
 mod dialogs2;
 mod icons;
 mod layouts_ui;
+mod menus;
 mod ribbon;
 mod secrets;
 mod settings;
@@ -47,9 +48,14 @@ fn main() -> eframe::Result<()> {
     }
     let open = args.iter().find(|a| !a.starts_with('-')).map(std::path::PathBuf::from);
 
+    // IMAGINECAD_WINDOW=WxH sets the start size (visual tests).
+    let size = std::env::var("IMAGINECAD_WINDOW")
+        .ok()
+        .and_then(|s| s.split_once('x').and_then(|(w, h)| Some([w.parse().ok()?, h.parse().ok()?])))
+        .unwrap_or([1500.0, 920.0]);
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("ImagineCAD")
-        .with_inner_size([1500.0, 920.0])
+        .with_inner_size(size)
         .with_min_inner_size([900.0, 600.0])
         .with_drag_and_drop(true);
     if let Ok(img) = image::load_from_memory(ICON_PNG) {
