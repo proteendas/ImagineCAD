@@ -24,6 +24,8 @@ pub struct Container {
     pub map: Vec<(u64, usize)>,
     /// The header variables section.
     pub header: Vec<u8>,
+    /// The class section (types numbered 500 and up).
+    pub classes: Vec<u8>,
 }
 
 fn rl(d: &[u8], at: usize) -> Option<u32> {
@@ -94,8 +96,8 @@ fn read_r2000(file: &[u8], ver: Ver, maint: u8) -> Result<Container, String> {
     }
     let (_, address, size) = *sections.iter().find(|s| s.0 == 2).ok_or("the drawing has no object map")?;
     let handles = file.get(address..address + size).ok_or("the object map lies outside the file")?;
-    let header = sections.iter().find(|s| s.0 == 0).and_then(|&(_, a, n)| file.get(a..a + n)).unwrap_or_default().to_vec();
-    Ok(Container { ver, maint, map: object_map(handles), objects: file.to_vec(), header })
+    let part = |k: u8| sections.iter().find(|s| s.0 == k).and_then(|&(_, a, n)| file.get(a..a + n)).unwrap_or_default().to_vec();
+    Ok(Container { ver, maint, map: object_map(handles), objects: file.to_vec(), header: part(0), classes: part(1) })
 }
 
 /// The R2004 file header is XORed with a pseudo-random sequence.
@@ -309,7 +311,8 @@ fn read_r2004(file: &[u8], ver: Ver, maint: u8) -> Result<Container, String> {
     let objects = section("AcDb:AcDbObjects")?;
     let handles = section("AcDb:Handles")?;
     let header = section("AcDb:Header").unwrap_or_default();
-    Ok(Container { ver, maint, map: object_map(&handles), objects, header })
+    let classes = section("AcDb:Classes").unwrap_or_default();
+    Ok(Container { ver, maint, map: object_map(&handles), objects, header, classes })
 }
 
 #[cfg(test)]

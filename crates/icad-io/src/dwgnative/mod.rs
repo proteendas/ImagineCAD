@@ -11,6 +11,7 @@
 //! can fall back to the converter when it matters.
 
 pub mod bits;
+pub mod classes;
 pub mod container;
 pub mod header;
 pub mod objects;
@@ -35,8 +36,7 @@ pub struct Report {
     /// Objects that could not be decoded.
     pub damaged: usize,
     pub entities: usize,
-    /// Written by ImagineCAD: its extended data (exact shapes, constraints,
-    /// dynamic blocks) is read through the DXF path.
+    /// Written by ImagineCAD (its extended data was read).
     pub from_imaginecad: bool,
 }
 
@@ -86,6 +86,18 @@ struct Item {
     handle: u64,
     common: Common,
     ent: Ent,
+    eed: Vec<(u64, Vec<String>)>,
+}
+
+/// ImagineCAD's own data in the drawing.
+#[derive(Default)]
+struct Extras {
+    /// Handle of the IMAGINECAD application id (its extended data).
+    app: Option<u64>,
+    constraints: String,
+    dynblocks: String,
+    /// Image definition handle → file.
+    images: HashMap<u64, String>,
 }
 
 /// Read a DWG file.
@@ -96,6 +108,8 @@ pub fn read(file: &[u8]) -> Result<(Document, Report), String> {
     let mut ltypes: HashMap<u64, String> = HashMap::new();
     let mut blocks: HashMap<u64, objects::BlockRec> = HashMap::new();
     let mut items: Vec<Item> = vec![];
+    let mut extras = Extras::default();
+    let classes = classes::read(&c);
     for &(handle, offset) in &c.map {
         let Some(mut o) = objects::open(&c, offset) else {
             report.damaged += 1;
@@ -114,12 +128,40 @@ pub fn read(file: &[u8]) -> Result<(Document, Report), String> {
             }
             67 => {
                 let name = objects::table_common(&mut o);
-                report.from_imaginecad |= name.eq_ignore_ascii_case("IMAGINECAD");
+                if name.eq_ignore_ascii_case(crate::dxf::XDATA_APP) {
+                    report.from_imaginecad = true;
+                    extras.app = Some(handle);
+                }
             }
             49 => {
                 let b = objects::block_header(&mut o);
                 if !o.d.overrun {
                     blocks.insert(handle, b);
+                }
+            }
+            ty if ty >= 500 && classes.get(&ty).is_some_and(|c| c.0 == "IMAGE") => match objects::image(&mut o) {
+                Some((common, ent)) => items.push(Item { handle, common, ent, eed: std::mem::take(&mut o.eed) }),
+                None => report.damaged += 1,
+            },
+            ty if ty >= 500 && classes.get(&ty).is_some_and(|c| c.0 == "IMAGEDEF") => {
+                if let Some(p) = objects::imagedef(&mut o) {
+                    extras.images.insert(handle, p);
+                }
+            }
+            ty if ty >= 500 && classes.get(&ty).is_some_and(|c| c.1) => {
+                // Other class-defined entities (multileaders, wipeouts…).
+                let name = classes.get(&ty).map(|c| c.0.to_ascii_lowercase()).unwrap_or_default();
+                *report.skipped.entry(name).or_default() += 1;
+            }
+            ty if ty == 79 || (ty >= 500 && classes.get(&ty).is_none_or(|c| c.0 == "XRECORD")) => {
+                // Records of ImagineCAD's constraints and dynamic blocks.
+                if let Some(strs) = objects::xrecord_strings(&mut o) {
+                    let mut ones = strs.iter().filter(|(c, _)| *c == 1).map(|(_, s)| s.as_str());
+                    match ones.next().map(str::trim) {
+                        Some(k) if k == crate::dxf::CONSTRAINTS_KEY => extras.constraints = ones.collect(),
+                        Some(k) if k == crate::dxf::DYNBLOCKS_KEY => extras.dynblocks = ones.collect(),
+                        _ => {}
+                    }
                 }
             }
             ty => {
@@ -128,7 +170,7 @@ pub fn read(file: &[u8]) -> Result<(Document, Report), String> {
                     continue;
                 }
                 if let Some((common, ent)) = objects::entity(&mut o) {
-                    items.push(Item { handle, common, ent });
+                    items.push(Item { handle, common, ent, eed: std::mem::take(&mut o.eed) });
                 } else if objects::is_entity_read(ty) {
                     report.damaged += 1;
                 }
@@ -136,7 +178,7 @@ pub fn read(file: &[u8]) -> Result<(Document, Report), String> {
         }
     }
     let vars = header::read(&c);
-    let (mut doc, report) = build(c.ver, layers, ltypes, blocks, items, report);
+    let (mut doc, report) = build(c.ver, layers, ltypes, blocks, items, extras, report);
     if let Some(h) = vars {
         // The drawing's own annotation scale and dimension style.
         let ds = &mut doc.dimstyle;
@@ -173,6 +215,7 @@ fn build(
     ltypes: HashMap<u64, String>,
     blocks: HashMap<u64, objects::BlockRec>,
     items: Vec<Item>,
+    extras: Extras,
     mut report: Report,
 ) -> (Document, Report) {
     let mut doc = Document::new();
@@ -232,13 +275,35 @@ fn build(
     let mut model: Vec<Entity> = vec![];
     let mut in_block: HashMap<u64, Vec<Entity>> = HashMap::new();
     let mut next_id = 1u64;
+    // DWG handle → entity id, for the records that refer to entities.
+    let mut handle_ids: HashMap<u64, u64> = HashMap::new();
     for it in &items {
         let target = match place(&it.common) {
             Place::Model => None,
             Place::Block(b) => Some(b),
             Place::Paper | Place::Owned(_) => continue,
         };
-        let shapes = shapes_of(it, &blocks, &vertices, &attribs);
+        // ImagineCAD's exact shape, when it stored one.
+        let exact = extras.app.and_then(|app| exact_shape(&it.eed, app));
+        let shapes = match exact {
+            Some(s) => vec![s],
+            None => match &it.ent {
+                Ent::Image { pos, u, v: vv, size, def, fade } => match extras.images.get(def) {
+                    Some(path) => {
+                        let (u, vv) = (v(*u), v(*vv));
+                        vec![Shape::Image(icad_core::ImageRef {
+                            path: path.clone(),
+                            pos: v(*pos),
+                            w: u.len() * size.0,
+                            h: vv.len() * size.1,
+                            fade: *fade,
+                        })]
+                    }
+                    None => vec![],
+                },
+                _ => shapes_of(it, &blocks, &vertices, &attribs),
+            },
+        };
         if shapes.is_empty() {
             continue;
         }
@@ -252,6 +317,7 @@ fn build(
             3 => lt_of(c.ltype).map(LtRef::Lt).unwrap_or_default(),
             _ => LtRef::ByLayer,
         };
+        handle_ids.insert(it.handle, next_id);
         for shape in shapes {
             let e =
                 Entity { id: next_id, layer: layer_name(c.layer), color, linetype, lineweight: objects::lineweight(c.lineweight), shape };
@@ -304,7 +370,7 @@ fn build(
             base: v(b.base),
             entities: in_block.remove(h).unwrap_or_default(),
             description: String::new(),
-            xref: None,
+            xref: (b.xref && !b.path.is_empty()).then(|| b.path.clone()),
             params: vec![],
         })
         .collect();
@@ -312,6 +378,41 @@ fn build(
     doc.blocks = defs;
     doc.entities = model;
     doc.next_id = next_id;
+    let back = |h: &str| u64::from_str_radix(h.trim(), 16).ok().and_then(|h| handle_ids.get(&h).copied());
+    if let Ok(serde_json::Value::Array(list)) = serde_json::from_str::<serde_json::Value>(&extras.dynblocks) {
+        for item in list {
+            let Some(name) = item.get("block").and_then(|n| n.as_str()).map(String::from) else { continue };
+            let mut params = item.get("params").cloned().unwrap_or_default();
+            let ok = crate::dxf::map_param_ids(&mut params, &|_| None, &back);
+            if let (true, Ok(ps), Some(b)) =
+                (ok, serde_json::from_value(params), doc.blocks.iter_mut().find(|b| b.name.eq_ignore_ascii_case(&name)))
+            {
+                b.params = ps;
+            }
+        }
+    }
+    if let Ok(serde_json::Value::Array(list)) = serde_json::from_str::<serde_json::Value>(&extras.constraints) {
+        for mut v in list {
+            let ok = crate::dxf::map_ids(&mut v, &|h| back(h.as_str()?).map(serde_json::Value::from));
+            if let (true, Ok(c)) = (ok, serde_json::from_value::<icad_core::constraints::Constraint>(v)) {
+                doc.constraints.push(c);
+            }
+        }
+    }
+    // External references named by their references' extended data
+    // (converters may drop the block's own flag and path).
+    if let Some(app) = extras.app {
+        for it in &items {
+            let Ent::Insert { block, .. } = &it.ent else { continue };
+            let Some(path) = eed_json(&it.eed, app).and_then(|v| v.get("xref")?.as_str().map(String::from)) else { continue };
+            let Some(name) = blocks.get(block).map(|b| block_name(&b.name)) else { continue };
+            if let Some(b) = doc.blocks.iter_mut().find(|b| b.name == name) {
+                b.xref = Some(path);
+            }
+        }
+    }
+    // Dimensions follow the geometry they measure.
+    doc.associate_all_dims();
     if !doc.entities.is_empty() {
         doc.current_layer = "0".into();
         let ext = doc.extents();
@@ -322,6 +423,20 @@ fn build(
         }
     }
     (doc, report)
+}
+
+/// ImagineCAD's extended data of an entity (JSON).
+fn eed_json(eed: &[(u64, Vec<String>)], app: u64) -> Option<serde_json::Value> {
+    use base64::Engine as _;
+    let (_, strings) = eed.iter().find(|(a, _)| *a == app)?;
+    let b64: String = strings.iter().map(|s| s.trim()).collect();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// The exact shape ImagineCAD keeps in an entity's extended data.
+fn exact_shape(eed: &[(u64, Vec<String>)], app: u64) -> Option<Shape> {
+    serde_json::from_value(eed_json(eed, app)?).ok()
 }
 
 fn text_shape(e: &Ent) -> Option<Text> {

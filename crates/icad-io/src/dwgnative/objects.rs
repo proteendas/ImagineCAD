@@ -18,6 +18,8 @@ pub struct Obj<'a> {
     pub s: Option<Bits<'a>>,
     pub h: Bits<'a>,
     pub ver: Ver,
+    /// Extended data: (application handle, its strings).
+    pub eed: Vec<(u64, Vec<String>)>,
 }
 
 impl<'a> Obj<'a> {
@@ -66,7 +68,7 @@ pub fn open(c: &Container, offset: usize) -> Option<Obj<'_>> {
     let s = if c.ver >= Ver::R2007 { Some(string_stream(&b, start, bitsize)) } else { None };
     // The data stream ends where the handles begin.
     d.end = start + bitsize;
-    Some(Obj { ty, handle: 0, d, s, h, ver: c.ver })
+    Some(Obj { ty, handle: 0, d, s, h, ver: c.ver, eed: vec![] })
 }
 
 /// The string stream of an R2007+ object: its size is stored just before
@@ -117,26 +119,56 @@ pub struct Common {
     pub invisible: bool,
 }
 
-fn skip_eed(d: &mut Bits) {
+/// Extended data: per application, the strings it holds (other values are
+/// passed over).
+fn read_eed(d: &mut Bits) -> Vec<(u64, Vec<String>)> {
+    let mut out = vec![];
     for _ in 0..4096 {
         let size = d.bs() as usize;
         if size == 0 || d.overrun {
-            return;
+            break;
         }
-        d.h();
+        let app = d.h().value;
         if size * 8 > d.left().max(0) as usize {
             d.overrun = true;
-            return;
+            break;
         }
-        d.pos += size * 8;
+        let end = d.pos + size * 8;
+        let mut r = d.sub(d.pos, end);
+        let mut strings = vec![];
+        while r.left() >= 8 && !r.overrun {
+            if r.rc() != 0 {
+                break;
+            }
+            if d.ver >= Ver::R2007 {
+                let n = r.rs() as usize;
+                if n * 16 > r.left().max(0) as usize {
+                    break;
+                }
+                let units: Vec<u16> = (0..n).map(|_| r.rs()).collect();
+                strings.push(String::from_utf16_lossy(&units));
+            } else {
+                let n = r.rc() as usize;
+                r.rc();
+                r.rc();
+                if n * 8 > r.left().max(0) as usize {
+                    break;
+                }
+                let bytes: Vec<u8> = (0..n).map(|_| r.rc()).collect();
+                strings.push(super::bits::cp1252(&bytes));
+            }
+        }
+        out.push((app, strings));
+        d.pos = end;
     }
+    out
 }
 
 /// The common entity part (data and handles).
 pub fn entity_common(o: &mut Obj) -> Common {
     let ver = o.ver;
     o.handle = o.d.h().value;
-    skip_eed(&mut o.d);
+    o.eed = read_eed(&mut o.d);
     if o.d.b() {
         // Preview graphics.
         let n = if ver >= Ver::R2010 { o.d.bll() as usize } else { o.d.rl() as usize };
@@ -214,7 +246,7 @@ pub fn entity_common(o: &mut Obj) -> Common {
 pub fn object_common(o: &mut Obj) -> u64 {
     let ver = o.ver;
     o.handle = o.d.h().value;
-    skip_eed(&mut o.d);
+    o.eed = read_eed(&mut o.d);
     let reactors = o.d.bl();
     let xdic_missing = ver >= Ver::R2004 && o.d.b();
     if ver >= Ver::R2013 {
@@ -309,6 +341,15 @@ pub enum Ent {
     },
     /// Construction line (`ray` = one-sided): point and direction.
     XLine(P2, P2, bool),
+    /// Raster image: corner, u and v pixel vectors, size in pixels, definition, fade.
+    Image {
+        pos: P2,
+        u: P2,
+        v: P2,
+        size: P2,
+        def: u64,
+        fade: u8,
+    },
     /// Leader line from its arrow tip (its text is a separate entity).
     Leader(Vec<P2>),
     /// Feature control frame: position and its text codes.
@@ -980,6 +1021,8 @@ pub struct BlockRec {
     pub name: String,
     pub base: P2,
     pub xref: bool,
+    /// The external drawing of an xref.
+    pub path: String,
 }
 
 pub fn block_header(o: &mut Obj) -> BlockRec {
@@ -994,7 +1037,75 @@ pub fn block_header(o: &mut Obj) -> BlockRec {
         d.bl();
     }
     let base = p2(d.p3bd());
-    BlockRec { name, base, xref: xref || overlaid }
+    let path = o.t();
+    BlockRec { name, base, xref: xref || overlaid, path }
+}
+
+/// A raster image entity (a class-defined type).
+pub fn image(o: &mut Obj) -> Option<(Common, Ent)> {
+    let c = entity_common(o);
+    let d = &mut o.d;
+    if d.bl() > 10 {
+        return None;
+    }
+    let pos = p2(d.p3bd());
+    let u = p2(d.p3bd());
+    let v = p2(d.p3bd());
+    let size = d.p2rd();
+    d.bs();
+    d.b();
+    d.rc();
+    d.rc();
+    let fade = d.rc();
+    let def = o.href();
+    (!o.d.overrun).then_some((c, Ent::Image { pos, u, v, size, def, fade: fade.min(100) }))
+}
+
+/// The file of an image definition.
+pub fn imagedef(o: &mut Obj) -> Option<String> {
+    object_common(o);
+    if o.d.bl() > 10 {
+        return None;
+    }
+    o.d.p2rd();
+    let path = o.t();
+    (!o.d.overrun && !path.is_empty()).then_some(path)
+}
+
+/// The group-code strings of an XRECORD (other values end the list).
+pub fn xrecord_strings(o: &mut Obj) -> Option<Vec<(u16, String)>> {
+    object_common(o);
+    let size = o.d.bl() as usize;
+    if size * 8 > o.d.left().max(0) as usize {
+        return None;
+    }
+    let end = o.d.pos + size * 8;
+    let mut r = o.d.sub(o.d.pos, end);
+    let mut out = vec![];
+    while r.left() >= 16 && !r.overrun {
+        let code = r.rs();
+        // Strings: 1–9, 100–102, 300–309, 410–419, 430–439, 470–479, 999, 1000–1009.
+        let string = matches!(code, 1..=9 | 100..=102 | 300..=309 | 410..=419 | 430..=439 | 470..=479 | 999 | 1000..=1009);
+        if !string {
+            break;
+        }
+        let n = r.rs() as usize;
+        if o.ver >= Ver::R2007 {
+            if n * 16 > r.left().max(0) as usize {
+                break;
+            }
+            let units: Vec<u16> = (0..n).map(|_| r.rs()).collect();
+            out.push((code, String::from_utf16_lossy(&units)));
+        } else {
+            r.rc();
+            if n * 8 > r.left().max(0) as usize {
+                break;
+            }
+            let bytes: Vec<u8> = (0..n).map(|_| r.rc()).collect();
+            out.push((code, super::bits::cp1252(&bytes)));
+        }
+    }
+    (!r.overrun).then_some(out)
 }
 
 /// Handle and type of each object, for the caller to pick from.

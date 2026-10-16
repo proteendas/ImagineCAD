@@ -66,7 +66,7 @@ pub fn open(path: &Path) -> Result<Document, String> {
 }
 
 /// DWG: the built-in reader, or the converter where it reads more (DWG
-/// 2007 files, damaged objects, and ImagineCAD's own extended data).
+/// 2007 files, and objects the built-in reader could not decode).
 /// `IMAGINECAD_DWG_READER=native` or `converter` forces one.
 fn open_dwg(path: &Path) -> Result<Document, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -79,7 +79,7 @@ fn open_dwg(path: &Path) -> Result<Document, String> {
                 if !rep.skipped.is_empty() {
                     eprintln!("DWG import: not read {:?}", rep.skipped);
                 }
-                let better_elsewhere = rep.damaged > 0 || rep.from_imaginecad;
+                let better_elsewhere = rep.damaged > 0;
                 if conv.is_none() || !better_elsewhere {
                     return Ok(doc);
                 }

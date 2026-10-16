@@ -135,13 +135,13 @@ impl W {
 }
 
 /// Named-dictionary key of the XRECORD holding ImagineCAD's constraints.
-const CONSTRAINTS_KEY: &str = "IMAGINECAD_CONSTRAINTS";
+pub(crate) const CONSTRAINTS_KEY: &str = "IMAGINECAD_CONSTRAINTS";
 
 /// Named-dictionary key of the XRECORD holding dynamic block parameters.
-const DYNBLOCKS_KEY: &str = "IMAGINECAD_DYNBLOCKS";
+pub(crate) const DYNBLOCKS_KEY: &str = "IMAGINECAD_DYNBLOCKS";
 
 /// Map the entity ids in a parameter list (`ids` arrays and state lists).
-fn map_param_ids(v: &mut serde_json::Value, map: &dyn Fn(u64) -> Option<String>, back: &dyn Fn(&str) -> Option<u64>) -> bool {
+pub(crate) fn map_param_ids(v: &mut serde_json::Value, map: &dyn Fn(u64) -> Option<String>, back: &dyn Fn(&str) -> Option<u64>) -> bool {
     match v {
         serde_json::Value::Object(o) => {
             for (k, x) in o.iter_mut() {
@@ -206,7 +206,7 @@ fn dynblocks_json(doc: &Document, handles: &[(String, u64, u64)]) -> Option<Stri
 }
 
 /// Replace every `"id": n` in `v` using `map` (false when one is missing).
-fn map_ids(v: &mut serde_json::Value, map: &dyn Fn(&serde_json::Value) -> Option<serde_json::Value>) -> bool {
+pub(crate) fn map_ids(v: &mut serde_json::Value, map: &dyn Fn(&serde_json::Value) -> Option<serde_json::Value>) -> bool {
     match v {
         serde_json::Value::Object(o) => {
             if let Some(id) = o.get("id").cloned() {
@@ -246,7 +246,7 @@ fn constraints_json(doc: &Document, handles: &[(u64, u64)]) -> Option<String> {
 }
 
 /// Registered application name of ImagineCAD's extended data.
-const XDATA_APP: &str = "IMAGINECAD";
+pub(crate) const XDATA_APP: &str = "IMAGINECAD";
 
 /// Shapes DXF 2000 has no entity for: written as an anonymous block of their
 /// graphics plus extended data holding the exact shape.

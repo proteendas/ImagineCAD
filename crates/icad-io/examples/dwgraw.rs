@@ -11,6 +11,12 @@ fn main() {
     let file = std::fs::read(&a[1]).unwrap();
     let ty: u16 = a[2].parse().unwrap();
     let c = container::read(&file).unwrap();
+    if ty == 0 {
+        let mut v: Vec<_> = icad_io::dwgnative::classes::read(&c).into_iter().collect();
+        v.sort();
+        println!("{v:?}");
+        return;
+    }
     for &(h, off) in &c.map {
         if let Some(mut o) = objects::open(&c, off) {
             if o.ty == ty {
