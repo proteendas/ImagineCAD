@@ -397,8 +397,8 @@ how many degrees of freedom remain (0 = fully constrained).
 Teal glyphs mark the constraints (H, V, //, ⊥, =, T, ◎, F; a dot for
 coincident points) and driving dimensions show as `d1=50`; neither is plotted.
 `CONSTRAINTBAR` (`CBAR`) hides or shows the glyphs; `DELCONSTRAINT` removes the
-constraints of the selected objects (or all). Constraints are saved in `.icad`
-drawings; DXF and DWG files keep the geometry only.
+constraints of the selected objects (or all). Constraints are saved in `.icad`,
+DXF and DWG drawings (other programs see the geometry).
 
 ## Files
 

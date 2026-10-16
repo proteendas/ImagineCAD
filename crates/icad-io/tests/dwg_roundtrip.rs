@@ -155,3 +155,26 @@ fn dwg_keeps_block_attributes() {
     assert_eq!(r.block("TAG").unwrap().attdefs().count(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn dwg_keeps_constraints() {
+    if icad_io::dwg::find_converter().is_none() {
+        eprintln!("skipping: no DWG converter available");
+        return;
+    }
+    use icad_core::constraints::{Constraint, PtRef, SegRef};
+    let mut d = Document::new();
+    let a = d.add(Shape::Line { a: V2::new(0., 0.), b: V2::new(100., 0.) });
+    let b = d.add(Shape::Line { a: V2::new(100., 0.), b: V2::new(100., 40.) });
+    d.add_constraint(Constraint::Horizontal(SegRef::line(a))).unwrap();
+    d.add_constraint(Constraint::Coincident(PtRef { id: a, k: 1 }, PtRef { id: b, k: 0 })).unwrap();
+    let dir = std::env::temp_dir().join(format!("icad-cons-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("constrained.dwg");
+    icad_io::save(&d, &path, &Default::default()).unwrap();
+    let r = icad_io::open(&path).unwrap();
+    assert_eq!(r.constraints.len(), 2, "{:?}", r.constraints);
+    let Constraint::Coincident(p, q) = &r.constraints[1] else { panic!() };
+    assert!(r.get(p.id).is_some() && r.get(q.id).is_some() && p.id != q.id);
+    let _ = std::fs::remove_dir_all(&dir);
+}

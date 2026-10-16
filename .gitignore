@@ -2,3 +2,4 @@
 /dist
 *.dmg
 .DS_Store
+/.cache

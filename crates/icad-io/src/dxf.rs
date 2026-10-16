@@ -134,6 +134,49 @@ impl W {
     }
 }
 
+/// Named-dictionary key of the XRECORD holding ImagineCAD's constraints.
+const CONSTRAINTS_KEY: &str = "IMAGINECAD_CONSTRAINTS";
+
+/// Replace every `"id": n` in `v` using `map` (false when one is missing).
+fn map_ids(v: &mut serde_json::Value, map: &dyn Fn(&serde_json::Value) -> Option<serde_json::Value>) -> bool {
+    match v {
+        serde_json::Value::Object(o) => {
+            if let Some(id) = o.get("id").cloned() {
+                if o.contains_key("k") {
+                    match map(&id) {
+                        Some(n) => {
+                            o.insert("id".into(), n);
+                        }
+                        None => return false,
+                    }
+                }
+            }
+            o.values_mut().all(|x| map_ids(x, map))
+        }
+        serde_json::Value::Array(a) => a.iter_mut().all(|x| map_ids(x, map)),
+        _ => true,
+    }
+}
+
+/// The constraints as JSON with entity ids replaced by DXF handles.
+fn constraints_json(doc: &Document, handles: &[(u64, u64)]) -> Option<String> {
+    if doc.constraints.is_empty() {
+        return None;
+    }
+    let mut kept = vec![];
+    for c in &doc.constraints {
+        let mut v = serde_json::to_value(c).ok()?;
+        let ok = map_ids(&mut v, &|id| {
+            let id = id.as_u64()?;
+            handles.iter().find(|(e, _)| *e == id).map(|(_, h)| serde_json::Value::String(format!("{h:X}")))
+        });
+        if ok {
+            kept.push(v);
+        }
+    }
+    (!kept.is_empty()).then(|| serde_json::Value::Array(kept).to_string())
+}
+
 /// Registered application name of ImagineCAD's extended data.
 const XDATA_APP: &str = "IMAGINECAD";
 
@@ -939,6 +982,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         reactors: Vec<(u64, u64)>,
     }
     let mut img_defs: Vec<ImgDef> = vec![];
+    let mut handles: Vec<(u64, u64)> = vec![];
     for e in &doc.entities {
         if let Shape::Image(img) = &e.shape {
             if !modern {
@@ -979,6 +1023,8 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
             w.f(24, def.px.1 as f64 - 0.5);
             continue;
         }
+        // The handle this entity gets, for constraints that refer to it.
+        handles.push((e.id, w.next));
         write_entity(&mut w, doc, e, msp_br, opts.explode_dimensions, &mut counters);
     }
     if opts.include_sheet && doc.sheet.visible {
@@ -1006,11 +1052,29 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
             w.g(3, "ACAD_IMAGE_DICT");
             w.g(350, format!("{img_dict:X}"));
         }
+        // Constraints: an XRECORD of JSON with entities named by their handles.
+        let constraints = constraints_json(doc, &handles);
+        let cons_rec = if constraints.is_some() { w.alloc() } else { 0 };
+        if cons_rec != 0 {
+            w.g(3, CONSTRAINTS_KEY);
+            w.g(350, format!("{cons_rec:X}"));
+        }
         w.g(0, "DICTIONARY");
         w.g(5, format!("{group:X}"));
         w.g(330, format!("{root:X}"));
         w.g(100, "AcDbDictionary");
         w.g(281, 1);
+        if let Some(json) = &constraints {
+            w.g(0, "XRECORD");
+            w.g(5, format!("{cons_rec:X}"));
+            w.g(330, format!("{root:X}"));
+            w.g(100, "AcDbXrecord");
+            w.g(280, 1);
+            w.g(1, CONSTRAINTS_KEY);
+            for chunk in json.as_bytes().chunks(240) {
+                w.g(1, std::str::from_utf8(chunk).unwrap_or(""));
+            }
+        }
         if img_dict != 0 {
             w.g(0, "DICTIONARY");
             w.g(5, format!("{img_dict:X}"));
@@ -1540,6 +1604,8 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     let mut recs: Vec<Rec> = Vec::new();
     let mut block_recs: Vec<(String, V2, Vec<Rec>)> = Vec::new();
     let mut vars: Vec<(String, String)> = Vec::new();
+    let mut constraints_json = String::new();
+    let mut handle_ids: Vec<(String, u64)> = Vec::new();
     while i < ps.len() {
         let p = &ps[i];
         if section == "HEADER" && p.code == 9 {
@@ -1620,6 +1686,9 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
                     }
                 },
                 "ENTITIES" => recs.push(r),
+                "OBJECTS" if r.kind == "XRECORD" && r.codes.iter().find(|c| c.0 == 1).is_some_and(|c| c.1.trim() == CONSTRAINTS_KEY) => {
+                    constraints_json = r.codes.iter().filter(|c| c.0 == 1).skip(1).map(|c| c.1.as_str()).collect();
+                }
                 "OBJECTS" if r.kind == "IMAGEDEF" => {
                     if let (Some(h), Some(path)) = (r.s(5), r.s(1)) {
                         image_files.push((h.to_ascii_uppercase(), path.to_string()));
@@ -1687,11 +1756,15 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
         if let (Some(path), Some(name)) = (xdata_xref(&recs[k]), recs[k].s(2)) {
             insert_xrefs.push((name.to_string(), path));
         }
+        let handle = recs[k].s(5).map(|h| h.trim().to_ascii_uppercase());
         if let Some(shape) = read_shape(&recs, &mut k, &block_names, &mut warn) {
             if doc.layer(&layer).is_none() {
                 doc.layers.push(Layer::new(&layer, 7, LineType::Continuous, 0.25));
             }
             let id = doc.add_on(&layer, shape);
+            if let Some(h) = handle {
+                handle_ids.push((h, id));
+            }
             let e = doc.get_mut(id).unwrap();
             apply_props(e, &recs[k]);
         }
@@ -1709,6 +1782,20 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     for l in missing {
         if doc.layer(&l).is_none() {
             doc.layers.push(Layer::new(&l, 7, LineType::Continuous, 0.25));
+        }
+    }
+    // Constraints, their entities found by handle.
+    if !constraints_json.is_empty() {
+        if let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(&constraints_json) {
+            for mut v in items {
+                let ok = map_ids(&mut v, &|h| {
+                    let h = h.as_str()?.trim().to_ascii_uppercase();
+                    handle_ids.iter().find(|(k, _)| *k == h).map(|(_, id)| serde_json::Value::from(*id))
+                });
+                if let (true, Ok(c)) = (ok, serde_json::from_value::<icad_core::constraints::Constraint>(v)) {
+                    doc.constraints.push(c);
+                }
+            }
         }
     }
     // Dimensions follow the geometry they measure.
@@ -1874,6 +1961,36 @@ mod tests {
         });
         d.add(Shape::Insert(Insert::new("WASHER", V2::new(120., 20.))));
         d
+    }
+
+    #[test]
+    fn constraints_round_trip() {
+        use icad_core::constraints::{Constraint, DimConstraint, DimKind, PtRef, SegRef};
+        let mut d = Document::new();
+        let a = d.add(Shape::Line { a: V2::new(0.0, 0.0), b: V2::new(100.0, 0.0) });
+        let b = d.add(Shape::Line { a: V2::new(100.0, 0.0), b: V2::new(100.0, 40.0) });
+        let c = d.add(Shape::Circle { c: V2::new(50.0, 20.0), r: 10.0 });
+        d.add_constraint(Constraint::Horizontal(SegRef::line(a))).unwrap();
+        d.add_constraint(Constraint::Coincident(PtRef { id: a, k: 1 }, PtRef { id: b, k: 0 })).unwrap();
+        d.add_constraint(Constraint::Perpendicular(SegRef::line(a), SegRef::line(b))).unwrap();
+        let dim = DimConstraint {
+            name: "d1".into(),
+            kind: DimKind::Diameter,
+            a: PtRef { id: c, k: 0 },
+            b: PtRef { id: c, k: 0 },
+            s: None,
+            expr: "20".into(),
+            value: 20.0,
+            loc: V2::new(70.0, 30.0),
+        };
+        d.add_constraint(Constraint::Dim(dim)).unwrap();
+        let r = read_dxf(&write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() })).unwrap();
+        assert_eq!(r.constraints.len(), 4, "{:?}", r.constraints);
+        // The references point at the re-read entities of the same kind.
+        let Constraint::Coincident(p, q) = &r.constraints[1] else { panic!() };
+        assert!(matches!(r.get(p.id).unwrap().shape, Shape::Line { .. }) && p.k == 1 && q.k == 0 && p.id != q.id);
+        let Constraint::Dim(dd) = &r.constraints[3] else { panic!() };
+        assert!(matches!(r.get(dd.a.id).unwrap().shape, Shape::Circle { .. }) && dd.name == "d1");
     }
 
     #[test]

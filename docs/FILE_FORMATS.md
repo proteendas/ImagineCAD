@@ -59,8 +59,10 @@ reading restores them, so a drawing keeps its annotation scale.
 
 Revision clouds are written as closed `LWPOLYLINE`s of bulged segments (how
 other programs draw them) with extended data that keeps them clouds for
-ImagineCAD. Constraints and driving dimensions are kept in `.icad` drawings
-only; DXF and DWG files contain the geometry they produced.
+ImagineCAD. Constraints and driving dimensions are stored in an `XRECORD`
+(`IMAGINECAD_CONSTRAINTS` in the named object dictionary) as JSON that refers
+to entities by their handles, so they survive DXF and DWG round trips; other
+programs ignore it and show the geometry.
 
 **R12 (option):** for very old readers. Entities newer than R12 are written as
 equivalents: ellipses and splines become polylines, hatches become lines or
