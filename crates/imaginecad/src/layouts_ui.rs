@@ -281,12 +281,13 @@ impl App {
             }
         });
         if go {
-            let opts = icad_io::PlotOptions { style: d.style, include_sheet: true, lineweights: true };
+            let pdfa = self.settings.pdfa;
             let sheets: Vec<(String, icad_io::pdf::Page)> = d
                 .rows
                 .iter()
                 .filter(|r| r.on)
                 .filter_map(|r| {
+                    let opts = self.plot_options(d.style, r.tab);
                     let doc = &self.tabs.get(r.tab)?.doc;
                     let page = match r.layout {
                         None => icad_io::pdf::sheet_page(doc, &opts),
@@ -299,14 +300,14 @@ impl App {
                 rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name("sheets.pdf").save_file().map(|p| {
                     let pages: Vec<icad_io::pdf::Page> = sheets.into_iter().map(|s| s.1).collect();
                     let n = pages.len();
-                    std::fs::write(&p, icad_io::pdf::write_pages(&pages, "ImagineCAD sheets"))
+                    std::fs::write(&p, icad_io::pdf::write_pages_with(&pages, "ImagineCAD sheets", pdfa))
                         .map(|_| format!("Published {n} sheet(s) to {}", p.display()))
                 })
             } else {
                 rfd::FileDialog::new().pick_folder().map(|dir| {
                     let n = sheets.len();
                     for (name, page) in sheets {
-                        std::fs::write(dir.join(format!("{name}.pdf")), icad_io::pdf::write_pages(&[page], &name))?;
+                        std::fs::write(dir.join(format!("{name}.pdf")), icad_io::pdf::write_pages_with(&[page], &name, pdfa))?;
                     }
                     Ok(format!("Published {n} PDF file(s) to {}", dir.display()))
                 })

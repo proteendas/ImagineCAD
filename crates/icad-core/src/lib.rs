@@ -25,6 +25,7 @@ pub mod sheetset;
 pub mod style;
 pub mod symbols;
 pub mod table;
+pub mod views;
 pub mod xref;
 
 pub use document::Document;

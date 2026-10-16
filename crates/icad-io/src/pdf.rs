@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Proteen Das
 
 //! Vector PDF plotting at true scale (one page = the drawing sheet).
-//! Hand-written PDF 1.4 so there are no heavyweight dependencies.
+//! Hand-written PDF 1.4 so there are no heavyweight dependencies; PDF/A-2b
+//! for archiving (text as outlines, an embedded sRGB profile and XMP
+//! metadata).
 
 use crate::plot::*;
 use icad_core::document::Document;
@@ -98,7 +100,24 @@ pub fn layout_page(doc: &Document, index: usize, opts: &PlotOptions) -> Option<P
 
 /// Render the document's sheet to a single-page PDF.
 pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
-    write_pages(&[sheet_page(doc, opts)], &doc.sheet.title.title)
+    write_pages_with(&[sheet_page(doc, opts)], &doc.sheet.title.title, opts.pdfa)
+}
+
+/// Text replaced by its outlines (PDF/A needs every font embedded; outlines
+/// need none). Text with no font file to draw it from stays text.
+fn outline_text(items: &[PlotItem]) -> Vec<PlotItem> {
+    let mut out = Vec::with_capacity(items.len());
+    for it in items {
+        let fills = match &it.prim {
+            Prim::Text(t) => icad_core::fonts::outline_always(t),
+            _ => None,
+        };
+        match fills {
+            Some(f) => out.extend(f.into_iter().map(|prim| PlotItem { prim, rgb: it.rgb, dash: vec![], width: it.width })),
+            None => out.push(PlotItem { prim: it.prim.clone(), rgb: it.rgb, dash: it.dash.clone(), width: it.width }),
+        }
+    }
+    out
 }
 
 /// Content stream of one page; images are added to `images` (shared by all pages).
@@ -189,13 +208,155 @@ fn page_content(page: &Page, images: &mut Vec<(String, u8)>) -> String {
 
 /// A multi-page PDF (batch plot); each page keeps its own paper size.
 pub fn write_pages(pages: &[Page], title: &str) -> Vec<u8> {
+    write_pages_with(pages, title, false)
+}
+
+/// The characters of `s` as the WinAnsi font shows them (for metadata that
+/// must match the document information exactly).
+fn winansi_text(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '⌀' | '∅' => 'Ø',
+            c if (c as u32) < 0x100 && !c.is_control() => c,
+            _ => '?',
+        })
+        .collect()
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// XMP metadata identifying the file as PDF/A-2b (matching the Info entries).
+fn xmp(title: &str, date: &str) -> String {
+    format!(
+        r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:pdf="http://ns.adobe.com/pdf/1.3/" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">
+<dc:format>application/pdf</dc:format>{}
+<xmp:CreatorTool>ImagineCAD</xmp:CreatorTool>
+<xmp:CreateDate>{date}</xmp:CreateDate>
+<xmp:ModifyDate>{date}</xmp:ModifyDate>
+<pdf:Producer>ImagineCAD</pdf:Producer>
+<pdfaid:part>2</pdfaid:part>
+<pdfaid:conformance>B</pdfaid:conformance>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#,
+        if title.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:title>",
+                xml_escape(&winansi_text(title))
+            )
+        }
+    )
+}
+
+/// A minimal sRGB (IEC 61966-2.1) ICC v2 display profile, D50-adapted, for
+/// the PDF/A output intent.
+pub fn srgb_icc() -> Vec<u8> {
+    fn s15(v: f64) -> [u8; 4] {
+        ((v * 65536.0).round() as i32).to_be_bytes()
+    }
+    fn xyz(x: f64, y: f64, z: f64) -> Vec<u8> {
+        let mut t = b"XYZ \0\0\0\0".to_vec();
+        for v in [x, y, z] {
+            t.extend(s15(v));
+        }
+        t
+    }
+    let desc = {
+        let name = b"sRGB IEC61966-2.1\0";
+        let mut t = b"desc\0\0\0\0".to_vec();
+        t.extend((name.len() as u32).to_be_bytes());
+        t.extend(name);
+        t.extend([0u8; 4 + 4 + 2 + 1 + 67]);
+        t
+    };
+    let cprt = b"text\0\0\0\0No copyright, use freely\0".to_vec();
+    let trc = {
+        let mut t = b"curv\0\0\0\0".to_vec();
+        let n = 1024u32;
+        t.extend(n.to_be_bytes());
+        for i in 0..n {
+            let v = i as f64 / (n - 1) as f64;
+            let lin = if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+            t.extend(((lin * 65535.0).round() as u16).to_be_bytes());
+        }
+        t
+    };
+    let tags: Vec<(&[u8; 4], Vec<u8>)> = vec![
+        (b"desc", desc),
+        (b"cprt", cprt),
+        (b"wtpt", xyz(0.9642, 1.0, 0.8249)),
+        (b"rXYZ", xyz(0.4361, 0.2225, 0.0139)),
+        (b"gXYZ", xyz(0.3851, 0.7169, 0.0971)),
+        (b"bXYZ", xyz(0.1431, 0.0606, 0.7141)),
+        (b"rTRC", trc.clone()),
+        (b"gTRC", trc.clone()),
+        (b"bTRC", trc),
+    ];
+    let table_len = 4 + 12 * tags.len();
+    let mut data = vec![];
+    let mut entries = vec![];
+    for (sig, body) in &tags {
+        let off = 128 + table_len + data.len();
+        entries.push((*sig, off as u32, body.len() as u32));
+        data.extend(body);
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+    }
+    let size = (128 + table_len + data.len()) as u32;
+    let mut h = vec![];
+    h.extend(size.to_be_bytes());
+    h.extend([0u8; 4]); // CMM
+    h.extend([2u8, 0x10, 0, 0]); // version 2.1
+    h.extend(b"mntrRGB XYZ ");
+    h.extend([0x07u8, 0xEA, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0]); // 2026-01-01
+    h.extend(b"acsp");
+    h.extend([0u8; 4 + 4 + 4 + 4 + 8 + 4]); // platform, flags, manufacturer, model, attributes, intent
+    for v in [0.9642, 1.0, 0.8249] {
+        h.extend(s15(v));
+    }
+    h.extend([0u8; 4 + 16 + 28]);
+    debug_assert_eq!(h.len(), 128);
+    h.extend((tags.len() as u32).to_be_bytes());
+    for (sig, off, len) in entries {
+        h.extend(sig);
+        h.extend(off.to_be_bytes());
+        h.extend(len.to_be_bytes());
+    }
+    h.extend(data);
+    h
+}
+
+/// A multi-page PDF; `pdfa` writes PDF/A-2b.
+pub fn write_pages_with(pages: &[Page], title: &str, pdfa: bool) -> Vec<u8> {
+    let outlined: Vec<Page>;
+    let pages = if pdfa {
+        outlined = pages.iter().map(|p| Page { w: p.w, h: p.h, items: outline_text(&p.items) }).collect();
+        &outlined[..]
+    } else {
+        pages
+    };
     let mut images: Vec<(String, u8)> = vec![];
     let contents: Vec<String> = pages.iter().map(|p| page_content(p, &mut images)).collect();
-    let title = pdf_str(title);
+    let [y, mo, d, hh, mi, ss] = icad_core::sheet::utc_now();
+    let pdf_date = format!("D:{y:04}{mo:02}{d:02}{hh:02}{mi:02}{ss:02}Z");
+    let xmp_date = format!("{y:04}-{mo:02}-{d:02}T{hh:02}:{mi:02}:{ss:02}Z");
+    let raw_title = title;
+    let title = if raw_title.is_empty() { String::new() } else { format!("/Title {} ", pdf_str(raw_title)) };
     // Objects: 1 catalog, 2 pages, 3 font, 4 info, then images, then page + content pairs.
     let mut objs: Vec<Vec<u8>> =
         vec![vec![], vec![], b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec()];
-    objs.push(format!("<< /Title {title} /Producer (ImagineCAD) /Creator (ImagineCAD) >>").into_bytes());
+    objs.push(
+        format!("<< {title}/Producer (ImagineCAD) /Creator (ImagineCAD) /CreationDate ({pdf_date}) /ModDate ({pdf_date}) >>").into_bytes(),
+    );
     // Image XObjects (RGB, Flate-compressed); unreadable images are skipped.
     let mut xnames = String::new();
     for (i, (path, fade)) in images.iter().enumerate() {
@@ -219,9 +380,11 @@ pub fn write_pages(pages: &[Page], title: &str) -> Vec<u8> {
     for (page, content) in pages.iter().zip(&contents) {
         let page_no = objs.len() + 1;
         kids.push(format!("{page_no} 0 R"));
+        // PDF/A: only fonts that are used may be listed (and outlined pages use none).
+        let font = if !pdfa || content.contains(" Tf ") { "/Font << /F1 3 0 R >> " } else { "" };
         objs.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >> /XObject << {xnames}>> >> /Contents {} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << {font}/XObject << {xnames}>> >> /Contents {} 0 R >>",
                 n(page.w * PT),
                 n(page.h * PT),
                 page_no + 1
@@ -235,8 +398,30 @@ pub fn write_pages(pages: &[Page], title: &str) -> Vec<u8> {
         objs.push(stream);
     }
     objs[0] = b"<< /Type /Catalog /Pages 2 0 R >>".to_vec();
+    if pdfa && !contents.iter().any(|c| c.contains(" Tf ")) {
+        // No page uses the (unembedded) standard font: leave it out.
+        objs[2] = b"<< >>".to_vec();
+    }
+    if pdfa {
+        let icc = miniz_oxide::deflate::compress_to_vec_zlib(&srgb_icc(), 6);
+        let mut obj = format!("<< /N 3 /Filter /FlateDecode /Length {} >>\nstream\n", icc.len()).into_bytes();
+        obj.extend_from_slice(&icc);
+        obj.extend_from_slice(b"\nendstream");
+        objs.push(obj);
+        let icc_no = objs.len();
+        let meta = xmp(raw_title, &xmp_date);
+        objs.push(format!("<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{meta}\nendstream", meta.len()).into_bytes());
+        let meta_no = objs.len();
+        objs[0] = format!(
+            "<< /Type /Catalog /Pages 2 0 R /Metadata {meta_no} 0 R /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFA1 \
+             /OutputConditionIdentifier (sRGB IEC61966-2.1) /Info (sRGB IEC61966-2.1) /DestOutputProfile {icc_no} 0 R >>] >>"
+        )
+        .into_bytes();
+    }
     objs[1] = format!("<< /Type /Pages /Kids [{}] /Count {} >>", kids.join(" "), kids.len()).into_bytes();
-    let mut out: Vec<u8> = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
+    let version: &[u8] = if pdfa { b"%PDF-1.7\n" } else { b"%PDF-1.4\n" };
+    let mut out: Vec<u8> = version.to_vec();
+    out.extend_from_slice(b"%\xE2\xE3\xCF\xD3\n");
     let mut offsets = Vec::new();
     for (i, o) in objs.iter().enumerate() {
         offsets.push(out.len());
@@ -249,7 +434,15 @@ pub fn write_pages(pages: &[Page], title: &str) -> Vec<u8> {
     for o in offsets {
         let _ = writeln!(x, "{:010} 00000 n ", o);
     }
-    let _ = write!(x, "trailer\n<< /Size {} /Root 1 0 R /Info 4 0 R >>\nstartxref\n{}\n%%EOF\n", objs.len() + 1, xref);
+    // A file identifier (required by PDF/A): a hash of the body.
+    let id = {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in &out {
+            h = (h ^ *b as u64).wrapping_mul(0x100_0000_01b3);
+        }
+        format!("{h:016x}{:016x}", h.rotate_left(29) ^ out.len() as u64)
+    };
+    let _ = write!(x, "trailer\n<< /Size {} /Root 1 0 R /Info 4 0 R /ID [<{id}> <{id}>] >>\nstartxref\n{}\n%%EOF\n", objs.len() + 1, xref);
     out.extend_from_slice(x.as_bytes());
     out
 }
@@ -274,6 +467,40 @@ mod tests {
         // A3 then A4 landscape.
         let boxes: Vec<&str> = s.match_indices("/MediaBox [").map(|(i, _)| &s[i..i + 40]).collect();
         assert!(s.contains("/MediaBox [0 0 1190.551 841.89]") && s.contains("/MediaBox [0 0 841.89 595.276]"), "{boxes:?}");
+    }
+
+    #[test]
+    fn pdfa_and_plot_stamp() {
+        let mut d = Document::new();
+        d.add(Shape::Line { a: V2::new(0., 0.), b: V2::new(100., 0.) });
+        let mut fields = PlotStamp { on: true, custom: "PRELIMINARY".into(), ..Default::default() };
+        fields.scale = true;
+        let stamp = Stamp { fields, drawing: "bracket.icad".into(), user: "pd".into(), when: "2026-10-16 10:00 UTC".into() };
+        assert_eq!(
+            stamp.text("Layout1", &d.sheet),
+            "bracket.icad  |  Layout1  |  2026-10-16 10:00 UTC  |  pd  |  Scale 1:1  |  PRELIMINARY"
+        );
+        let opts = PlotOptions { stamp: Some(stamp), pdfa: true, ..Default::default() };
+        let page = sheet_page(&d, &opts);
+        // In the bottom margin, below the frame.
+        let Some(Prim::Text(t)) =
+            page.items.iter().map(|i| &i.prim).find(|p| matches!(p, Prim::Text(t) if t.content.contains("PRELIMINARY")))
+        else {
+            panic!()
+        };
+        assert!(t.pos.y < d.sheet.frame_mm().min.y && t.pos.x == d.sheet.frame_mm().min.x);
+        let pdf = write_pdf(&d, &opts);
+        let s = String::from_utf8_lossy(&pdf);
+        assert!(s.starts_with("%PDF-1.7"));
+        assert!(s.contains("/OutputIntents") && s.contains("/GTS_PDFA1") && s.contains("<pdfaid:part>2</pdfaid:part>"));
+        assert!(s.contains("/ID [<") && s.contains("/CreationDate (D:"));
+        let icc = srgb_icc();
+        assert_eq!(u32::from_be_bytes(icc[0..4].try_into().unwrap()) as usize, icc.len());
+        assert_eq!(&icc[36..40], b"acsp");
+        // When a font file is available the text is outlined and no font is listed.
+        if icad_core::fonts::locate("").is_some() {
+            assert!(!s.contains("/Font << /F1"), "text should be outlines");
+        }
     }
 
     #[test]

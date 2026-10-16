@@ -820,6 +820,19 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
         panel("Hatch", Icon::Hatch, &[], |ui, out| {
             big_split(ui, Icon::Hatch, "Hatch", "HATCH (H) — P pattern, S scale, A angle", "HATCH", HATCHES, out);
         }),
+        panel("Views", Icon::SectionView, &[], |ui, out| {
+            column(ui, |ui| {
+                small(
+                    ui,
+                    Icon::SectionView,
+                    "Section",
+                    "SECTIONVIEW — hatched section from a cutting line through the part",
+                    "SECTIONVIEW",
+                    out,
+                );
+                small(ui, Icon::DetailView, "Detail", "DETAILVIEW — enlarged view of a circled area", "DETAILVIEW", out);
+            });
+        }),
         panel("Sheet", Icon::TitleBlock, &[], |ui, out| {
             big(ui, Icon::TitleBlock, "Title\nBlock", "TITLEBLOCK (TB) — company, title, drawing number, scale…", "TITLEBLOCK", out);
             column(ui, |ui| {
@@ -965,7 +978,11 @@ fn output(ui: &mut Ui, out: &mut Vec<String>) {
                 "SHEETSET",
                 out,
             );
-            big(ui, Icon::PageSetup, "Page\nSetup", "PAGESETUP — paper, scale, title block and plot style", "PAGESETUP", out);
+            column(ui, |ui| {
+                small(ui, Icon::PageSetup, "Page Setup", "PAGESETUP — paper, scale, title block and plot style", "PAGESETUP", out);
+                small(ui, Icon::Text, "Plot Stamp", "PLOTSTAMP — drawing, layout, date and user printed in the margin", "PLOTSTAMP", out);
+                small(ui, Icon::Properties, "PDF/A…", "EXPORT — PDF/A-2b archival output and other export options", "EXPORT", out);
+            });
         }),
         panel("Layouts", Icon::TitleBlock, &[], |ui, out| {
             big(ui, Icon::TitleBlock, "New\nLayout", "LAYOUTNEW — a paper layout with a viewport of the model", "LAYOUTNEW", out);

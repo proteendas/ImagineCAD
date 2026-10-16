@@ -30,6 +30,7 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("Page Setup…", "PAGESETUP"),
             ("Plot to PDF…", "PLOT"),
             ("Publish (batch plot)…", "PUBLISH"),
+            ("Plot Stamp…", "PLOTSTAMP"),
             ("Sheet Set Manager…", "SHEETSET"),
             ("-", ""),
             ("Exit", "EXIT"),
@@ -150,6 +151,9 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("Single Line Text", "TEXT"),
             ("-", ""),
             ("Revision Cloud", "REVCLOUD"),
+            ("-", ""),
+            ("Section View", "SECTIONVIEW"),
+            ("Detail View", "DETAILVIEW"),
         ],
     ),
     (

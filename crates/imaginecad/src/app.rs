@@ -274,6 +274,7 @@ impl App {
                 _ => self.dlg.export = true,
             },
             "PLOT" | "PRINT" => self.export("pdf"),
+            "PLOTSTAMP" | "STAMP" => self.dlg.plotstamp = true,
             "PAGESETUP" | "TITLEBLOCK" | "TB" => self.dlg.page = true,
             "DIMSTYLE" | "D" | "DDIM" => self.dlg.dimstyle = true,
             "IMAGETOCAD" | "AI" | "SKETCH" => self.open_image_to_cad(None),
@@ -595,7 +596,8 @@ impl App {
         let t = &self.tabs[self.active];
         let result = match (ext, t.paper) {
             ("pdf", Some(li)) => match icad_io::pdf::layout_page(&t.doc, li, &opts.plot) {
-                Some(page) => std::fs::write(&path, icad_io::pdf::write_pages(&[page], &t.doc.layouts[li].name)).map_err(|e| e.to_string()),
+                Some(page) => std::fs::write(&path, icad_io::pdf::write_pages_with(&[page], &t.doc.layouts[li].name, opts.plot.pdfa))
+                    .map_err(|e| e.to_string()),
                 None => Err("no such layout".into()),
             },
             _ => icad_io::save(&t.doc, &path, &opts),
@@ -613,8 +615,38 @@ impl App {
                 explode_dimensions: self.settings.explode_dims_dxf,
                 version: if self.settings.dxf_r12 { icad_io::DxfVersion::R12 } else { icad_io::DxfVersion::R2000 },
             },
-            plot: icad_io::PlotOptions { style: None, include_sheet: true, lineweights: true },
+            plot: self.plot_options(None, self.active),
         }
+    }
+
+    /// Plot options from the settings (plot stamp, PDF/A) for drawing `tab`.
+    pub fn plot_options(&self, style: Option<icad_core::layout::PlotStyle>, tab: usize) -> icad_io::PlotOptions {
+        let drawing = self
+            .tabs
+            .get(tab)
+            .map(|t| {
+                t.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| t.name.clone())
+            })
+            .unwrap_or_default();
+        icad_io::PlotOptions {
+            style,
+            include_sheet: true,
+            lineweights: true,
+            stamp: self
+                .settings
+                .plot_stamp
+                .on
+                .then(|| icad_io::plot::Stamp::new(self.settings.plot_stamp.clone(), drawing, self.user_name())),
+            pdfa: self.settings.pdfa,
+        }
+    }
+
+    /// Who plots (the title block's "drawn by", else the login name).
+    pub fn user_name(&self) -> String {
+        if !self.settings.drawn_by.trim().is_empty() {
+            return self.settings.drawn_by.trim().to_string();
+        }
+        std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
     }
 
     pub fn request_close_tab(&mut self, i: usize) {

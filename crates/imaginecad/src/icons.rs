@@ -105,6 +105,8 @@ pub enum Icon {
     RevCloud,
     Balloon,
     Bom,
+    SectionView,
+    DetailView,
     Lineweight,
     SheetSet,
     GcAuto,
@@ -215,6 +217,8 @@ pub const ALL: &[Icon] = &[
     Icon::RevCloud,
     Icon::Balloon,
     Icon::Bom,
+    Icon::SectionView,
+    Icon::DetailView,
     Icon::Lineweight,
     Icon::SheetSet,
     Icon::GcAuto,
@@ -779,6 +783,34 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 g.text(5.0, *y, &(i + 1).to_string(), 3.6, ACC);
                 g.line((9.0, *y), (18.0 - i as f32 * 3.0, *y), t, dim);
             }
+        }
+        Icon::SectionView => {
+            // The cutting line with its arrows above the hatched cut face.
+            g.dash((6.0, 5.0), (18.0, 5.0), t, dim);
+            g.line((2.5, 5.0), (6.0, 5.0), w, ink);
+            g.line((18.0, 5.0), (21.5, 5.0), w, ink);
+            g.head((2.5, 9.0), (2.5, 4.0), 3.0, ink);
+            g.head((21.5, 9.0), (21.5, 4.0), 3.0, ink);
+            g.line((2.5, 5.0), (2.5, 7.0), t, ink);
+            g.line((21.5, 5.0), (21.5, 7.0), t, ink);
+            for (a, b) in [
+                ((4.0, 14.5), (6.5, 12.0)),
+                ((4.0, 19.0), (11.0, 12.0)),
+                ((8.5, 19.0), (15.5, 12.0)),
+                ((13.0, 19.0), (20.0, 12.0)),
+                ((17.5, 19.0), (20.0, 16.5)),
+            ] {
+                g.line(a, b, t, dim);
+            }
+            g.rect((4.0, 12.0), (20.0, 19.0), w, ACC);
+        }
+        Icon::DetailView => {
+            // A corner circled on the part, enlarged in its own circle.
+            g.poly(&[(2.0, 20.0), (2.0, 13.0), (9.0, 13.0)], false, t, ink);
+            g.circle(3.5, 14.5, 3.2, t, dim);
+            g.line((6.0, 12.5), (10.5, 9.5), t, dim);
+            g.circle(15.0, 9.0, 6.5, w, ACC);
+            g.poly(&[(11.0, 15.0), (11.0, 7.0), (21.0, 7.0)], false, w, ink);
         }
         Icon::Check => {
             g.text(9.5, 8.5, "abc", 8.0, ink);

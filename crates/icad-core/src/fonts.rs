@@ -308,7 +308,16 @@ pub fn advance(file: &str, text: &str) -> Option<f64> {
 
 /// Styled text as filled outlines; None for plain text (drawn as text).
 pub fn outline(t: &Text) -> Option<Vec<Prim>> {
-    if !t.styled() || t.content.is_empty() {
+    if !t.styled() {
+        return None;
+    }
+    outline_always(t)
+}
+
+/// Any text as filled outlines (plain text in the standard sans font); None
+/// when no font file is available.
+pub fn outline_always(t: &Text) -> Option<Vec<Prim>> {
+    if t.content.is_empty() {
         return None;
     }
     let s = shape(&t.font, &t.content)?;

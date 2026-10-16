@@ -556,7 +556,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "DCDIAMETER" | "DCD" => dim(DimKind::Diameter),
         "DCANGULAR" | "DCAN" => dim(DimKind::Angle),
         "DELCONSTRAINT" | "DELCON" => Some(Box::new(DelConstraintCmd)),
-        other => crate::blockedit_ui::create(other),
+        other => crate::commands_views::create(other),
     }
 }
 

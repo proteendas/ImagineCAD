@@ -53,6 +53,10 @@ pub struct Settings {
     pub otrack: bool,
     /// Show constraint glyphs (CONSTRAINTBAR).
     pub show_constraints: bool,
+    /// Plot stamp on PDF output (PLOTSTAMP).
+    pub plot_stamp: icad_io::plot::PlotStamp,
+    /// Write PDF as PDF/A-2b (archival).
+    pub pdfa: bool,
 }
 
 impl Default for Settings {
@@ -78,6 +82,8 @@ impl Default for Settings {
             show_chat: false,
             show_constraints: true,
             otrack: true,
+            plot_stamp: Default::default(),
+            pdfa: false,
         }
     }
 }

@@ -69,6 +69,9 @@ pub struct Memory {
     pub qdim_mode: crate::commands_dim::QMode,
     /// Block reference whose attributes should be edited next (after INSERT).
     pub pending_attedit: Option<u64>,
+    /// Last SECTIONVIEW thickness and DETAILVIEW scale.
+    pub section_depth: Option<f64>,
+    pub detail_scale: Option<f64>,
 }
 
 impl Default for Memory {
@@ -95,6 +98,8 @@ impl Default for Memory {
             ordinate_datum: V2::ZERO,
             qdim_mode: Default::default(),
             pending_attedit: None,
+            section_depth: None,
+            detail_scale: None,
         }
     }
 }
@@ -316,9 +321,12 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("MVIEW", "MV"),
     ("LAYOUTNEW", ""),
     ("PUBLISH", ""),
+    ("PLOTSTAMP", ""),
     ("XATTACH", "XA"),
     ("XREF", "XR"),
     ("REVCLOUD", "RC"),
+    ("SECTIONVIEW", ""),
+    ("DETAILVIEW", ""),
     ("SHEETSET", "SSM"),
     ("GCHORIZONTAL", "GCH"),
     ("GCVERTICAL", "GCV"),

@@ -17,11 +17,16 @@ const HELP: &str = "ImagineCAD — AI-assisted 2D CAD
 USAGE:
   imaginecad [FILE]                      Start the editor (optionally opening a drawing or sketch image)
   imaginecad convert IMAGE -o OUT [opts] Convert a sketch image to CAD (OUT: .dxf .dwg .pdf .svg .icad)
-  imaginecad export DRAWING -o OUT       Convert a drawing between formats (.icad/.dxf/.dwg → .dxf/.dwg/.pdf/.svg/.icad)
+  imaginecad export DRAWING -o OUT [--pdfa] [--stamp [TEXT]]
+                                         Convert a drawing between formats (.icad/.dxf/.dwg → .dxf/.dwg/.pdf/.svg/.icad)
   imaginecad ask DRAWING \"CHANGE\" -o OUT  Let the AI edit a drawing as described (or answer a question about it);
                                          takes the same AI options as convert
-  imaginecad publish SET.icadset -o OUT.pdf
+  imaginecad publish SET.icadset -o OUT.pdf [--pdfa] [--stamp [TEXT]]
                                          Plot every sheet of a sheet set to one PDF, numbered as in the set
+
+PLOT OPTIONS:
+  --pdfa                  Write PDF/A-2b (archival: text as outlines, sRGB profile, metadata)
+  --stamp [TEXT]          Plot stamp in the margin: drawing, layout, date, user (and TEXT)
   imaginecad --version | --help
 
 CONVERT OPTIONS:
@@ -126,7 +131,10 @@ fn export(args: &[String]) -> i32 {
         return 2;
     };
     match icad_io::open(std::path::Path::new(input)) {
-        Ok(doc) => write(&doc, &out),
+        Ok(doc) => {
+            let name = std::path::Path::new(input).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            write_with(&doc, &out, plot_flags(args, &name))
+        }
         Err(e) => {
             eprintln!("cannot open {input}: {e}");
             1
@@ -193,11 +201,12 @@ fn publish(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let (pages, problems) = crate::sheetset_ui::set_pages(&set, Some(&set_path), icad_io::open);
+    let plot = plot_flags(args, &set.name);
+    let (pages, problems) = crate::sheetset_ui::set_pages(&set, Some(&set_path), icad_io::open, &plot);
     for p in &problems {
         eprintln!("skipped {p}");
     }
-    match std::fs::write(&out, icad_io::pdf::write_pages(&pages, &set.name)) {
+    match std::fs::write(&out, icad_io::pdf::write_pages_with(&pages, &set.name, plot.pdfa)) {
         Ok(()) => {
             eprintln!("wrote {} ({} sheet(s))", out.display(), pages.len());
             if problems.is_empty() {
@@ -256,8 +265,28 @@ fn ask(args: &[String]) -> i32 {
     }
 }
 
+/// `--pdfa` and `--stamp [TEXT]` (the stamp fields as saved in the app).
+fn plot_flags(args: &[String], drawing: &str) -> icad_io::PlotOptions {
+    let settings = crate::settings::Settings::load();
+    let stamp = args.iter().position(|a| a == "--stamp").map(|i| {
+        let mut f = settings.plot_stamp.clone();
+        f.on = true;
+        if let Some(t) = args.get(i + 1).filter(|t| !t.starts_with('-')) {
+            f.custom = t.clone();
+        }
+        let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
+        icad_io::plot::Stamp::new(f, drawing, user)
+    });
+    icad_io::PlotOptions { stamp, pdfa: args.iter().any(|a| a == "--pdfa"), ..Default::default() }
+}
+
 fn write(doc: &icad_core::Document, out: &std::path::Path) -> i32 {
-    match icad_io::save(doc, out, &Default::default()) {
+    write_with(doc, out, Default::default())
+}
+
+fn write_with(doc: &icad_core::Document, out: &std::path::Path, plot: icad_io::PlotOptions) -> i32 {
+    let opts = icad_io::ExportOptions { plot, ..Default::default() };
+    match icad_io::save(doc, out, &opts) {
         Ok(()) => {
             eprintln!("wrote {}", out.display());
             0

@@ -8,7 +8,9 @@ use icad_core::document::Document;
 use icad_core::geom::*;
 pub use icad_core::layout::PlotStyle;
 use icad_core::prim::*;
+use icad_core::sheet::Sheet;
 use icad_core::style::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct PlotOptions {
@@ -18,11 +20,128 @@ pub struct PlotOptions {
     pub include_sheet: bool,
     /// Honour layer lineweights (otherwise a hairline is used).
     pub lineweights: bool,
+    /// Plot stamp printed in the margin of every page.
+    pub stamp: Option<Stamp>,
+    /// Write PDF/A-2b (archival: text as outlines, colour profile, metadata).
+    pub pdfa: bool,
 }
 
 impl Default for PlotOptions {
     fn default() -> Self {
-        Self { style: None, include_sheet: true, lineweights: true }
+        Self { style: None, include_sheet: true, lineweights: true, stamp: None, pdfa: false }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StampCorner {
+    #[default]
+    BottomLeft,
+    BottomRight,
+    TopLeft,
+    TopRight,
+}
+
+impl StampCorner {
+    pub const ALL: [StampCorner; 4] = [StampCorner::BottomLeft, StampCorner::BottomRight, StampCorner::TopLeft, StampCorner::TopRight];
+    pub fn name(self) -> &'static str {
+        match self {
+            StampCorner::BottomLeft => "Bottom left",
+            StampCorner::BottomRight => "Bottom right",
+            StampCorner::TopLeft => "Top left",
+            StampCorner::TopRight => "Top right",
+        }
+    }
+}
+
+/// What the plot stamp shows (kept in the settings).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlotStamp {
+    pub on: bool,
+    pub drawing: bool,
+    pub layout: bool,
+    pub date: bool,
+    pub user: bool,
+    pub paper: bool,
+    pub scale: bool,
+    /// Extra text, e.g. "PRELIMINARY" or a project number.
+    pub custom: String,
+    pub corner: StampCorner,
+    /// Text height in paper mm.
+    pub height: f64,
+}
+
+impl Default for PlotStamp {
+    fn default() -> Self {
+        Self {
+            on: false,
+            drawing: true,
+            layout: true,
+            date: true,
+            user: true,
+            paper: false,
+            scale: false,
+            custom: String::new(),
+            corner: StampCorner::BottomLeft,
+            height: 2.0,
+        }
+    }
+}
+
+/// A plot stamp with what it names filled in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stamp {
+    pub fields: PlotStamp,
+    /// Drawing file name (or tab name).
+    pub drawing: String,
+    pub user: String,
+    /// When it was plotted, e.g. "2026-10-16 14:05 UTC".
+    pub when: String,
+}
+
+impl Stamp {
+    pub fn new(fields: PlotStamp, drawing: impl Into<String>, user: impl Into<String>) -> Stamp {
+        let [y, mo, d, h, mi, _] = icad_core::sheet::utc_now();
+        Stamp { fields, drawing: drawing.into(), user: user.into(), when: format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02} UTC") }
+    }
+
+    /// The stamp line for a page of `layout` on `sheet`.
+    pub fn text(&self, layout: &str, sheet: &Sheet) -> String {
+        let f = &self.fields;
+        let mut parts: Vec<String> = vec![];
+        let mut push = |on: bool, s: String| {
+            if on && !s.trim().is_empty() {
+                parts.push(s);
+            }
+        };
+        push(f.drawing, self.drawing.clone());
+        push(f.layout, layout.to_string());
+        push(f.date, self.when.clone());
+        push(f.user, self.user.clone());
+        push(f.paper, format!("{} {}", sheet.paper.name(), if sheet.landscape { "landscape" } else { "portrait" }));
+        push(f.scale, format!("Scale {}", sheet.scale_label()));
+        push(true, f.custom.clone());
+        parts.join("  |  ")
+    }
+
+    /// The stamp on a page of `layout`, in paper mm.
+    pub fn items(&self, layout: &str, sheet: &Sheet) -> Vec<PlotItem> {
+        let text = self.text(layout, sheet);
+        if text.is_empty() {
+            return vec![];
+        }
+        let (w, h) = sheet.paper_mm();
+        let f = sheet.frame_mm();
+        let th = self.fields.height.clamp(0.5, 10.0);
+        // In the margin, lined up with the drawing frame.
+        let (x, y, align) = match self.fields.corner {
+            StampCorner::BottomLeft => (f.min.x, f.min.y / 2.0, HAlign::Left),
+            StampCorner::BottomRight => (f.max.x, f.min.y / 2.0, HAlign::Right),
+            StampCorner::TopLeft => (f.min.x, (h + f.max.y) / 2.0, HAlign::Left),
+            StampCorner::TopRight => (f.max.x.min(w), (h + f.max.y) / 2.0, HAlign::Right),
+        };
+        let t = Text::new(V2::new(x, y), th, text).aligned(align, VAlign::Middle);
+        vec![PlotItem { prim: Prim::Text(t), rgb: [80, 80, 80], dash: vec![], width: 0.18 }]
     }
 }
 
@@ -68,6 +187,9 @@ pub fn layout_plot_items(doc: &Document, index: usize, opts: &PlotOptions) -> Ve
         for p in icad_core::fonts::expand(vec![it.prim]) {
             out.push(PlotItem { prim: p, rgb: plot_color(it.color, style), dash: dash.clone(), width: lw(it.lineweight) });
         }
+    }
+    if let Some(s) = &opts.stamp {
+        out.extend(s.items(&l.name, &l.sheet));
     }
     out
 }
@@ -126,6 +248,9 @@ pub fn plot_items(doc: &Document, opts: &PlotOptions) -> Vec<PlotItem> {
         for (p, w) in doc.sheet_prims() {
             out.push(PlotItem { prim: to_paper(doc, &p), rgb: [0, 0, 0], dash: vec![], width: lw(w) });
         }
+    }
+    if let Some(s) = &opts.stamp {
+        out.extend(s.items("Layout1", &doc.sheet));
     }
     out
 }

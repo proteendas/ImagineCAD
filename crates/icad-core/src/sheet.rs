@@ -499,8 +499,20 @@ fn split_two(s: &str) -> Vec<String> {
 
 /// Today's date as YYYY-MM-DD (UTC), without pulling in a date crate.
 pub fn today() -> String {
+    let [y, m, d, ..] = utc_now();
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The current UTC time as [year, month, day, hour, minute, second].
+pub fn utc_now() -> [i64; 6] {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
-    let z = secs / 86400 + 719468;
+    utc_from_secs(secs)
+}
+
+/// Civil UTC time of a Unix timestamp.
+pub fn utc_from_secs(secs: i64) -> [i64; 6] {
+    let rem = secs.rem_euclid(86400);
+    let z = secs.div_euclid(86400) + 719468;
     let era = z.div_euclid(146097);
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
@@ -509,7 +521,7 @@ pub fn today() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-    format!("{y:04}-{m:02}-{d:02}")
+    [y, m, d, rem / 3600, rem / 60 % 60, rem % 60]
 }
 
 #[cfg(test)]

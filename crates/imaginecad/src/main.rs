@@ -15,6 +15,7 @@ mod commands_dim;
 mod commands_ext;
 mod commands_markup;
 mod commands_region;
+mod commands_views;
 mod constraints_ui;
 mod dialogs;
 mod dialogs2;

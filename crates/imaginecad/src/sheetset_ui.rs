@@ -26,8 +26,8 @@ pub fn set_pages(
     set: &SheetSet,
     set_path: Option<&Path>,
     doc_of: impl Fn(&Path) -> Result<Document, String>,
+    plot: &icad_io::PlotOptions,
 ) -> (Vec<icad_io::pdf::Page>, Vec<String>) {
-    let opts = icad_io::PlotOptions { style: None, include_sheet: true, lineweights: true };
     let mut pages = vec![];
     let mut problems = vec![];
     for (i, s) in set.sheets.iter().enumerate() {
@@ -40,6 +40,11 @@ pub fn set_pages(
             }
         };
         set.apply(i, &mut doc);
+        // The stamp names each sheet's own drawing.
+        let mut opts = plot.clone();
+        if let Some(st) = &mut opts.stamp {
+            st.drawing = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| s.file.clone());
+        }
         let page = match &s.layout {
             None => Some(icad_io::pdf::sheet_page(&doc, &opts)),
             Some(n) => doc.layouts.iter().position(|l| &l.name == n).and_then(|li| icad_io::pdf::layout_page(&doc, li, &opts)),
@@ -312,8 +317,9 @@ impl App {
         let Some(out) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{}.pdf", st.set.name)).save_file() else {
             return;
         };
-        let (pages, problems) = set_pages(&st.set, st.path.as_deref(), |p| self.set_doc(p));
-        match std::fs::write(&out, icad_io::pdf::write_pages(&pages, &st.set.name)) {
+        let opts = self.plot_options(None, self.active);
+        let (pages, problems) = set_pages(&st.set, st.path.as_deref(), |p| self.set_doc(p), &opts);
+        match std::fs::write(&out, icad_io::pdf::write_pages_with(&pages, &st.set.name, opts.pdfa)) {
             Ok(()) => self.log.push(format!("Published {} sheet(s) of {} to {}", pages.len(), st.set.name, out.display())),
             Err(e) => self.error(format!("Publishing failed: {e}")),
         }

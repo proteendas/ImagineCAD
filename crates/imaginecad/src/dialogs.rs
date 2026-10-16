@@ -250,6 +250,7 @@ pub struct Dialogs {
     pub sheetset: bool,
     pub parameters: bool,
     pub lookup: bool,
+    pub plotstamp: bool,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -349,6 +350,7 @@ impl App {
         self.sheet_set_palette(ctx);
         self.parameters_dialog(ctx);
         self.lookup_dialog(ctx);
+        self.plot_stamp_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -1220,6 +1222,67 @@ impl App {
         self.dlg.dimstyle = open;
     }
 
+    fn plot_stamp_dialog(&mut self, ctx: &egui::Context) {
+        if !self.dlg.plotstamp {
+            return;
+        }
+        let mut open = true;
+        let before = self.settings.plot_stamp.clone();
+        let preview = {
+            let opts = self.plot_options(None, self.active);
+            let t = &self.tabs[self.active];
+            let (layout, sheet) = match t.paper {
+                Some(li) => (t.doc.layouts[li].name.clone(), &t.doc.layouts[li].sheet),
+                None => ("Layout1".to_string(), &t.doc.sheet),
+            };
+            icad_io::plot::Stamp::new(
+                self.settings.plot_stamp.clone(),
+                opts.stamp.map(|s| s.drawing).unwrap_or_else(|| t.name.clone()),
+                self.user_name(),
+            )
+            .text(&layout, sheet)
+        };
+        egui::Window::new("Plot Stamp").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            let st = &mut self.settings.plot_stamp;
+            ui.checkbox(&mut st.on, RichText::new("Print a plot stamp on every plotted page").strong());
+            ui.add_enabled_ui(st.on, |ui| {
+                egui::Grid::new("stamp_fields").num_columns(2).show(ui, |ui| {
+                    ui.checkbox(&mut st.drawing, "Drawing name");
+                    ui.checkbox(&mut st.layout, "Layout name");
+                    ui.end_row();
+                    ui.checkbox(&mut st.date, "Date and time (UTC)");
+                    ui.checkbox(&mut st.user, "User name");
+                    ui.end_row();
+                    ui.checkbox(&mut st.paper, "Paper size");
+                    ui.checkbox(&mut st.scale, "Plot scale");
+                    ui.end_row();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Extra text");
+                    ui.add(egui::TextEdit::singleline(&mut st.custom).hint_text("e.g. PRELIMINARY, project number").desired_width(260.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Location");
+                    egui::ComboBox::from_id_salt("stamp_corner").selected_text(st.corner.name()).show_ui(ui, |ui| {
+                        for c in icad_io::plot::StampCorner::ALL {
+                            ui.selectable_value(&mut st.corner, c, c.name());
+                        }
+                    });
+                    ui.label("Height");
+                    ui.add(egui::DragValue::new(&mut st.height).range(0.5..=10.0).speed(0.1).suffix(" mm"));
+                });
+                ui.separator();
+                ui.label(
+                    RichText::new(if preview.is_empty() { "(nothing selected)".into() } else { preview.clone() }).monospace().size(11.5),
+                );
+            });
+        });
+        if self.settings.plot_stamp != before {
+            self.settings.save();
+        }
+        self.dlg.plotstamp = open;
+    }
+
     fn export_dialog(&mut self, ctx: &egui::Context) {
         if !self.dlg.export {
             return;
@@ -1243,6 +1306,13 @@ impl App {
                 });
             });
             ui.checkbox(&mut self.settings.explode_dims_dxf, "DXF: explode dimensions into lines and text");
+            ui.checkbox(&mut self.settings.pdfa, "PDF: PDF/A-2b for archiving (text as outlines)");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.settings.plot_stamp.on, "PDF/SVG: plot stamp");
+                if ui.small_button("Settings…").clicked() {
+                    self.dlg.plotstamp = true;
+                }
+            });
             ui.separator();
             ui.horizontal(|ui| {
                 for (l, e) in [("PDF", "pdf"), ("DXF", "dxf"), ("DWG", "dwg"), ("SVG", "svg")] {
