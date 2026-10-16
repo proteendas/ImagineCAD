@@ -85,6 +85,8 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("Block Editor (dynamic blocks)", "BEDIT"),
             ("Stretch Parameter", "BSTRETCH"),
             ("Flip Parameter", "BFLIP"),
+            ("Rotation Parameter", "BROTATE"),
+            ("Array Parameter", "BARRAY"),
             ("Visibility State", "BVSTATE"),
             ("Lookup Table…", "BLOOKUP"),
             ("Save Block", "BSAVE"),

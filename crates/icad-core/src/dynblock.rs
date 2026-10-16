@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Proteen Das
 
 //! Dynamic blocks: parameters stored with a block definition (stretch,
-//! flip, visibility states, lookup tables) whose values each block reference
+//! flip, rotate, array, visibility states, lookup tables) whose values each block reference
 //! sets, so one definition draws many sizes and variants.
 
 use crate::entity::{BlockDef, Entity, Insert, Shape};
@@ -28,6 +28,19 @@ pub enum DynParam {
     },
     /// The listed entities mirrored about the line `a`–`b` when flipped.
     Flip { name: String, a: V2, b: V2, ids: Vec<u64> },
+    /// The listed entities turned about `base` by the value minus `default`
+    /// (degrees, counter-clockwise).
+    Rotate { name: String, base: V2, default: f64, ids: Vec<u64> },
+    /// The listed entities repeated: the value is how many in all, each copy
+    /// `step` further on than the one before.
+    Array {
+        name: String,
+        step: V2,
+        default: f64,
+        #[serde(default)]
+        max: Option<f64>,
+        ids: Vec<u64>,
+    },
     /// Named states, each showing its own entities; entities listed in no
     /// state are always shown.
     Visibility { name: String, states: Vec<(String, Vec<u64>)> },
@@ -40,6 +53,8 @@ impl DynParam {
         match self {
             DynParam::Stretch { name, .. }
             | DynParam::Flip { name, .. }
+            | DynParam::Rotate { name, .. }
+            | DynParam::Array { name, .. }
             | DynParam::Visibility { name, .. }
             | DynParam::Lookup { name, .. } => name,
         }
@@ -48,7 +63,7 @@ impl DynParam {
     /// The value a reference without its own value uses.
     pub fn default_value(&self) -> String {
         match self {
-            DynParam::Stretch { default, .. } => fmt_num(*default),
+            DynParam::Stretch { default, .. } | DynParam::Rotate { default, .. } | DynParam::Array { default, .. } => fmt_num(*default),
             DynParam::Flip { .. } => "No".into(),
             DynParam::Visibility { states, .. } => states.first().map(|s| s.0.clone()).unwrap_or_default(),
             DynParam::Lookup { rows, .. } => rows.first().map(|r| r.0.clone()).unwrap_or_default(),
@@ -58,7 +73,7 @@ impl DynParam {
     /// Values offered to choose from (empty for a free number).
     pub fn choices(&self) -> Vec<String> {
         match self {
-            DynParam::Stretch { .. } => vec![],
+            DynParam::Stretch { .. } | DynParam::Rotate { .. } | DynParam::Array { .. } => vec![],
             DynParam::Flip { .. } => vec!["No".into(), "Yes".into()],
             DynParam::Visibility { states, .. } => states.iter().map(|s| s.0.clone()).collect(),
             DynParam::Lookup { rows, .. } => rows.iter().map(|r| r.0.clone()).collect(),
@@ -162,6 +177,29 @@ impl BlockDef {
                         }
                     }
                 }
+                DynParam::Rotate { name, base, default, ids } => {
+                    let v = value(name).trim().parse::<f64>().unwrap_or(*default);
+                    let a = (v - default).to_radians();
+                    if a.abs() > 1e-12 {
+                        let x = Xform::rotate(*base, a);
+                        for e in out.iter_mut().filter(|e| ids.contains(&e.id)) {
+                            e.shape.transform(&x);
+                        }
+                    }
+                }
+                DynParam::Array { name, step, default, max, ids } => {
+                    let v = value(name).trim().parse::<f64>().unwrap_or(*default);
+                    let n = v.round().clamp(1.0, max.unwrap_or(500.0).clamp(1.0, 500.0)) as usize;
+                    let originals: Vec<Entity> = out.iter().filter(|e| ids.contains(&e.id)).cloned().collect();
+                    for k in 1..n {
+                        let x = Xform::translate(*step * k as f64);
+                        out.extend(originals.iter().map(|e| {
+                            let mut c = e.clone();
+                            c.shape.transform(&x);
+                            c
+                        }));
+                    }
+                }
                 DynParam::Visibility { name, states } => {
                     let state = value(name);
                     let shown: Vec<u64> = states.iter().find(|s| s.0 == state).map(|s| s.1.clone()).unwrap_or_default();
@@ -241,5 +279,34 @@ mod tests {
         let e = b.entities_for(&ins);
         let Some(Shape::Line { a, .. }) = e.iter().find(|x| x.id == 4).map(|x| &x.shape) else { panic!() };
         assert!((a.y - 0.0).abs() < 1e-9, "{a:?}");
+    }
+
+    #[test]
+    fn rotate_and_array() {
+        let b = BlockDef {
+            name: "RAIL".into(),
+            base: V2::ZERO,
+            entities: vec![
+                ent(1, Shape::Circle { c: V2::new(10.0, 0.0), r: 2.0 }),
+                ent(2, Shape::Line { a: V2::ZERO, b: V2::new(10.0, 0.0) }),
+            ],
+            description: String::new(),
+            xref: None,
+            params: vec![
+                DynParam::Rotate { name: "Angle".into(), base: V2::ZERO, default: 0.0, ids: vec![2] },
+                DynParam::Array { name: "Holes".into(), step: V2::new(20.0, 0.0), default: 1.0, max: Some(10.0), ids: vec![1] },
+            ],
+        };
+        let mut ins = Insert::new("RAIL", V2::ZERO);
+        assert_eq!(b.entities_for(&ins).len(), 2);
+        ins.set_dyn_value("Angle", "90");
+        ins.set_dyn_value("Holes", "4");
+        let e = b.entities_for(&ins);
+        let Some(Shape::Line { b: end, .. }) = e.iter().find(|x| x.id == 2).map(|x| &x.shape) else { panic!() };
+        assert!(end.x.abs() < 1e-9 && (end.y - 10.0).abs() < 1e-9);
+        let centres: Vec<f64> = e.iter().filter_map(|x| if let Shape::Circle { c, .. } = x.shape { Some(c.x) } else { None }).collect();
+        assert_eq!(centres, vec![10.0, 30.0, 50.0, 70.0]);
+        ins.set_dyn_value("Holes", "99");
+        assert_eq!(b.entities_for(&ins).len(), 11, "capped at the maximum");
     }
 }

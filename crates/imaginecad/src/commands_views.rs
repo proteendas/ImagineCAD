@@ -70,6 +70,8 @@ struct SectionCmd {
     depth: Option<f64>,
     /// Arrows toward the view (first-angle habit) instead of away from it.
     toward: bool,
+    /// A turned part: the round cross-section instead of a cut of a plate.
+    revolved: bool,
 }
 
 impl SectionCmd {
@@ -83,6 +85,19 @@ impl SectionCmd {
         }
         let h = text_height(doc);
         let letter = views::next_view_letter(doc);
+        let n = (b - a).norm().perp();
+        let side = (at - a).dot(n);
+        let away = if side >= 0.0 { -n } else { n };
+        let view = if self.toward { -away } else { away };
+        if self.revolved {
+            let mut sec = views::revolved_section(&self.curves, a, b, at, &letter, h);
+            for p in sec.iter_mut() {
+                if let Shape::Hatch(hh) = &mut p.shape {
+                    hh.scale = doc.ascale();
+                }
+            }
+            return (!sec.is_empty()).then(|| (sec, views::cutting_line(a, b, view, &letter, h)));
+        }
         let mut sec = views::section_view(&self.curves, a, b, depth, V2::ZERO, &letter, h);
         let spans = views::cut_intervals(&self.curves, a, b);
         let (first, last) = (spans.first()?, spans.last()?);
@@ -97,10 +112,6 @@ impl SectionCmd {
         place(&mut sec, &Xform::rotate(V2::ZERO, rot));
         place(&mut sec, &Xform::translate(at));
         // Arrows point away from the view (or toward it).
-        let n = (b - a).norm().perp();
-        let side = (at - a).dot(n);
-        let away = if side >= 0.0 { -n } else { n };
-        let view = if self.toward { -away } else { away };
         Some((sec, views::cutting_line(a, b, view, &letter, h)))
     }
 }
@@ -116,7 +127,7 @@ impl Command for SectionCmd {
             (_, _, None, _) => "Specify end point of the cutting line:".into(),
             (.., None) => {
                 let d = cx.mem.section_depth.map(fmt).unwrap_or_else(|| "10".into());
-                format!("Part thickness (depth of the section) <{d}>:")
+                format!("Part thickness (depth of the section) or [Revolved (turned part)] <{d}>:")
             }
             _ => format!("Specify location of the section view or [Arrows {}]:", if self.toward { "toward" } else { "away" }),
         }
@@ -157,6 +168,11 @@ impl Command for SectionCmd {
     }
     fn value(&mut self, cx: &mut Cx, s: &str) -> Flow {
         if self.b.is_some() && self.depth.is_none() {
+            if matches!(s.to_ascii_uppercase().as_str(), "R" | "REVOLVED") {
+                self.revolved = true;
+                self.depth = Some(0.0);
+                return Flow::Continue;
+            }
             match num(s).filter(|v| *v > 0.0) {
                 Some(v) => {
                     self.depth = Some(v);

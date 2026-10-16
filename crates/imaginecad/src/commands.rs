@@ -359,6 +359,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("BSAVE", ""),
     ("BSTRETCH", ""),
     ("BFLIP", ""),
+    ("BROTATE", ""),
+    ("BARRAY", ""),
     ("BVSTATE", ""),
     ("BLOOKUP", ""),
     ("DIMARRANGE", "DARR"),

@@ -144,6 +144,52 @@ pub fn section_view(curves: &[Curve], a: V2, b: V2, depth: f64, origin: V2, lett
     out
 }
 
+/// A revolved section of a turned part drawn along its axis, cut across it
+/// along `a`–`b`: the cut spans are read as radii about the middle of the
+/// part (its axis), giving the round cross-section (solid, or rings round a
+/// bore), hatched and centred at `origin`, with its title below.
+pub fn revolved_section(curves: &[Curve], a: V2, b: V2, origin: V2, letter: &str, text_height: f64) -> Vec<Piece> {
+    let spans = cut_intervals(curves, a, b);
+    let (Some(first), Some(last)) = (spans.first(), spans.last()) else { return vec![] };
+    let axis = (first.0 + last.1) / 2.0;
+    // Rings from the spans on the far side of the axis (the near side mirrors them).
+    let mut rings: Vec<(f64, f64)> = spans.iter().filter(|s| s.1 > axis + 1e-9).map(|s| ((s.0 - axis).max(0.0), s.1 - axis)).collect();
+    rings.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let circle = |r: f64| -> Vec<V2> { (0..96).map(|i| origin + V2::polar(r, TAU * i as f64 / 96.0)).collect() };
+    let mut out = vec![];
+    for (r0, r1) in &rings {
+        let mut loops = vec![circle(*r1)];
+        if *r0 > 1e-9 {
+            loops.push(circle(*r0));
+            out.push(Piece::on(layers::OUTLINE, Shape::Circle { c: origin, r: *r0 }));
+        }
+        out.push(Piece::on(layers::HATCH, Shape::Hatch(Hatch { loops, pattern: "ANSI31".into(), scale: 1.0, angle: 0.0 })));
+        out.push(Piece::on(layers::OUTLINE, Shape::Circle { c: origin, r: *r1 }));
+    }
+    let outer = rings.iter().map(|r| r.1).fold(0.0, f64::max);
+    let ext = outer + 2.0 * text_height;
+    out.push(Piece {
+        layer: layers::CENTER.into(),
+        linetype: LtRef::ByLayer,
+        lineweight: None,
+        shape: Shape::Line { a: origin - V2::new(ext, 0.0), b: origin + V2::new(ext, 0.0) },
+    });
+    out.push(Piece {
+        layer: layers::CENTER.into(),
+        linetype: LtRef::ByLayer,
+        lineweight: None,
+        shape: Shape::Line { a: origin - V2::new(0.0, ext), b: origin + V2::new(0.0, ext) },
+    });
+    out.push(Piece::on(
+        layers::TEXT,
+        Shape::Text(
+            Text::new(origin - V2::new(0.0, ext + text_height), text_height * 1.4, format!("SECTION {letter}–{letter}"))
+                .aligned(HAlign::Center, VAlign::Top),
+        ),
+    ));
+    out
+}
+
 /// The parts of `c` inside the circle (`o`, `r`).
 pub fn clip_to_circle(c: &Curve, o: V2, r: f64) -> Vec<Curve> {
     let within = |p: V2| p.dist(o) <= r + 1e-9;
@@ -310,6 +356,26 @@ mod tests {
         assert!(v.iter().any(|p| matches!(&p.shape, Shape::Text(t) if t.content == "SECTION A–A")));
         let line = cutting_line(V2::new(-10.0, 20.0), V2::new(110.0, 20.0), V2::new(0.0, 1.0), "A", 2.5);
         assert_eq!(line.iter().filter(|p| matches!(p.shape, Shape::Leader(_))).count(), 2);
+    }
+
+    #[test]
+    fn revolved_section_of_a_hollow_shaft() {
+        // Side view of a Ø40 tube with a Ø20 bore, 100 long, axis on y = 0.
+        let c = vec![
+            Curve::Seg(V2::new(0.0, -20.0), V2::new(100.0, -20.0)),
+            Curve::Seg(V2::new(100.0, -20.0), V2::new(100.0, 20.0)),
+            Curve::Seg(V2::new(100.0, 20.0), V2::new(0.0, 20.0)),
+            Curve::Seg(V2::new(0.0, 20.0), V2::new(0.0, -20.0)),
+            Curve::Seg(V2::new(0.0, -10.0), V2::new(100.0, -10.0)),
+            Curve::Seg(V2::new(100.0, -10.0), V2::new(100.0, 10.0)),
+            Curve::Seg(V2::new(100.0, 10.0), V2::new(0.0, 10.0)),
+            Curve::Seg(V2::new(0.0, 10.0), V2::new(0.0, -10.0)),
+        ];
+        let v = revolved_section(&c, V2::new(50.0, -30.0), V2::new(50.0, 30.0), V2::new(200.0, 0.0), "B", 2.5);
+        let circles: Vec<f64> = v.iter().filter_map(|p| if let Shape::Circle { r, .. } = p.shape { Some(r) } else { None }).collect();
+        assert_eq!(circles, vec![10.0, 20.0]);
+        let Some(Shape::Hatch(h)) = v.iter().map(|p| &p.shape).find(|s| matches!(s, Shape::Hatch(_))) else { panic!() };
+        assert_eq!(h.loops.len(), 2);
     }
 
     #[test]

@@ -725,6 +725,10 @@ fn insert(ui: &mut Ui, out: &mut Vec<String>) {
                 small(ui, Icon::Isolate, "Visibility", "BVSTATE — a named state showing the selected objects", "BVSTATE", out);
             });
             column(ui, |ui| {
+                small(ui, Icon::Rotate, "Rotation", "BROTATE — an angle the references set", "BROTATE", out);
+                small(ui, Icon::Array, "Array", "BARRAY — how many copies the references show", "BARRAY", out);
+            });
+            column(ui, |ui| {
                 small(ui, Icon::Table, "Lookup", "BLOOKUP — rows that set the parameters together", "BLOOKUP", out);
                 small(ui, Icon::Save, "Save Block", "BSAVE — write the block back, stay in the editor", "BSAVE", out);
                 small(ui, Icon::Check, "Close Editor", "BCLOSE — save and return to the drawing", "BCLOSE", out);

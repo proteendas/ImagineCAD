@@ -3,7 +3,8 @@
 
 //! The block editor (BEDIT … BCLOSE): a block definition opened in its own
 //! tab, where its geometry is edited and dynamic parameters are added —
-//! BSTRETCH, BFLIP, BVSTATE (visibility states) and BLOOKUP (lookup table).
+//! BSTRETCH, BFLIP, BROTATE, BARRAY, BVSTATE (visibility states) and BLOOKUP
+//! (lookup table).
 
 use crate::app::App;
 use crate::canvas::{prim_shapes, Style};
@@ -212,8 +213,99 @@ impl Command for BVStateCmd {
     }
 }
 
+// ------------------------------------------------------------------ BROTATE / BARRAY
+
+/// BROTATE: base point → default angle → objects.
+/// BARRAY: first point → next copy's point (the spacing) → default count → objects.
+#[derive(Default)]
+pub struct BTwoStepCmd {
+    array: bool,
+    pts: Vec<V2>,
+    default: Option<f64>,
+}
+
+impl Command for BTwoStepCmd {
+    fn name(&self) -> &'static str {
+        if self.array {
+            "BARRAY"
+        } else {
+            "BROTATE"
+        }
+    }
+    fn prompt(&self, _: &Cx) -> String {
+        match (self.array, self.pts.len(), self.default) {
+            (false, 0, _) => "Specify base point of the rotation parameter:".into(),
+            (false, _, None) => "Default angle <0>:".into(),
+            (true, 0, _) => "Specify a point on the first item:".into(),
+            (true, 1, _) => "Specify the same point on the next item (the spacing):".into(),
+            (true, _, None) => "Default number of items <1>:".into(),
+            _ => format!("Select objects to {}:", if self.array { "repeat" } else { "rotate" }),
+        }
+    }
+    fn wants(&self) -> Want {
+        let need = if self.array { 2 } else { 1 };
+        if self.pts.len() < need {
+            Want::Point
+        } else if self.default.is_none() {
+            Want::Value
+        } else {
+            Want::Select
+        }
+    }
+    fn base(&self) -> Option<V2> {
+        self.pts.last().copied()
+    }
+    fn start(&mut self, cx: &mut Cx) -> Flow {
+        if cx.tab.block_edit.is_none() {
+            cx.msg("Dynamic parameters are added in the block editor: BEDIT a block first.");
+            return Flow::Done;
+        }
+        Flow::Continue
+    }
+    fn point(&mut self, cx: &mut Cx, p: V2) -> Flow {
+        if self.array && self.pts.len() == 1 && p.dist(self.pts[0]) < 1e-9 {
+            cx.msg("The spacing must not be zero.");
+            return Flow::Continue;
+        }
+        self.pts.push(p);
+        Flow::Continue
+    }
+    fn value(&mut self, cx: &mut Cx, s: &str) -> Flow {
+        match num(s).filter(|v| !self.array || *v >= 1.0) {
+            Some(v) => self.default = Some(if self.array { v.round() } else { v }),
+            None => cx.msg(if self.array { "Enter a count of 1 or more." } else { "Enter an angle in degrees." }),
+        }
+        Flow::Continue
+    }
+    fn enter(&mut self, _: &mut Cx) -> Flow {
+        if self.default.is_none() {
+            self.default = Some(if self.array { 1.0 } else { 0.0 });
+            return Flow::Continue;
+        }
+        Flow::Done
+    }
+    fn selected(&mut self, cx: &mut Cx, ids: Vec<u64>) -> Flow {
+        if ids.is_empty() {
+            cx.msg("Select the objects the parameter acts on.");
+            return Flow::Continue;
+        }
+        let (array, pts, default) = (self.array, self.pts.clone(), self.default.unwrap_or(0.0));
+        let Some(be) = editing(cx) else { return Flow::Done };
+        let name = next_name(&be.params, if array { "Count" } else { "Angle" });
+        be.params.push(if array {
+            DynParam::Array { name: name.clone(), step: pts[1] - pts[0], default, max: None, ids }
+        } else {
+            DynParam::Rotate { name: name.clone(), base: pts[0], default, ids }
+        });
+        cx.msg(format!("{} parameter {name} added (default {}).", if array { "Array" } else { "Rotation" }, fmt(default)));
+        Flow::Done
+    }
+}
+
 pub fn create(name: &str) -> Option<Box<dyn Command>> {
     match name {
+        "BROTATE" | "BPROTATE" => Some(Box::new(BTwoStepCmd::default())),
+        "BARRAY" | "BPARRAY" => Some(Box::new(BTwoStepCmd { array: true, ..Default::default() })),
         "BSTRETCH" | "BPSTRETCH" => Some(Box::new(BStretchCmd::default())),
         "BFLIP" | "BPFLIP" => Some(Box::new(BFlipCmd::default())),
         "BVSTATE" | "BVISIBILITY" => Some(Box::new(BVStateCmd::default())),
@@ -245,6 +337,18 @@ pub fn draw_params(painter: &Painter, view: &View, t: &Tab) {
                 prim_shapes(view, &Prim::Line(*a, *b), &st, &mut out);
                 label(*b, &format!(" {name}"));
             }
+            DynParam::Rotate { name, base, default, .. } => {
+                let r = view.px(14.0);
+                prim_shapes(view, &Prim::Arc { c: *base, r, start: 0.0, end: 4.7 }, &solid, &mut out);
+                label(*base + V2::new(r, r), &format!(" {name} = {}°", fmt(*default)));
+            }
+            DynParam::Array { name, step, default, ids, .. } if !ids.is_empty() => {
+                let from =
+                    t.doc.entities.iter().find(|e| ids.contains(&e.id)).and_then(|e| e.shape.grips().first().copied()).unwrap_or_default();
+                prim_shapes(view, &Prim::Line(from, from + *step), &solid, &mut out);
+                label(from + *step, &format!(" {name} = {}", fmt(*default)));
+            }
+            DynParam::Array { .. } => {}
             DynParam::Visibility { name, states } => {
                 let names: Vec<&str> = states.iter().map(|s| s.0.as_str()).collect();
                 let at = t.doc.extents();
@@ -319,7 +423,10 @@ impl App {
             b.params = be.params.clone();
             for p in &mut b.params {
                 match p {
-                    DynParam::Stretch { ids: v, .. } | DynParam::Flip { ids: v, .. } => v.retain(|i| ids.contains(i)),
+                    DynParam::Stretch { ids: v, .. }
+                    | DynParam::Flip { ids: v, .. }
+                    | DynParam::Rotate { ids: v, .. }
+                    | DynParam::Array { ids: v, .. } => v.retain(|i| ids.contains(i)),
                     DynParam::Visibility { states, .. } => states.iter_mut().for_each(|s| s.1.retain(|i| ids.contains(i))),
                     DynParam::Lookup { .. } => {}
                 }
