@@ -137,6 +137,74 @@ impl W {
 /// Named-dictionary key of the XRECORD holding ImagineCAD's constraints.
 const CONSTRAINTS_KEY: &str = "IMAGINECAD_CONSTRAINTS";
 
+/// Named-dictionary key of the XRECORD holding dynamic block parameters.
+const DYNBLOCKS_KEY: &str = "IMAGINECAD_DYNBLOCKS";
+
+/// Map the entity ids in a parameter list (`ids` arrays and state lists).
+fn map_param_ids(v: &mut serde_json::Value, map: &dyn Fn(u64) -> Option<String>, back: &dyn Fn(&str) -> Option<u64>) -> bool {
+    match v {
+        serde_json::Value::Object(o) => {
+            for (k, x) in o.iter_mut() {
+                if k == "ids" {
+                    if let serde_json::Value::Array(a) = x {
+                        for item in a.iter_mut() {
+                            let mapped = match &*item {
+                                serde_json::Value::Number(n) => n.as_u64().and_then(map).map(serde_json::Value::String),
+                                serde_json::Value::String(h) => back(h).map(serde_json::Value::from),
+                                _ => None,
+                            };
+                            match mapped {
+                                Some(m) => *item = m,
+                                None => return false,
+                            }
+                        }
+                    }
+                } else if k == "states" {
+                    if let serde_json::Value::Array(states) = x {
+                        for st in states.iter_mut() {
+                            if let Some(serde_json::Value::Array(ids)) = st.get_mut(1) {
+                                for item in ids.iter_mut() {
+                                    let mapped = match &*item {
+                                        serde_json::Value::Number(n) => n.as_u64().and_then(map).map(serde_json::Value::String),
+                                        serde_json::Value::String(h) => back(h).map(serde_json::Value::from),
+                                        _ => None,
+                                    };
+                                    match mapped {
+                                        Some(m) => *item = m,
+                                        None => return false,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if !map_param_ids(x, map, back) {
+                    return false;
+                }
+            }
+            true
+        }
+        serde_json::Value::Array(a) => a.iter_mut().all(|x| map_param_ids(x, map, back)),
+        _ => true,
+    }
+}
+
+/// Dynamic parameters of every block, entity ids replaced by DXF handles.
+fn dynblocks_json(doc: &Document, handles: &[(String, u64, u64)]) -> Option<String> {
+    let mut out = vec![];
+    for b in doc.blocks.iter().filter(|b| !b.params.is_empty()) {
+        let mut v = serde_json::to_value(&b.params).ok()?;
+        let ok = map_param_ids(
+            &mut v,
+            &|id| handles.iter().find(|(n, e, _)| n == &b.name && *e == id).map(|(_, _, h)| format!("{h:X}")),
+            &|_| None,
+        );
+        if ok {
+            out.push(serde_json::json!({ "block": b.name, "params": v }));
+        }
+    }
+    (!out.is_empty()).then(|| serde_json::Value::Array(out).to_string())
+}
+
 /// Replace every `"id": n` in `v` using `map` (false when one is missing).
 fn map_ids(v: &mut serde_json::Value, map: &dyn Fn(&serde_json::Value) -> Option<serde_json::Value>) -> bool {
     match v {
@@ -182,8 +250,12 @@ const XDATA_APP: &str = "IMAGINECAD";
 
 /// Shapes DXF 2000 has no entity for: written as an anonymous block of their
 /// graphics plus extended data holding the exact shape.
-fn needs_proxy(s: &Shape) -> bool {
+fn needs_proxy(s: &Shape, doc: &Document) -> bool {
     match s {
+        // A dynamic block reference with its own values: its geometry as an
+        // anonymous block (as other programs store them), the reference itself
+        // in the extended data.
+        Shape::Insert(i) => !i.dyn_values.is_empty() && doc.block(&i.name).is_some_and(|b| !b.params.is_empty()),
         Shape::Dim(d) => d.kind == DimKind::ArcLength,
         Shape::Tolerance(f) => !f.leader.is_empty(),
         Shape::Datum(_) | Shape::Surface(_) | Shape::Weld(_) | Shape::Table(_) | Shape::Region(_) => true,
@@ -411,7 +483,7 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
     let modern = w.new2000();
     match &e.shape {
         // Block contents (explode_dims) draw proxies as plain graphics.
-        s if modern && !explode_dims && needs_proxy(s) => {
+        s if modern && !explode_dims && needs_proxy(s, doc) => {
             n.proxy += 1;
             w.ent("INSERT", layer, owner, st, "AcDbBlockReference");
             w.g(2, format!("*U{}", n.proxy));
@@ -772,9 +844,9 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     let dims: Vec<&Entity> = if opts.explode_dimensions {
         vec![]
     } else {
-        doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_)) && !needs_proxy(&e.shape)).collect()
+        doc.entities.iter().filter(|e| matches!(e.shape, Shape::Dim(_)) && !needs_proxy(&e.shape, doc)).collect()
     };
-    let proxies: Vec<&Entity> = if modern { doc.entities.iter().filter(|e| needs_proxy(&e.shape)).collect() } else { vec![] };
+    let proxies: Vec<&Entity> = if modern { doc.entities.iter().filter(|e| needs_proxy(&e.shape, doc)).collect() } else { vec![] };
 
     // ---------------- TABLES (written first so handles exist; HEADER prepended later)
     w.g(0, "SECTION");
@@ -954,6 +1026,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         block_end(&mut w, br, false);
     }
     let mut nested = Counters::default();
+    let mut block_handles: Vec<(String, u64, u64)> = vec![];
     for b in doc.blocks.iter().filter(|b| !doc.is_xref_dependent(&b.name)) {
         let br = br_of(&b.name, &block_brs);
         // External references are written empty with their file (flag 4).
@@ -962,6 +1035,9 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
             None => {
                 block_begin(&mut w, &b.name, br, b.base, 0, false, "");
                 for e in &b.entities {
+                    if !b.params.is_empty() {
+                        block_handles.push((b.name.clone(), e.id, w.next));
+                    }
                     write_entity(&mut w, doc, e, br, true, &mut nested);
                 }
             }
@@ -1059,11 +1135,30 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
             w.g(3, CONSTRAINTS_KEY);
             w.g(350, format!("{cons_rec:X}"));
         }
+        let dynblocks = dynblocks_json(doc, &block_handles);
+        let dyn_rec = if dynblocks.is_some() { w.alloc() } else { 0 };
+        if dyn_rec != 0 {
+            w.g(3, DYNBLOCKS_KEY);
+            w.g(350, format!("{dyn_rec:X}"));
+        }
         w.g(0, "DICTIONARY");
         w.g(5, format!("{group:X}"));
         w.g(330, format!("{root:X}"));
         w.g(100, "AcDbDictionary");
         w.g(281, 1);
+        for (rec, key, json) in [(dyn_rec, DYNBLOCKS_KEY, &dynblocks)] {
+            if let Some(json) = json {
+                w.g(0, "XRECORD");
+                w.g(5, format!("{rec:X}"));
+                w.g(330, format!("{root:X}"));
+                w.g(100, "AcDbXrecord");
+                w.g(280, 1);
+                w.g(1, key);
+                for chunk in json.as_bytes().chunks(240) {
+                    w.g(1, std::str::from_utf8(chunk).unwrap_or(""));
+                }
+            }
+        }
         if let Some(json) = &constraints {
             w.g(0, "XRECORD");
             w.g(5, format!("{cons_rec:X}"));
@@ -1537,6 +1632,7 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
                 sy: r.f_or(42, 1.0),
                 rotation: norm_angle(rad(r.f(50))),
                 attribs,
+                dyn_values: vec![],
             }))
         }
         "VERTEX" | "SEQEND" | "VIEWPORT" => None,
@@ -1605,6 +1701,8 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     let mut block_recs: Vec<(String, V2, Vec<Rec>)> = Vec::new();
     let mut vars: Vec<(String, String)> = Vec::new();
     let mut constraints_json = String::new();
+    let mut dynblocks_json = String::new();
+    let mut block_handle_ids: Vec<(String, String, u64)> = Vec::new();
     let mut handle_ids: Vec<(String, u64)> = Vec::new();
     while i < ps.len() {
         let p = &ps[i];
@@ -1689,6 +1787,9 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
                 "OBJECTS" if r.kind == "XRECORD" && r.codes.iter().find(|c| c.0 == 1).is_some_and(|c| c.1.trim() == CONSTRAINTS_KEY) => {
                     constraints_json = r.codes.iter().filter(|c| c.0 == 1).skip(1).map(|c| c.1.as_str()).collect();
                 }
+                "OBJECTS" if r.kind == "XRECORD" && r.codes.iter().find(|c| c.0 == 1).is_some_and(|c| c.1.trim() == DYNBLOCKS_KEY) => {
+                    dynblocks_json = r.codes.iter().filter(|c| c.0 == 1).skip(1).map(|c| c.1.as_str()).collect();
+                }
                 "OBJECTS" if r.kind == "IMAGEDEF" => {
                     if let (Some(h), Some(path)) = (r.s(5), r.s(1)) {
                         image_files.push((h.to_ascii_uppercase(), path.to_string()));
@@ -1724,16 +1825,27 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
         let mut ents = vec![];
         let mut k = 0;
         while k < brecs.len() {
+            let handle = brecs[k].s(5).map(|h| h.trim().to_ascii_uppercase());
             if let Some(shape) = read_shape(brecs, &mut k, &block_names, &mut warn) {
                 let layer = brecs[k].s(8).unwrap_or("0").to_string();
                 let id = doc.alloc_id();
+                if let Some(h) = handle {
+                    block_handle_ids.push((name.clone(), h, id));
+                }
                 let mut e = Entity { id, layer, color: Color::ByLayer, linetype: LtRef::ByLayer, lineweight: None, shape };
                 apply_props(&mut e, &brecs[k]);
                 ents.push(e);
             }
             k += 1;
         }
-        doc.define_block(BlockDef { name: name.clone(), base: *base, entities: ents, description: String::new(), xref: None });
+        doc.define_block(BlockDef {
+            name: name.clone(),
+            base: *base,
+            entities: ents,
+            description: String::new(),
+            xref: None,
+            params: vec![],
+        });
     }
 
     // Images name their file through the IMAGEDEF object.
@@ -1782,6 +1894,24 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     for l in missing {
         if doc.layer(&l).is_none() {
             doc.layers.push(Layer::new(&l, 7, LineType::Continuous, 0.25));
+        }
+    }
+    // Dynamic block parameters, their entities found by handle.
+    if !dynblocks_json.is_empty() {
+        if let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(&dynblocks_json) {
+            for item in items {
+                let Some(name) = item.get("block").and_then(|n| n.as_str()).map(String::from) else { continue };
+                let mut params = item.get("params").cloned().unwrap_or_default();
+                let ok = map_param_ids(&mut params, &|_| None, &|h| {
+                    let h = h.trim().to_ascii_uppercase();
+                    block_handle_ids.iter().find(|(n, k, _)| n.eq_ignore_ascii_case(&name) && *k == h).map(|(_, _, id)| *id)
+                });
+                if let (true, Ok(ps), Some(b)) =
+                    (ok, serde_json::from_value(params), doc.blocks.iter_mut().find(|b| b.name.eq_ignore_ascii_case(&name)))
+                {
+                    b.params = ps;
+                }
+            }
         }
     }
     // Constraints, their entities found by handle.
@@ -1958,9 +2088,65 @@ mod tests {
             }],
             description: String::new(),
             xref: None,
+            params: vec![],
         });
         d.add(Shape::Insert(Insert::new("WASHER", V2::new(120., 20.))));
         d
+    }
+
+    #[test]
+    fn dynamic_blocks_round_trip() {
+        use icad_core::dynblock::DynParam;
+        let mut d = Document::new();
+        let ent = |id: u64, shape: Shape| Entity {
+            id,
+            layer: "0".into(),
+            color: Default::default(),
+            linetype: Default::default(),
+            lineweight: None,
+            shape,
+        };
+        let mut b = BlockDef {
+            name: "BAR".into(),
+            base: V2::ZERO,
+            entities: vec![
+                ent(1, Shape::Polyline { pts: vec![V2::ZERO, V2::new(50.0, 0.0), V2::new(50.0, 10.0), V2::new(0.0, 10.0)], closed: true }),
+                ent(2, Shape::Circle { c: V2::new(45.0, 5.0), r: 2.0 }),
+            ],
+            description: String::new(),
+            xref: None,
+            params: vec![],
+        };
+        b.params.push(DynParam::Stretch {
+            name: "Length".into(),
+            base: V2::ZERO,
+            dir: V2::new(1.0, 0.0),
+            default: 50.0,
+            min: None,
+            max: None,
+            frame: BBox::from_pts(V2::new(40.0, -1.0), V2::new(51.0, 11.0)),
+            ids: vec![1, 2],
+        });
+        b.params.push(DynParam::Visibility { name: "Hole".into(), states: vec![("With".into(), vec![2]), ("Without".into(), vec![])] });
+        d.define_block(b);
+        let mut long = Insert::new("BAR", V2::new(0.0, 50.0));
+        long.set_dyn_value("Length", "120");
+        d.add(Shape::Insert(long));
+        d.add(Shape::Insert(Insert::new("BAR", V2::ZERO)));
+        let s = write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() });
+        let r = read_dxf(&s).unwrap();
+        let rb = r.block("BAR").unwrap();
+        assert_eq!(rb.params.len(), 2);
+        let DynParam::Stretch { ids, .. } = &rb.params[0] else { panic!() };
+        assert_eq!(ids.len(), 2);
+        assert!(ids.iter().all(|i| rb.entities.iter().any(|e| e.id == *i)));
+        // The stretched reference comes back as itself, with its value.
+        let refs: Vec<&Insert> = r.entities.iter().filter_map(|e| if let Shape::Insert(i) = &e.shape { Some(i) } else { None }).collect();
+        assert_eq!(refs.len(), 2);
+        assert!(refs.iter().all(|i| i.name == "BAR"));
+        assert!(refs.iter().any(|i| i.dyn_value("Length") == Some("120")));
+        // Other programs see the stretched geometry: an anonymous block 120 long.
+        assert!(s.contains("*U1"));
     }
 
     #[test]
@@ -2172,6 +2358,7 @@ mod tests {
             ],
             description: String::new(),
             xref: None,
+            params: vec![],
         });
         let mut ins = Insert::new("BALLOON", V2::new(50., 20.));
         ins.set_value("ITEM", "12");

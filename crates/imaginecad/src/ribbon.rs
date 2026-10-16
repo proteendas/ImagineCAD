@@ -700,6 +700,26 @@ fn insert(ui: &mut Ui, out: &mut Vec<String>) {
                 small(ui, Icon::List, "Export Attributes", "ATTEXPORT — all block attributes to a CSV file (parts list)", "ATTEXPORT", out);
             });
         }),
+        panel("Dynamic Block", Icon::Block, &[], |ui, out| {
+            big(
+                ui,
+                Icon::Block,
+                "Block\nEditor",
+                "BEDIT (BE) — edit a block and add dynamic parameters (select a reference first, or type its name)",
+                "BEDIT",
+                out,
+            );
+            column(ui, |ui| {
+                small(ui, Icon::Stretch, "Stretch", "BSTRETCH — a length the references set", "BSTRETCH", out);
+                small(ui, Icon::Mirror, "Flip", "BFLIP — mirror selected objects on demand", "BFLIP", out);
+                small(ui, Icon::Isolate, "Visibility", "BVSTATE — a named state showing the selected objects", "BVSTATE", out);
+            });
+            column(ui, |ui| {
+                small(ui, Icon::Table, "Lookup", "BLOOKUP — rows that set the parameters together", "BLOOKUP", out);
+                small(ui, Icon::Save, "Save Block", "BSAVE — write the block back, stay in the editor", "BSAVE", out);
+                small(ui, Icon::Check, "Close Editor", "BCLOSE — save and return to the drawing", "BCLOSE", out);
+            });
+        }),
         panel("Reference", Icon::Link, &[], |ui, out| {
             big(
                 ui,

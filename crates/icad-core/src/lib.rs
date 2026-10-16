@@ -9,6 +9,7 @@ pub mod assoc;
 pub mod constraints;
 pub mod curves;
 pub mod document;
+pub mod dynblock;
 pub mod entity;
 pub mod fields;
 pub mod fonts;

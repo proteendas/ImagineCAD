@@ -141,6 +141,7 @@ fn dwg_keeps_block_attributes() {
         }],
         description: String::new(),
         xref: None,
+        params: vec![],
     });
     let mut ins = Insert::new("TAG", V2::new(10., 10.));
     ins.set_value("NO", "42");

@@ -53,6 +53,9 @@ pub struct BlockDef {
     /// are reloaded from the file; the copy here is the last loaded state).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub xref: Option<String>,
+    /// Dynamic parameters (stretch, flip, visibility, lookup).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<crate::dynblock::DynParam>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -515,6 +518,9 @@ pub struct Insert {
     /// Attribute values of this reference (by tag).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attribs: Vec<Attrib>,
+    /// Values of the block's dynamic parameters (by name).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dyn_values: Vec<(String, String)>,
 }
 
 /// Attribute definition inside a block: a labelled text slot whose value is
@@ -548,7 +554,7 @@ impl BlockDef {
 
 impl Insert {
     pub fn new(name: impl Into<String>, pos: V2) -> Self {
-        Self { name: name.into(), pos, sx: 1.0, sy: 1.0, rotation: 0.0, attribs: vec![] }
+        Self { name: name.into(), pos, sx: 1.0, sy: 1.0, rotation: 0.0, attribs: vec![], dyn_values: vec![] }
     }
     /// Value of attribute `tag` (case-insensitive), if set on this reference.
     pub fn value_of(&self, tag: &str) -> Option<&str> {
@@ -894,7 +900,7 @@ impl Shape {
                         let x = ins.xform(b.base);
                         let inner = ctx.deeper();
                         let mut out: Vec<Prim> = b
-                            .entities
+                            .entities_for(ins)
                             .iter()
                             .filter(|e| !matches!(e.shape, Shape::AttDef(_)))
                             .flat_map(|e| e.shape.prims(&inner))

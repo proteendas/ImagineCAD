@@ -49,6 +49,7 @@ impl Document {
                 entities,
                 description: String::new(),
                 xref: None,
+                params: vec![],
             });
         }
         let entities = other.entities.iter().map(|e| adopt(e, name)).collect();
@@ -58,6 +59,7 @@ impl Document {
             entities,
             description: format!("External reference: {path}"),
             xref: Some(path.to_string()),
+            params: vec![],
         });
     }
 

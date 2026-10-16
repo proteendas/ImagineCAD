@@ -12,6 +12,8 @@ const UNDO_LIMIT: usize = 200;
 /// Constrained points (and radii) as last solved, with their signature.
 pub type ConsState = (String, Vec<(icad_core::constraints::PtRef, icad_core::geom::V2, f64)>);
 
+static NEXT_UID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub struct Tab {
     pub doc: Document,
     pub view: View,
@@ -37,6 +39,10 @@ pub struct Tab {
     pub paper_fit: bool,
     /// Constrained geometry as last solved (signature, points), to solve again after edits.
     pub cons_state: Option<ConsState>,
+    /// Unique per open tab (the block editor finds its drawing by it).
+    pub uid: u64,
+    /// Set when this tab edits a block definition (BEDIT).
+    pub block_edit: Option<crate::blockedit_ui::BlockEdit>,
 }
 
 impl Tab {
@@ -59,6 +65,8 @@ impl Tab {
             paper_view: View::default(),
             paper_fit: true,
             cons_state: None,
+            uid: NEXT_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            block_edit: None,
         }
     }
 

@@ -726,7 +726,14 @@ impl BlockCmd {
         cx.checkpoint();
         let redefined = cx.tab.doc.block(&name).is_some();
         let layer = ents[0].layer.clone();
-        cx.doc().define_block(BlockDef { name: name.clone(), base, entities: ents, description: String::new(), xref: None });
+        cx.doc().define_block(BlockDef {
+            name: name.clone(),
+            base,
+            entities: ents,
+            description: String::new(),
+            xref: None,
+            params: vec![],
+        });
         cx.doc().remove(&self.ids);
         cx.doc().add_on(&layer, Shape::Insert(Insert::new(name.clone(), base)));
         cx.mem.last_block = name.clone();
@@ -885,7 +892,7 @@ impl InsertCmd {
         let (Some(name), Some(pos)) = (self.name.clone(), self.pos) else { return Flow::Done };
         let k = self.scale.unwrap_or(1.0);
         cx.checkpoint();
-        let mut ins = Insert { name: name.clone(), pos, sx: k, sy: k, rotation: norm_angle(rot), attribs: vec![] };
+        let mut ins = Insert { name: name.clone(), pos, sx: k, sy: k, rotation: norm_angle(rot), attribs: vec![], dyn_values: vec![] };
         let defs: Vec<(String, String)> =
             cx.tab.doc.block(&name).map(|b| b.attdefs().map(|a| (a.tag.clone(), a.default.clone())).collect()).unwrap_or_default();
         for (tag, default) in &defs {

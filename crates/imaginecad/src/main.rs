@@ -6,6 +6,7 @@
 
 mod app;
 mod attributes;
+mod blockedit_ui;
 mod canvas;
 mod chat;
 mod cli;

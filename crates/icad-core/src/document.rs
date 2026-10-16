@@ -351,7 +351,7 @@ impl Document {
                 proxy.color = Color::Aci(color);
                 proxy.linetype = LtRef::Lt(linetype);
                 proxy.lineweight = Some(lineweight);
-                for sub in &b.entities {
+                for sub in b.entities_for(ins).iter() {
                     if self.layer(&sub.layer).is_some_and(|l| !l.visible) {
                         continue;
                     }
@@ -447,7 +447,7 @@ impl Document {
             }
             let Some(b) = self.block(&ins.name) else { return vec![] };
             let bx = compose(&x, &ins.xform(b.base));
-            return b.entities.iter().flat_map(|e| self.curves_rec(&e.shape, bx, depth + 1)).collect();
+            return b.entities_for(ins).iter().flat_map(|e| self.curves_rec(&e.shape, bx, depth + 1)).collect();
         }
         s.curves().iter().flat_map(|c| c.transformed(&x)).collect()
     }
@@ -458,7 +458,7 @@ impl Document {
         if let Shape::Insert(ins) = &e.shape {
             if let Some(b) = self.block(&ins.name) {
                 let x = ins.xform(b.base);
-                for sub in &b.entities {
+                for sub in b.entities_for(ins).iter() {
                     v.extend(sub.shape.snap_points().into_iter().map(|(k, p)| (k, x.apply(p))));
                 }
             }
@@ -479,7 +479,7 @@ impl Document {
             let x = ins.xform(b.base);
             // Attribute definitions become plain text holding this reference's values.
             return Some(
-                b.entities
+                b.entities_for(ins)
                     .iter()
                     .filter_map(|sub| {
                         let mut n = sub.clone();
@@ -601,7 +601,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(entities.iter().filter(|e| matches!(e.shape, Shape::AttDef(_))).count() >= 14);
-        d.define_block(BlockDef { name: "TB".into(), base: V2::ZERO, entities, description: String::new(), xref: None });
+        d.define_block(BlockDef { name: "TB".into(), base: V2::ZERO, entities, description: String::new(), xref: None, params: vec![] });
         d.sheet.title_block = Some("TB".into());
         let custom = d.sheet_prims();
         let texts = |v: &[(Prim, f64)]| {
@@ -639,6 +639,7 @@ mod tests {
             }],
             description: String::new(),
             xref: None,
+            params: vec![],
         };
         d.define_block(def);
         let mut ins = Insert::new("BOLT", V2::new(5.0, 5.0));

@@ -315,6 +315,7 @@ mod tests {
             entities: vec![ent(Shape::Circle { c: V2::ZERO, r: 4.0 }), att("PART_NO", "ISO 4017 M8x30"), att("MATERIAL", "8.8")],
             description: String::new(),
             xref: None,
+            params: vec![],
         });
         doc.blocks.push(BlockDef {
             name: "PLATE".into(),
@@ -325,6 +326,7 @@ mod tests {
             })],
             description: String::new(),
             xref: None,
+            params: vec![],
         });
         doc.add(Shape::Insert(Insert::new("PLATE", V2::ZERO)));
         for x in [20.0, 80.0] {

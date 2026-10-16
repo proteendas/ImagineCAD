@@ -249,6 +249,7 @@ pub struct Dialogs {
     pub xref: bool,
     pub sheetset: bool,
     pub parameters: bool,
+    pub lookup: bool,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -347,6 +348,7 @@ impl App {
         self.xref_palette(ctx);
         self.sheet_set_palette(ctx);
         self.parameters_dialog(ctx);
+        self.lookup_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -1138,6 +1140,7 @@ impl App {
                 entities,
                 description: "Title block: base point at its bottom-right corner; attribute tags name the title fields".into(),
                 xref: None,
+                params: vec![],
             });
             t.doc.sheet.title_block = Some(name.clone());
             self.log.push(format!("Title block block {name} created and in use."));

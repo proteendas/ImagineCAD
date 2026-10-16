@@ -116,7 +116,7 @@ impl Neg for V2 {
 }
 
 /// Axis aligned bounding box.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BBox {
     pub min: V2,
     pub max: V2,

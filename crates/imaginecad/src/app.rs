@@ -397,6 +397,21 @@ impl App {
             "XREF" | "XR" | "EXTERNALREFERENCES" => self.dlg.xref = true,
             "SHEETSET" | "SSM" | "SHEETSETMANAGER" => self.dlg.sheetset = true,
             "PARAMETERS" | "PAR" | "PARAM" => self.dlg.parameters = true,
+            "BEDIT" | "BE" => {
+                // The named block, or the block of the one selected reference.
+                let t = &self.tabs[self.active];
+                let picked = t.selection.iter().find_map(|id| match t.doc.get(*id).map(|e| &e.shape) {
+                    Some(Shape::Insert(i)) => Some(i.name.clone()),
+                    _ => None,
+                });
+                match args.first().cloned().or(picked) {
+                    Some(n) => self.block_edit(&n),
+                    None => self.block_edit(""),
+                }
+            }
+            "BCLOSE" | "BC" => self.block_save(true),
+            "BSAVE" => self.block_save(false),
+            "BLOOKUP" | "BPLOOKUP" => self.dlg.lookup = true,
             "RIBBON" => {
                 // Show a ribbon tab by name (RIBBON PARAMETRIC).
                 let want = args.first().map(|a| a.to_ascii_lowercase()).unwrap_or_default();
@@ -889,6 +904,7 @@ impl App {
             let o = RenderOpts { on_paper: layout, lineweights: self.settings.lineweights };
             canvas::draw_document(&painter, &t.view, &t.doc, &t.selection, hover_id, &o, &mut self.images);
             crate::constraints_ui::draw_overlay(&painter, &t.view, &t.doc, self.settings.show_constraints);
+            crate::blockedit_ui::draw_params(&painter, &t.view, t);
             if let Some(c) = &self.cmd {
                 if hover.is_some() {
                     canvas::draw_preview(&painter, &t.view, &t.doc, &c.preview(&t.doc, self.cursor), layout);
@@ -1993,6 +2009,31 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
                             if ui.text_edit_singleline(&mut v).changed() {
                                 ins.set_value(&tag, v);
                                 gflag.set(true);
+                            }
+                            ui.end_row();
+                        }
+                        // Dynamic block parameters: this reference's values.
+                        let params = t.doc.block(&ins.name).map(|b| b.params.clone()).unwrap_or_default();
+                        for prm in params {
+                            let name = prm.name().to_string();
+                            let cur = ins.dyn_value(&name).map(String::from).unwrap_or_else(|| prm.default_value());
+                            ui.label(RichText::new(&name).color(theme::ACCENT));
+                            let choices = prm.choices();
+                            if choices.is_empty() {
+                                let mut v: f64 = cur.parse().unwrap_or(0.0);
+                                if ui.add(egui::DragValue::new(&mut v).speed(0.5).max_decimals(3)).changed() {
+                                    ins.set_dyn_value(&name, commands::fmt(v));
+                                    gflag.set(true);
+                                }
+                            } else {
+                                egui::ComboBox::from_id_salt(("dyn", name.clone())).selected_text(cur.clone()).show_ui(ui, |ui| {
+                                    for c in choices {
+                                        if ui.selectable_label(c == cur, &c).clicked() {
+                                            ins.set_dyn_value(&name, c);
+                                            gflag.set(true);
+                                        }
+                                    }
+                                });
                             }
                             ui.end_row();
                         }
