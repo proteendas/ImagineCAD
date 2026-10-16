@@ -12,13 +12,16 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 /// (code, name in that language)
-pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("de", "Deutsch"), ("fr", "Français"), ("es", "Español")];
+pub const LANGUAGES: &[(&str, &str)] =
+    &[("en", "English"), ("de", "Deutsch"), ("fr", "Français"), ("es", "Español"), ("it", "Italiano"), ("pt", "Português")];
 
 fn bundled(code: &str) -> Option<&'static str> {
     match code {
         "de" => Some(include_str!("../../../assets/i18n/de.json")),
         "fr" => Some(include_str!("../../../assets/i18n/fr.json")),
         "es" => Some(include_str!("../../../assets/i18n/es.json")),
+        "it" => Some(include_str!("../../../assets/i18n/it.json")),
+        "pt" => Some(include_str!("../../../assets/i18n/pt.json")),
         _ => None,
     }
 }
