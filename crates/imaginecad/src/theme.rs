@@ -35,14 +35,142 @@ pub const PREVIEW: Color32 = Color32::from_rgb(160, 220, 255);
 pub const WARN: Color32 = Color32::from_rgb(255, 196, 64);
 pub const ERR: Color32 = Color32::from_rgb(255, 110, 100);
 
-pub fn apply(ctx: &egui::Context) {
+fn base_fonts() -> egui::FontDefinitions {
     // The UI font lacks arrows and block symbols (→ ● ▏ ⇄ …); fall back to the
     // bundled monospace font for those instead of drawing empty boxes.
     let mut fonts = egui::FontDefinitions::default();
     if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
         prop.push("Hack".to_owned());
     }
-    ctx.set_fonts(fonts);
+    fonts
+}
+
+/// Installed fonts for Chinese or Japanese, best first.
+fn script_font_names(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "zh" => &[
+            "PingFang SC",
+            "Hiragino Sans GB",
+            ".Hiragino Sans GB Interface",
+            "STHeiti",
+            "Heiti SC",
+            "Microsoft YaHei",
+            "Noto Sans CJK SC",
+            "Noto Sans SC",
+            "Source Han Sans SC",
+            "WenQuanYi Micro Hei",
+            "SimHei",
+            "SimSun",
+            "Noto Sans CJK JP",
+        ],
+        "ja" => &[
+            "Hiragino Sans",
+            "Hiragino Kaku Gothic ProN",
+            "Yu Gothic",
+            "Yu Gothic UI",
+            "Meiryo",
+            "Noto Sans CJK JP",
+            "Noto Sans JP",
+            "Source Han Sans JP",
+            "IPAGothic",
+            "MS Gothic",
+            "Noto Sans CJK SC",
+        ],
+        _ => &[],
+    }
+}
+
+/// Fonts for the interface language: languages with their own script get an
+/// installed font for it as a fallback (looked up off the UI thread; the
+/// interface shows the glyphs as soon as it is loaded).
+pub fn set_language_fonts(ctx: &egui::Context, lang: &str) {
+    let names = script_font_names(lang);
+    ctx.set_fonts(base_fonts());
+    if names.is_empty() {
+        return;
+    }
+    let ctx = ctx.clone();
+    let lang = lang.to_string();
+    std::thread::spawn(move || {
+        let load = |path: &std::path::Path, index: u32| {
+            let Ok(data) = std::fs::read(path) else { return false };
+            let mut defs = base_fonts();
+            let mut fd = egui::FontData::from_owned(data);
+            fd.index = index;
+            defs.font_data.insert("script".to_owned(), std::sync::Arc::new(fd));
+            for fam in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                if let Some(list) = defs.families.get_mut(&fam) {
+                    list.push("script".to_owned());
+                }
+            }
+            ctx.set_fonts(defs);
+            ctx.request_repaint();
+            true
+        };
+        // Common font files first (quick), then any installed family by name.
+        let probe = if lang == "ja" { "日本語あア" } else { "中文简体" };
+        for (path, index) in script_font_files(&lang) {
+            let p = std::path::Path::new(path);
+            if p.is_file() && icad_core::fonts::has_glyphs(p, *index, probe) && load(p, *index) {
+                return;
+            }
+        }
+        let fonts = icad_core::fonts::system_fonts();
+        // Faces are named with their weight ("Hiragino Sans W3"): take the
+        // regular weight of the first family that is installed.
+        let found = names.iter().find_map(|n| {
+            let family: Vec<_> = fonts
+                .iter()
+                .filter(|f| {
+                    f.name.eq_ignore_ascii_case(n) || f.name.to_ascii_lowercase().starts_with(&format!("{} ", n.to_ascii_lowercase()))
+                })
+                .collect();
+            family
+                .iter()
+                .find(|f| f.name.eq_ignore_ascii_case(n))
+                .or_else(|| family.iter().find(|f| f.name.ends_with(" W3") || f.name.ends_with(" Regular")))
+                .or(family.first())
+                .copied()
+        });
+        if let Some(f) = found {
+            load(&f.path, f.index);
+        }
+    });
+}
+
+/// Font files (and collection index) that usually carry the script.
+fn script_font_files(lang: &str) -> &'static [(&'static str, u32)] {
+    match lang {
+        "zh" => &[
+            ("/System/Library/Fonts/Hiragino Sans GB.ttc", 0),
+            ("/System/Library/Fonts/STHeiti Light.ttc", 1),
+            ("C:\\Windows\\Fonts\\msyh.ttc", 0),
+            ("C:\\Windows\\Fonts\\simhei.ttf", 0),
+            ("C:\\Windows\\Fonts\\simsun.ttc", 0),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 2),
+            ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", 2),
+            ("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", 2),
+            ("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", 0),
+            ("/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc", 0),
+        ],
+        "ja" => &[
+            ("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc", 0),
+            // The same name as stored on disk (decomposed).
+            ("/System/Library/Fonts/ヒラキ\u{3099}ノ角コ\u{3099}シック W3.ttc", 0),
+            ("C:\\Windows\\Fonts\\YuGothR.ttc", 0),
+            ("C:\\Windows\\Fonts\\meiryo.ttc", 0),
+            ("C:\\Windows\\Fonts\\msgothic.ttc", 0),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+            ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", 0),
+            ("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", 0),
+            ("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", 0),
+        ],
+        _ => &[],
+    }
+}
+
+pub fn apply(ctx: &egui::Context) {
+    set_language_fonts(ctx, &crate::i18n::language());
 
     let mut v = egui::Visuals::dark();
     v.panel_fill = PANEL;

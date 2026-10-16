@@ -38,6 +38,8 @@ pub struct App {
     pub clipboard: Vec<Entity>,
     pub last_point: Option<V2>,
     pub view_req: Option<ViewReq>,
+    /// The language the interface fonts were set up for.
+    pub fonts_for: String,
     pub pan_mode: bool,
     pub prop_editing: bool,
     pub dlg: Dialogs,
@@ -61,13 +63,14 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, open: Vec<PathBuf>) -> Self {
-        theme::apply(&cc.egui_ctx);
         let mut settings = Settings::load();
         crate::i18n::set_language(if settings.language.is_empty() {
             crate::i18n::system_language().unwrap_or("en")
         } else {
             &settings.language
         });
+        // After the language: it decides which fonts are loaded.
+        theme::apply(&cc.egui_ctx);
         if let Some(k) = crate::secrets::load() {
             settings.convert.ai.api_key = k;
         }
@@ -96,6 +99,7 @@ impl App {
             clipboard: vec![],
             last_point: None,
             view_req: None,
+            fonts_for: crate::i18n::language(),
             pan_mode: false,
             prop_editing: false,
             dlg: Dialogs::default(),
@@ -2289,6 +2293,11 @@ fn properties_ui(ui: &mut egui::Ui, t: &mut Tab, editing: &mut bool) -> bool {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let lang = crate::i18n::language();
+        if lang != self.fonts_for {
+            theme::set_language_fonts(ctx, &lang);
+            self.fonts_for = lang;
+        }
         self.screenshot_hook(ctx);
         // Design review of the icon set: IMAGINECAD_ICON_SHEET=1.
         if std::env::var_os("IMAGINECAD_ICON_SHEET").is_some() {

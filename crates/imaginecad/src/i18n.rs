@@ -12,8 +12,16 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 /// (code, name in that language)
-pub const LANGUAGES: &[(&str, &str)] =
-    &[("en", "English"), ("de", "Deutsch"), ("fr", "Français"), ("es", "Español"), ("it", "Italiano"), ("pt", "Português")];
+pub const LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("de", "Deutsch"),
+    ("fr", "Français"),
+    ("es", "Español"),
+    ("it", "Italiano"),
+    ("pt", "Português"),
+    ("zh", "中文（简体）"),
+    ("ja", "日本語"),
+];
 
 fn bundled(code: &str) -> Option<&'static str> {
     match code {
@@ -22,6 +30,8 @@ fn bundled(code: &str) -> Option<&'static str> {
         "es" => Some(include_str!("../../../assets/i18n/es.json")),
         "it" => Some(include_str!("../../../assets/i18n/it.json")),
         "pt" => Some(include_str!("../../../assets/i18n/pt.json")),
+        "zh" => Some(include_str!("../../../assets/i18n/zh.json")),
+        "ja" => Some(include_str!("../../../assets/i18n/ja.json")),
         _ => None,
     }
 }
@@ -87,6 +97,10 @@ pub fn system_language() -> Option<&'static str> {
     }
     candidates.iter().find_map(|c| {
         let code = c.split(['_', '-', '.']).next().unwrap_or("").to_ascii_lowercase();
+        // Only Simplified Chinese is translated.
+        if code == "zh" && ["Hant", "TW", "HK", "MO"].iter().any(|t| c.contains(t)) {
+            return None;
+        }
         LANGUAGES.iter().find(|(l, _)| *l == code && *l != "en").map(|(l, _)| *l)
     })
 }

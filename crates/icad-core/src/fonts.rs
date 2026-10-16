@@ -274,6 +274,13 @@ fn load(path: &Path, index: u32) -> Option<Arc<Face>> {
     face
 }
 
+/// Whether face `index` of the font file has a glyph for every character.
+pub fn has_glyphs(path: &Path, index: u32, chars: &str) -> bool {
+    std::fs::read(path)
+        .ok()
+        .is_some_and(|d| ttf_parser::Face::parse(&d, index).is_ok_and(|f| chars.chars().all(|c| f.glyph_index(c).is_some())))
+}
+
 /// Outline of `text` in `file` (cached).
 pub fn shape(file: &str, text: &str) -> Option<Arc<Shaped>> {
     static SHAPED: OnceLock<Cache<(String, String), Shaped>> = OnceLock::new();
