@@ -1360,7 +1360,7 @@ impl Cur<'_> {
 }
 
 /// Polyline vertices with bulges, tessellated.
-fn bulge_points(verts: &[(V2, f64)], closed: bool) -> Vec<V2> {
+pub(crate) fn bulge_points(verts: &[(V2, f64)], closed: bool) -> Vec<V2> {
     let mut out = vec![];
     let n = verts.len();
     for i in 0..n {
@@ -2027,7 +2027,7 @@ fn read_dimension(r: &Rec) -> Option<Shape> {
     Some(Shape::Dim(d))
 }
 
-fn strip_mtext(s: &str) -> String {
+pub(crate) fn strip_mtext(s: &str) -> String {
     let mut out = String::new();
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {

@@ -12,6 +12,7 @@
 //! | `.svg`  |   | ✓ | Vector, paper millimetres |
 
 pub mod dwg;
+pub mod dwgnative;
 pub mod dxf;
 pub mod pdf;
 pub mod plot;
@@ -59,12 +60,42 @@ pub fn open(path: &Path) -> Result<Document, String> {
             let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
             dxf::read_dxf(&String::from_utf8_lossy(&bytes))
         }
-        Some(Format::Dwg) => {
-            let conv = dwg::find_converter()
-                .ok_or("DWG support files are missing: reinstall ImagineCAD, or install the free ODA File Converter or LibreDWG (see docs/FILE_FORMATS.md)")?;
-            dxf::read_dxf(&dwg::dwg_to_dxf(path, &conv)?)
-        }
+        Some(Format::Dwg) => open_dwg(path),
         _ => Err("Unsupported file type".into()),
+    }
+}
+
+/// DWG: the built-in reader, or the converter where it reads more (DWG
+/// 2007 files, damaged objects, and ImagineCAD's own extended data).
+/// `IMAGINECAD_DWG_READER=native` or `converter` forces one.
+fn open_dwg(path: &Path) -> Result<Document, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let pref = std::env::var("IMAGINECAD_DWG_READER").unwrap_or_default().to_ascii_lowercase();
+    let conv = if pref == "native" { None } else { dwg::find_converter() };
+    let mut native = None;
+    if pref != "converter" && dwgnative::supported(&bytes) {
+        match dwgnative::read(&bytes) {
+            Ok((doc, rep)) => {
+                if !rep.skipped.is_empty() {
+                    eprintln!("DWG import: not read {:?}", rep.skipped);
+                }
+                let better_elsewhere = rep.damaged > 0 || rep.from_imaginecad;
+                if conv.is_none() || !better_elsewhere {
+                    return Ok(doc);
+                }
+                native = Some(doc);
+            }
+            Err(e) => eprintln!("DWG import: built-in reader: {e}"),
+        }
+    }
+    match conv {
+        Some(c) => match dwg::dwg_to_dxf(path, &c).and_then(|dxf| dxf::read_dxf(&dxf)) {
+            Ok(doc) => Ok(doc),
+            Err(e) => native.ok_or(e),
+        },
+        None => native.ok_or_else(|| {
+            "This DWG version is read through a converter, and none was found: reinstall ImagineCAD, or install the free ODA File Converter or LibreDWG (see docs/FILE_FORMATS.md)".into()
+        }),
     }
 }
 
