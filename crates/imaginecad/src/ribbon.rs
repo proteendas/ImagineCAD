@@ -469,7 +469,16 @@ fn insert(ui: &mut Ui, out: &mut Vec<String>) {
         });
     });
     panel(ui, "Reference", &[], out, |ui, out| {
+        big(
+            ui,
+            Icon::Dwg,
+            "Attach\nDrawing",
+            "XATTACH (XA) — show another DWG/DXF as an external reference, kept up to date",
+            "XATTACH",
+            out,
+        );
         big(ui, Icon::Image, "Attach\nImage", "IMAGEATTACH (IAT) — raster underlay", "IMAGEATTACH", out);
+        big(ui, Icon::Link, "External\nReferences", "XREF (XR) — reload, re-path, open, bind or detach references", "XREF", out);
     });
     panel(ui, "Import", &[], out, |ui, out| {
         big_split(

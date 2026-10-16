@@ -49,6 +49,10 @@ pub struct BlockDef {
     pub entities: Vec<Entity>,
     #[serde(default)]
     pub description: String,
+    /// External reference: the drawing file this block shows (its contents
+    /// are reloaded from the file; the copy here is the last loaded state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xref: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -597,7 +597,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(entities.iter().filter(|e| matches!(e.shape, Shape::AttDef(_))).count() >= 14);
-        d.define_block(BlockDef { name: "TB".into(), base: V2::ZERO, entities, description: String::new() });
+        d.define_block(BlockDef { name: "TB".into(), base: V2::ZERO, entities, description: String::new(), xref: None });
         d.sheet.title_block = Some("TB".into());
         let custom = d.sheet_prims();
         let texts = |v: &[(Prim, f64)]| {
@@ -634,6 +634,7 @@ mod tests {
                 shape: Shape::Line { a: V2::new(0.0, 0.0), b: V2::new(10.0, 0.0) },
             }],
             description: String::new(),
+            xref: None,
         };
         d.define_block(def);
         let mut ins = Insert::new("BOLT", V2::new(5.0, 5.0));

@@ -316,6 +316,7 @@ mod tests {
                 def("PART, NO", "X-1", -8.0),
             ],
             description: String::new(),
+            xref: None,
         });
         let mut ins = Insert::new("BALLOON", V2::new(100.0, 50.0));
         ins.set_value("item", "7");

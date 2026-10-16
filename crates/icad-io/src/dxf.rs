@@ -120,8 +120,12 @@ impl W {
     }
     /// ImagineCAD extended data: the exact shape, so it reads back losslessly.
     fn xdata(&mut self, shape: &Shape) {
+        if let Ok(json) = serde_json::to_string(shape) {
+            self.xdata_json(&json);
+        }
+    }
+    fn xdata_json(&mut self, json: &str) {
         use base64::Engine as _;
-        let Ok(json) = serde_json::to_string(shape) else { return };
         let b64 = base64::engine::general_purpose::STANDARD.encode(json);
         self.g(1001, XDATA_APP);
         for chunk in b64.as_bytes().chunks(250) {
@@ -145,14 +149,25 @@ fn needs_proxy(s: &Shape) -> bool {
     }
 }
 
-/// The exact shape stored in ImagineCAD extended data, if present.
-fn xdata_shape(r: &Rec) -> Option<Shape> {
+/// ImagineCAD extended data of a record, decoded.
+fn xdata_bytes(r: &Rec) -> Option<Vec<u8>> {
     use base64::Engine as _;
     let start = r.codes.iter().position(|(c, v)| *c == 1001 && v.trim() == XDATA_APP)?;
     let b64: String =
         r.codes[start + 1..].iter().take_while(|(c, _)| *c != 1001).filter(|(c, _)| *c == 1000).map(|(_, v)| v.trim()).collect();
-    let json = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    serde_json::from_slice(&json).ok()
+    base64::engine::general_purpose::STANDARD.decode(b64).ok()
+}
+
+/// The exact shape stored in ImagineCAD extended data, if present.
+fn xdata_shape(r: &Rec) -> Option<Shape> {
+    serde_json::from_slice(&xdata_bytes(r)?).ok()
+}
+
+/// The external reference file named in an INSERT's extended data
+/// (converters may drop the external flag and path of the block itself).
+fn xdata_xref(r: &Rec) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(&xdata_bytes(r)?).ok()?;
+    v.get("xref")?.as_str().map(String::from)
 }
 
 /// Encode text for DXF: standard %% control codes for common symbols, `\U+XXXX` for the rest.
@@ -401,6 +416,9 @@ fn write_entity(w: &mut W, doc: &Document, e: &Entity, owner: u64, explode_dims:
                     write_attribute(w, false, &t, &a.tag, &value, "", a.invisible, layer, handle, st);
                 }
                 w.ent("SEQEND", layer, handle, Style::default(), "");
+            }
+            if let Some(path) = &b.xref {
+                w.xdata_json(&serde_json::json!({ "xref": path }).to_string());
             }
         }
         // Fields: the current value, with the field codes kept as extended data.
@@ -688,7 +706,8 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     let ext = if opts.include_sheet && doc.sheet.visible { doc.extents().union(&doc.sheet.bounds()) } else { doc.extents() };
     let ext = if ext.is_empty() { BBox::from_pts(V2::ZERO, V2::new(100.0, 100.0)) } else { ext };
 
-    let mut layers = doc.layers.clone();
+    // Layers of external references come with the referenced file.
+    let mut layers: Vec<Layer> = doc.layers.iter().filter(|l| !doc.is_xref_dependent(&l.name)).cloned().collect();
     if opts.include_sheet && doc.sheet.visible && doc.layer("TITLEBLOCK").is_none() {
         layers.push(Layer::new("TITLEBLOCK", 7, LineType::Continuous, 0.35));
     }
@@ -799,7 +818,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
             .into_iter()
             .chain((1..=dims.len()).map(|i| format!("*D{i}")))
             .chain((1..=proxies.len()).map(|i| format!("*U{i}")))
-            .chain(doc.blocks.iter().map(|b| b.name.clone()))
+            .chain(doc.blocks.iter().filter(|b| !doc.is_xref_dependent(&b.name)).map(|b| b.name.clone()))
             .collect();
         let t = table_start(&mut w, "BLOCK_RECORD", names.len());
         for n in names {
@@ -819,7 +838,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     w.g(0, "SECTION");
     w.g(2, "BLOCKS");
     let br_of = |name: &str, brs: &[(String, u64)]| brs.iter().find(|(n, _)| n == name).map(|(_, h)| *h).unwrap_or(0);
-    let block_begin = |w: &mut W, name: &str, br: u64, base: V2, flags: i32, paper: bool| {
+    let block_begin = |w: &mut W, name: &str, br: u64, base: V2, flags: i32, paper: bool, path: &str| {
         w.g(0, "BLOCK");
         if w.new2000() {
             let h = w.alloc();
@@ -836,7 +855,7 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         w.g(70, flags);
         w.pt(10, base);
         w.g(3, name);
-        w.g(1, "");
+        w.g(1, path);
     };
     let block_end = |w: &mut W, br: u64, paper: bool| {
         w.g(0, "ENDBLK");
@@ -853,15 +872,15 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         w.sub("AcDbBlockEnd");
     };
     if modern {
-        block_begin(&mut w, "*Model_Space", msp_br, V2::ZERO, 0, false);
+        block_begin(&mut w, "*Model_Space", msp_br, V2::ZERO, 0, false, "");
         block_end(&mut w, msp_br, false);
-        block_begin(&mut w, "*Paper_Space", psp_br, V2::ZERO, 0, true);
+        block_begin(&mut w, "*Paper_Space", psp_br, V2::ZERO, 0, true, "");
         block_end(&mut w, psp_br, true);
     }
     for (i, e) in dims.iter().enumerate() {
         let name = format!("*D{}", i + 1);
         let br = br_of(&name, &block_brs);
-        block_begin(&mut w, &name, br, V2::ZERO, 1, false);
+        block_begin(&mut w, &name, br, V2::ZERO, 1, false, "");
         for p in doc.prims_of(e) {
             write_prim(&mut w, &p, "0", br, Style { color: Some(0), lt: None, lw: None });
         }
@@ -870,18 +889,24 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     for (i, e) in proxies.iter().enumerate() {
         let name = format!("*U{}", i + 1);
         let br = br_of(&name, &block_brs);
-        block_begin(&mut w, &name, br, V2::ZERO, 1, false);
+        block_begin(&mut w, &name, br, V2::ZERO, 1, false, "");
         for p in doc.prims_of(e) {
             write_prim(&mut w, &p, "0", br, Style { color: Some(0), lt: None, lw: None });
         }
         block_end(&mut w, br, false);
     }
     let mut nested = Counters::default();
-    for b in &doc.blocks {
+    for b in doc.blocks.iter().filter(|b| !doc.is_xref_dependent(&b.name)) {
         let br = br_of(&b.name, &block_brs);
-        block_begin(&mut w, &b.name, br, b.base, 0, false);
-        for e in &b.entities {
-            write_entity(&mut w, doc, e, br, true, &mut nested);
+        // External references are written empty with their file (flag 4).
+        match &b.xref {
+            Some(path) => block_begin(&mut w, &b.name, br, b.base, 4, false, path),
+            None => {
+                block_begin(&mut w, &b.name, br, b.base, 0, false, "");
+                for e in &b.entities {
+                    write_entity(&mut w, doc, e, br, true, &mut nested);
+                }
+            }
         }
         block_end(&mut w, br, false);
     }
@@ -891,8 +916,52 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     w.g(0, "SECTION");
     w.g(2, "ENTITIES");
     let mut counters = Counters::default();
+    // Raster images (DXF 2000): IMAGE entities pointing at IMAGEDEF objects.
+    struct ImgDef {
+        path: String,
+        handle: u64,
+        px: (u32, u32),
+        reactors: Vec<(u64, u64)>,
+    }
+    let mut img_defs: Vec<ImgDef> = vec![];
     for e in &doc.entities {
-        if matches!(e.shape, Shape::Image(_)) {
+        if let Shape::Image(img) = &e.shape {
+            if !modern {
+                continue;
+            }
+            let px = image::image_dimensions(&img.path).unwrap_or((1000, 1000));
+            let di = match img_defs.iter().position(|d| d.path == img.path) {
+                Some(i) => i,
+                None => {
+                    let handle = w.alloc();
+                    img_defs.push(ImgDef { path: img.path.clone(), handle, px, reactors: vec![] });
+                    img_defs.len() - 1
+                }
+            };
+            let reactor = w.alloc();
+            let ih = w.next;
+            let def = &mut img_defs[di];
+            def.reactors.push((reactor, ih));
+            w.ent("IMAGE", &e.layer, msp_br, style_of(e), "AcDbRasterImage");
+            w.g(90, 0);
+            w.pt(10, img.pos);
+            w.pt(11, V2::new(img.w / def.px.0 as f64, 0.0));
+            w.pt(12, V2::new(0.0, img.h / def.px.1 as f64));
+            w.f(13, def.px.0 as f64);
+            w.f(23, def.px.1 as f64);
+            w.g(340, format!("{:X}", def.handle));
+            w.g(70, 7);
+            w.g(280, 0);
+            w.g(281, 50);
+            w.g(282, 50);
+            w.g(283, img.fade);
+            w.g(360, format!("{reactor:X}"));
+            w.g(71, 1);
+            w.g(91, 2);
+            w.f(14, -0.5);
+            w.f(24, -0.5);
+            w.f(14, def.px.0 as f64 - 0.5);
+            w.f(24, def.px.1 as f64 - 0.5);
             continue;
         }
         write_entity(&mut w, doc, e, msp_br, opts.explode_dimensions, &mut counters);
@@ -917,11 +986,56 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
         w.g(281, 1);
         w.g(3, "ACAD_GROUP");
         w.g(350, format!("{group:X}"));
+        let img_dict = if img_defs.is_empty() { 0 } else { w.alloc() };
+        if img_dict != 0 {
+            w.g(3, "ACAD_IMAGE_DICT");
+            w.g(350, format!("{img_dict:X}"));
+        }
         w.g(0, "DICTIONARY");
         w.g(5, format!("{group:X}"));
         w.g(330, format!("{root:X}"));
         w.g(100, "AcDbDictionary");
         w.g(281, 1);
+        if img_dict != 0 {
+            w.g(0, "DICTIONARY");
+            w.g(5, format!("{img_dict:X}"));
+            w.g(330, format!("{root:X}"));
+            w.g(100, "AcDbDictionary");
+            w.g(281, 1);
+            for (i, d) in img_defs.iter().enumerate() {
+                let stem = std::path::Path::new(&d.path).file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+                w.g(3, format!("{stem}_{}", i + 1));
+                w.g(350, format!("{:X}", d.handle));
+            }
+            for d in &img_defs {
+                w.g(0, "IMAGEDEF");
+                w.g(5, format!("{:X}", d.handle));
+                w.g(102, "{ACAD_REACTORS");
+                w.g(330, format!("{img_dict:X}"));
+                for (r, _) in &d.reactors {
+                    w.g(330, format!("{r:X}"));
+                }
+                w.g(102, "}");
+                w.g(330, format!("{img_dict:X}"));
+                w.g(100, "AcDbRasterImageDef");
+                w.g(90, 0);
+                w.g(1, &d.path);
+                w.f(10, d.px.0 as f64);
+                w.f(20, d.px.1 as f64);
+                w.f(11, 1.0);
+                w.f(21, 1.0);
+                w.g(280, 1);
+                w.g(281, 0);
+                for (r, image) in &d.reactors {
+                    w.g(0, "IMAGEDEF_REACTOR");
+                    w.g(5, format!("{r:X}"));
+                    w.g(330, format!("{image:X}"));
+                    w.g(100, "AcDbRasterImageDefReactor");
+                    w.g(90, 2);
+                    w.g(330, format!("{image:X}"));
+                }
+            }
+        }
         w.g(0, "ENDSEC");
     }
     w.g(0, "EOF");
@@ -971,6 +1085,26 @@ pub fn write_dxf(doc: &Document, opts: &DxfOptions) -> String {
     h.g(9, "$CLAYER");
     h.g(8, &doc.current_layer);
     h.g(0, "ENDSEC");
+    // Raster image classes (only when there are images: an empty CLASSES
+    // section upsets some readers).
+    if modern && !img_defs.is_empty() {
+        h.g(0, "SECTION");
+        h.g(2, "CLASSES");
+        for (name, cpp, flags, is_entity) in [
+            ("IMAGE", "AcDbRasterImage", 127, 1),
+            ("IMAGEDEF", "AcDbRasterImageDef", 0, 0),
+            ("IMAGEDEF_REACTOR", "AcDbRasterImageDefReactor", 1, 0),
+        ] {
+            h.g(0, "CLASS");
+            h.g(1, name);
+            h.g(2, cpp);
+            h.g(3, "ISM");
+            h.g(90, flags);
+            h.g(280, 0);
+            h.g(281, is_entity);
+        }
+        h.g(0, "ENDSEC");
+    }
     h.s + &w.s
 }
 
@@ -1278,6 +1412,12 @@ fn read_shape(recs: &[Rec], k: &mut usize, blocks: &[String], warn: &mut std::co
             Some(Shape::Spline { pts, closed })
         }
         "POINT" => Some(Shape::Point { p: r.p(10) }),
+        "IMAGE" => {
+            let path = r.s(1)?.to_string();
+            let (u, v) = (r.p(11), r.p(12));
+            let (nx, ny) = (r.f(13), r.f(23));
+            Some(Shape::Image(ImageRef { path, pos: r.p(10), w: u.len() * nx, h: v.len() * ny, fade: r.i(283).clamp(0, 100) as u8 }))
+        }
         "TOLERANCE" => Some(Shape::Tolerance(icad_core::symbols::Fcf::from_dxf(r.p(10), r.s(1).unwrap_or("")))),
         "XLINE" => Some(Shape::XLine { p: r.p(10), dir: r.p(11).norm() }),
         "RAY" => Some(Shape::Ray { p: r.p(10), dir: r.p(11).norm() }),
@@ -1379,6 +1519,9 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
     let mut section = String::new();
     let mut table_layers: Vec<Layer> = Vec::new();
     let mut table_styles: Vec<icad_core::fonts::TextStyle> = Vec::new();
+    let mut image_files: Vec<(String, String)> = Vec::new();
+    let mut xref_paths: Vec<(String, String)> = Vec::new();
+    let mut insert_xrefs: Vec<(String, String)> = Vec::new();
     let mut recs: Vec<Rec> = Vec::new();
     let mut block_recs: Vec<(String, V2, Vec<Rec>)> = Vec::new();
     while i < ps.len() {
@@ -1393,7 +1536,7 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
             i += 1;
             continue;
         }
-        if p.code == 0 && matches!(section.as_str(), "ENTITIES" | "TABLES" | "BLOCKS") {
+        if p.code == 0 && matches!(section.as_str(), "ENTITIES" | "TABLES" | "BLOCKS" | "OBJECTS") {
             let mut r = Rec { kind: p.val.clone(), codes: vec![] };
             i += 1;
             while i < ps.len() && ps[i].code != 0 {
@@ -1439,7 +1582,13 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
                     }
                 }
                 "BLOCKS" => match r.kind.as_str() {
-                    "BLOCK" => block_recs.push((r.s(2).unwrap_or("").to_string(), r.p(10), vec![])),
+                    "BLOCK" => {
+                        let name = r.s(2).unwrap_or("").to_string();
+                        if r.i(70) & 4 != 0 {
+                            xref_paths.push((name.clone(), r.s(1).unwrap_or("").to_string()));
+                        }
+                        block_recs.push((name, r.p(10), vec![]))
+                    }
                     "ENDBLK" => {}
                     _ => {
                         if let Some(b) = block_recs.last_mut() {
@@ -1448,6 +1597,11 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
                     }
                 },
                 "ENTITIES" => recs.push(r),
+                "OBJECTS" if r.kind == "IMAGEDEF" => {
+                    if let (Some(h), Some(path)) = (r.s(5), r.s(1)) {
+                        image_files.push((h.to_ascii_uppercase(), path.to_string()));
+                    }
+                }
                 _ => {}
             }
             continue;
@@ -1487,12 +1641,29 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
             }
             k += 1;
         }
-        doc.define_block(BlockDef { name: name.clone(), base: *base, entities: ents, description: String::new() });
+        doc.define_block(BlockDef { name: name.clone(), base: *base, entities: ents, description: String::new(), xref: None });
     }
 
+    // Images name their file through the IMAGEDEF object.
+    for r in recs.iter_mut().filter(|r| r.kind == "IMAGE") {
+        let def = r.s(340).map(|h| h.to_ascii_uppercase());
+        if let Some(path) = def.and_then(|h| image_files.iter().find(|(k, _)| *k == h)).map(|(_, p)| p.clone()) {
+            r.codes.push((1, path));
+        }
+    }
+    // External references: the application loads their contents from the file.
+    for (name, path) in xref_paths {
+        if let Some(b) = doc.blocks.iter_mut().find(|b| b.name.eq_ignore_ascii_case(&name)) {
+            b.xref = Some(path);
+            b.entities.clear();
+        }
+    }
     let mut k = 0;
     while k < recs.len() {
         let layer = recs[k].s(8).unwrap_or("0").to_string();
+        if let (Some(path), Some(name)) = (xdata_xref(&recs[k]), recs[k].s(2)) {
+            insert_xrefs.push((name.to_string(), path));
+        }
         if let Some(shape) = read_shape(&recs, &mut k, &block_names, &mut warn) {
             if doc.layer(&layer).is_none() {
                 doc.layers.push(Layer::new(&layer, 7, LineType::Continuous, 0.25));
@@ -1502,6 +1673,12 @@ pub fn read_dxf(src: &str) -> Result<Document, String> {
             apply_props(e, &recs[k]);
         }
         k += 1;
+    }
+    for (name, path) in insert_xrefs {
+        if let Some(b) = doc.blocks.iter_mut().find(|b| b.name.eq_ignore_ascii_case(&name) && b.xref.is_none()) {
+            b.xref = Some(path);
+            b.entities.clear();
+        }
     }
     // Layers referenced only inside blocks.
     let missing: Vec<String> =
@@ -1639,6 +1816,7 @@ mod tests {
                 shape: Shape::Circle { c: V2::ZERO, r: 4.0 },
             }],
             description: String::new(),
+            xref: None,
         });
         d.add(Shape::Insert(Insert::new("WASHER", V2::new(120., 20.))));
         d
@@ -1804,6 +1982,7 @@ mod tests {
                 })),
             ],
             description: String::new(),
+            xref: None,
         });
         let mut ins = Insert::new("BALLOON", V2::new(50., 20.));
         ins.set_value("ITEM", "12");
@@ -1870,6 +2049,23 @@ mod tests {
             Shape::MText(m) => m.style.as_deref() == Some("NOTES"),
             _ => false,
         }));
+    }
+
+    #[test]
+    fn external_references_round_trip() {
+        let mut part = Document::new();
+        part.ensure_layer(Layer::new("WELDS", 3, LineType::Continuous, 0.35));
+        part.add_on("WELDS", Shape::Circle { c: V2::ZERO, r: 5.0 });
+        let mut d = Document::new();
+        d.attach_xref("BASE", "/parts/base.dwg", &part);
+        d.add(Shape::Insert(Insert::new("BASE", V2::new(10., 10.))));
+        let s = write_dxf(&d, &DxfOptions { include_sheet: false, ..Default::default() });
+        assert!(!s.contains("BASE|WELDS"), "dependent layers come with the file");
+        let r = read_dxf(&s).unwrap();
+        let b = r.block("BASE").unwrap();
+        assert_eq!(b.xref.as_deref(), Some("/parts/base.dwg"));
+        assert!(b.entities.is_empty());
+        assert!(matches!(&r.entities[0].shape, Shape::Insert(i) if i.name == "BASE"));
     }
 
     #[test]

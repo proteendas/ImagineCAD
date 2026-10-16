@@ -28,6 +28,7 @@ mod text_ui;
 mod theme;
 mod tracking;
 mod view;
+mod xref_ui;
 
 use eframe::egui;
 

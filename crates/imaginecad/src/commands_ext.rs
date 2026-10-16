@@ -726,7 +726,7 @@ impl BlockCmd {
         cx.checkpoint();
         let redefined = cx.tab.doc.block(&name).is_some();
         let layer = ents[0].layer.clone();
-        cx.doc().define_block(BlockDef { name: name.clone(), base, entities: ents, description: String::new() });
+        cx.doc().define_block(BlockDef { name: name.clone(), base, entities: ents, description: String::new(), xref: None });
         cx.doc().remove(&self.ids);
         cx.doc().add_on(&layer, Shape::Insert(Insert::new(name.clone(), base)));
         cx.mem.last_block = name.clone();

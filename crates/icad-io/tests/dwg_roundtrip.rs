@@ -68,6 +68,55 @@ fn dwg_save_and_reopen() {
 }
 
 #[test]
+fn dxf_and_dwg_keep_raster_images() {
+    let dir = std::env::temp_dir().join(format!("icad-img-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = dir.join("photo.png");
+    image::RgbImage::from_fn(40, 20, |x, _| image::Rgb([(x * 6) as u8, 80, 160])).save(&png).unwrap();
+    let mut d = Document::new();
+    d.add(Shape::Line { a: V2::new(0., 0.), b: V2::new(100., 0.) });
+    d.add(Shape::Image(icad_core::ImageRef { path: png.display().to_string(), pos: V2::new(10., 5.), w: 80.0, h: 40.0, fade: 30 }));
+    let check = |r: &Document, what: &str| {
+        let img = r
+            .entities
+            .iter()
+            .find_map(|e| if let Shape::Image(i) = &e.shape { Some(i.clone()) } else { None })
+            .unwrap_or_else(|| panic!("image lost in {what}"));
+        assert_eq!(img.path, png.display().to_string(), "{what}");
+        assert!((img.w - 80.0).abs() < 1e-6 && (img.h - 40.0).abs() < 1e-6 && img.pos.dist(V2::new(10., 5.)) < 1e-6, "{what}: {img:?}");
+        assert_eq!(img.fade, 30, "{what}");
+    };
+    let dxf = dir.join("img.dxf");
+    icad_io::save(&d, &dxf, &Default::default()).unwrap();
+    check(&icad_io::open(&dxf).unwrap(), "DXF");
+    if icad_io::dwg::find_converter().is_some() {
+        let dwg = dir.join("img.dwg");
+        icad_io::save(&d, &dwg, &Default::default()).unwrap();
+        check(&icad_io::open(&dwg).unwrap(), "DWG");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn dwg_keeps_external_references() {
+    if icad_io::dwg::find_converter().is_none() {
+        return;
+    }
+    let mut part = Document::new();
+    part.add(Shape::Circle { c: V2::ZERO, r: 5.0 });
+    let mut d = Document::new();
+    d.attach_xref("BASE", "/parts/base.dwg", &part);
+    d.add(Shape::Insert(Insert::new("BASE", V2::new(10., 10.))));
+    let dir = std::env::temp_dir().join(format!("icad-xref-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("host.dwg");
+    icad_io::save(&d, &path, &Default::default()).unwrap();
+    let r = icad_io::open(&path).unwrap();
+    assert_eq!(r.block("BASE").and_then(|b| b.xref.clone()).as_deref(), Some("/parts/base.dwg"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn dwg_keeps_block_attributes() {
     if icad_io::dwg::find_converter().is_none() {
         return;
@@ -91,6 +140,7 @@ fn dwg_keeps_block_attributes() {
             }),
         }],
         description: String::new(),
+        xref: None,
     });
     let mut ins = Insert::new("TAG", V2::new(10., 10.));
     ins.set_value("NO", "42");

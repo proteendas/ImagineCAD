@@ -246,6 +246,7 @@ pub struct Dialogs {
     pub spell: Option<crate::spell::SpellDialog>,
     pub layout_rename: Option<(usize, String)>,
     pub publish: Option<crate::layouts_ui::PublishDialog>,
+    pub xref: bool,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -341,6 +342,7 @@ impl App {
         self.style_dialog(ctx);
         self.spell_dialog(ctx);
         self.layout_dialogs(ctx);
+        self.xref_palette(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -1116,6 +1118,7 @@ impl App {
                 base: icad_core::V2::ZERO,
                 entities,
                 description: "Title block: base point at its bottom-right corner; attribute tags name the title fields".into(),
+                xref: None,
             });
             t.doc.sheet.title_block = Some(name.clone());
             self.log.push(format!("Title block block {name} created and in use."));

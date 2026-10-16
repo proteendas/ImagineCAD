@@ -153,6 +153,10 @@ impl App {
                 self.settings.push_recent(p.to_path_buf());
                 self.settings.save();
                 self.log.push(format!("Opened {}", p.display()));
+                // External references show their files' current state.
+                if !self.tabs[self.active].doc.xrefs().is_empty() {
+                    self.reload_xrefs();
+                }
             }
             Err(e) => self.error(format!("Could not open {}: {e}", p.display())),
         }
@@ -372,6 +376,8 @@ impl App {
             "MODEL" => self.show_sheet(None),
             "LAYOUTNEW" | "NEWLAYOUT" => self.new_layout(),
             "PUBLISH" | "BATCHPLOT" => self.open_publish(),
+            "XATTACH" | "XA" => self.xattach(),
+            "XREF" | "XR" | "EXTERNALREFERENCES" => self.dlg.xref = true,
             "REGEN" | "RE" | "REGENALL" => {}
             "HELP" | "?" => self.dlg.help = true,
             "ABOUT" => self.dlg.about = true,

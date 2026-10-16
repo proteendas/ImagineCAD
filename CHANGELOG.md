@@ -24,6 +24,8 @@ All notable changes to ImagineCAD are documented here. The format follows
 - **Layouts:** paper-space layouts with their own paper, title block and plot style; viewports (`MVIEW`) with scale, view centre, size and lock; layout tabs with rename, page setup, plot and delete.
 - **Plot styles:** monochrome, colour, grayscale and screened, per sheet or layout.
 - **Batch plot:** `PUBLISH` to one multi-page PDF (each page its own paper size) or one PDF per sheet.
+- **External references:** `XATTACH`, the `XREF` palette (reload, re-path, open, bind, detach), automatic reload on open, `NAME|LAYER` dependent layers; written to DXF/DWG as external blocks.
+- **Raster images in DXF/DWG:** IMAGE entities with image definitions, size and fade, read and written.
 - **Compact ribbon:** split buttons with variant lists (Circle ▾, Arc ▾, Dimension ▾, Trim ▾, Fillet ▾, Array ▾…), icon tool columns and panel-title menus (Draw ▾, Modify ▾, Annotation ▾, Layers ▾), so each tab fits without scrolling.
 - DXF/DWG: objects without a DXF 2000 equivalent are written as their graphics plus ImagineCAD extended data, so other programs show them and ImagineCAD reads them back exactly.
 

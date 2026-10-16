@@ -312,6 +312,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("MVIEW", "MV"),
     ("LAYOUTNEW", ""),
     ("PUBLISH", ""),
+    ("XATTACH", "XA"),
+    ("XREF", "XR"),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {

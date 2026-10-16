@@ -288,6 +288,19 @@ automatically. **Create editable copy** adds the built-in title block as such a
 block to start from.
 `UNITS` sets the unit label and precision.
 
+## External references
+
+`XATTACH` (`XA`, Insert → Attach Drawing) shows another DWG, DXF or `.icad`
+drawing inside this one, placed like a block, and keeps it up to date with its
+file. Its layers appear as `NAME|LAYER` so you can turn them off or recolour
+them without touching the source. Opening a drawing reloads its references (a
+moved file is also looked for next to the drawing). `XREF` (`XR`) lists them
+with their status: **Reload**, **Path…** (choose the file again), **Open**,
+**Bind** (make it an ordinary block of this drawing) and **Detach**.
+
+Raster images (`IMAGEATTACH`) and external references are kept in DXF and DWG
+files.
+
 ## Layouts, viewports and plotting
 
 The tabs at the bottom left switch between **Model**, **Layout1** (the main
