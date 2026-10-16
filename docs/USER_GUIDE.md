@@ -407,6 +407,17 @@ cutting line gets thick ends, arrows and letters (`A`–`A`, then `B`, …; I, O
 and Q are skipped), and the view is titled *SECTION A–A*. The arrows point
 away from the view; type **A** before placing it to point them toward it.
 
+The cutting line may have more than two points, to pass through features
+that do not lie on one line: after the second point keep picking points, then
+give the thickness. Jogs square to the first leg add no width (an *offset*
+section); legs at another angle are unfolded at their true length (an
+*aligned* section). Thick strokes mark the bends.
+
+`BROKENOUT` draws a broken-out (partial) section: select the part's outline,
+then pick the points of a freehand boundary (Enter or **C** closes it). The
+material inside the boundary is hatched, and a thin break line is drawn
+where the boundary crosses the part.
+
 For a turned part (a shaft, bush or tube drawn along its axis), answer the
 thickness prompt with **R** (*Revolved*) and cut across the part: the section
 is its round cross-section, solid or a ring round the bore, hatched, with
@@ -454,8 +465,11 @@ DXF and DWG drawings (other programs see the geometry).
 ## Languages
 
 The menus, ribbon, Properties palette and command line can be shown in
-English, German, French, Spanish, Italian or Portuguese: *Tools →
-Language…*, or `LANGUAGE de` (`en`, `de`, `fr`, `es`, `it`, `pt`, `system`). By default ImagineCAD follows the system
+English, German, French, Spanish, Italian, Portuguese, Simplified Chinese or
+Japanese: *Tools → Language…*, or `LANGUAGE de` (`en`, `de`, `fr`, `es`,
+`it`, `pt`, `zh`, `ja`, `system`). For Chinese and Japanese an installed font
+for the script is used (Hiragino, Heiti, YaHei, Yu Gothic, Meiryo, Noto Sans
+CJK…). By default ImagineCAD follows the system
 language. Command names stay in English in every language, so aliases,
 scripts and plugins work everywhere.
 

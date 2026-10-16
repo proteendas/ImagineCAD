@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/icad-core", "crates/icad-io", "crates/icad-vision", "crates/imaginecad"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "GPL-3.0-only"
 authors = ["Proteen Das"]

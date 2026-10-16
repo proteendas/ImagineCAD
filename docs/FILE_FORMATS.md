@@ -11,24 +11,25 @@
 
 ## DWG
 
-**Reading.** ImagineCAD reads DWG 2000, 2004, 2010, 2013 and 2018 files
+**Reading.** ImagineCAD reads DWG 2000, 2004, 2007, 2010, 2013 and 2018 files
 itself (`icad-io/src/dwgnative`), with no converter: layers (colour,
 linetype, lineweight, on/off, frozen, locked), linetype names, blocks and
 every 2D drafting entity — lines, circles, arcs, ellipses, points, light and
 classic polylines with bulges, solids, hatches (lines, arcs, elliptical arcs,
 splines and polyline boundaries), splines, text, multiline text, block
 references (also arrays) with their attribute values, attribute definitions,
-leaders, tolerance frames, construction lines and rays, and all dimension
-types as native, editable dimensions. The header's dimension variables and
+leaders, tolerance frames, construction lines and rays, raster images,
+external references, and all dimension types (also arc length) as native,
+editable dimensions. Drawings saved by ImagineCAD keep everything: the
+extended data with exact symbols, tables and regions, and the records of
+constraints and dynamic block parameters are read too. The header's dimension variables and
 linetype scale give the drawing its annotation scale. 3D objects (faces,
-meshes, solids) and multilines are counted and left out; paper-space
-content is not imported.
+meshes, solids), multilines, multileaders, wipeouts and tables from other
+programs are counted and left out; paper-space content is not imported.
 
-The converter (below) is still used to read DWG 2007 files (which use a
-different layout), files whose objects the built-in reader could not
-decode, and drawings saved by ImagineCAD itself, whose extended data
-(exact symbols, constraints, dynamic blocks) the DXF path reads. When no
-converter is installed the built-in reader is always used.
+The converter (below) is used for reading only when the built-in reader could
+not decode some objects of a file; when no converter is installed the
+built-in reader is always used.
 `IMAGINECAD_DWG_READER=native` or `converter` forces one or the other.
 
 **Writing** goes through DXF 2000 and a converter:

@@ -6,6 +6,19 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-17
+
+### Added
+- **DWG 2007** drawings open without a converter (the Reed–Solomon coded container and its compression); the built-in reader now covers DWG 2000 to 2018.
+- The DWG reader reads raster images, external reference paths, arc-length dimensions and the class section, and ImagineCAD's own extended data and records (exact symbols, tables, regions, constraints, dynamic block parameters), so drawings saved by ImagineCAD reopen fully without the converter.
+- **Stepped section lines:** SECTIONVIEW takes a cutting line of several points — offset sections (jogs add no width) and aligned sections (angled legs unfolded) — with thick strokes at the bends.
+- **Broken-out sections** (`BROKENOUT`): the material inside a freehand boundary is hatched and a thin break line drawn across the part.
+- **Interface languages:** Simplified Chinese and Japanese, with an installed font for the script loaded automatically.
+- **Plugin previews:** a plugin command with `"preview": true` shows what it would add while its last point is picked.
+
+### Changed
+- Plugin commands show their own name at the command prompt.
+
 ## [0.7.0] - 2026-10-16
 
 ### Added

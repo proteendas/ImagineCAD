@@ -4,7 +4,22 @@ ImagineCAD's goal is complete day-to-day 2D mechanical drafting at the level
 of mature commercial CAD suites, plus AI sketch conversion. This page is an
 honest map of what exists and what is next.
 
-## 0.7 (current)
+## 0.8 (current)
+
+Everything in 0.7, plus:
+
+**DWG:** DWG 2007 files, raster images, external references and arc-length
+dimensions; drawings saved by ImagineCAD keep their exact symbols,
+constraints and dynamic blocks, so the converter is needed only for writing.
+
+**Views:** stepped (offset and aligned) section lines and broken-out
+sections.
+
+**Languages:** Simplified Chinese and Japanese.
+
+**Plugins:** live previews while the last point is picked.
+
+## 0.7
 
 Everything in 0.6, plus:
 
@@ -105,12 +120,11 @@ Core drafting, modify and dimension commands, layers, blocks, hatching, DWG via
 bundled LibreDWG, DXF 2000/R12, PDF/SVG, Image to CAD with any provider's key,
 installers for macOS, Windows and Linux.
 
-## Next (0.8)
+## Next (0.9)
 
-- [ ] DWG reader: DWG 2007 files, ImagineCAD's extended data and paper-space layouts, so the converter is needed only for writing
-- [ ] Interface languages with their own scripts (Hindi, Chinese, Japanese) and translated dialogs
-- [ ] Broken-out sections and aligned section views from a stepped cutting line
-- [ ] Plugin commands with live previews
+- [ ] Translated dialogs (Layer Properties, Page Setup, Dimension Style, Export…)
+- [ ] DWG reader: paper-space layouts with their viewports; multileaders and tables
+- [ ] Section views of whole assemblies with per-part hatch angles
 
 ## Later
 

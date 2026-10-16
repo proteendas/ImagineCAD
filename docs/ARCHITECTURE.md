@@ -156,7 +156,9 @@ See [FILE_FORMATS.md](FILE_FORMATS.md). Highlights:
   bit-coded values: BS, BL, BD, DD, MC, MS, handles, text), `container.rs`
   (the R2000 section locators; for R2004+ the encrypted file header, the page
   and section maps, and the LZ77 page decompressor; the object map),
-  `header.rs` (the header variables up to the dimension style),
+  `r2007.rs` (the DWG 2007 container: Reed–Solomon de-interleaving, its own
+  compression, page and section maps), `classes.rs` (types numbered 500 and
+  up), `header.rs` (the header variables up to the dimension style),
   `objects.rs` (common entity and object data, the handle and string
   streams, table records and each entity type) and `mod.rs` (placing
   entities in model space or their blocks and building the `Document`).
