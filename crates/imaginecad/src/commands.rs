@@ -332,6 +332,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("REVCLOUD", "RC"),
     ("SECTIONVIEW", ""),
     ("DETAILVIEW", ""),
+    ("BROKENOUT", ""),
     ("SHEETSET", "SSM"),
     ("GCHORIZONTAL", "GCH"),
     ("GCVERTICAL", "GCV"),

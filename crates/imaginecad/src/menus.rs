@@ -156,6 +156,7 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("-", ""),
             ("Section View", "SECTIONVIEW"),
             ("Detail View", "DETAILVIEW"),
+            ("Broken-out Section", "BROKENOUT"),
         ],
     ),
     (

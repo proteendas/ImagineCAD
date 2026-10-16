@@ -94,39 +94,93 @@ pub fn next_view_letter(doc: &Document) -> String {
     unreachable!()
 }
 
-/// The cutting-line symbol: a thin chain line with thick ends, arrows
-/// pointing in the viewing direction `view` and the letter at each end.
-pub fn cutting_line(a: V2, b: V2, view: V2, letter: &str, text_height: f64) -> Vec<Piece> {
-    let d = (b - a).norm();
-    let v = view.norm();
-    let h = text_height;
+/// Thick stroke, arrow (pointing along `view`) and letter at one end of a
+/// cutting line; `inward` points along the line from that end.
+fn end_marks(end: V2, inward: V2, view: V2, letter: &str, h: f64) -> Vec<Piece> {
     let stroke = 3.0 * h;
-    let mut out =
-        vec![Piece { layer: layers::CENTER.into(), linetype: LtRef::Lt(LineType::Center), lineweight: None, shape: Shape::Line { a, b } }];
-    for (end, inward) in [(a, d), (b, -d)] {
-        out.push(Piece {
+    let tail = end - view * (2.5 * stroke);
+    vec![
+        Piece {
             layer: layers::OUTLINE.into(),
             linetype: LtRef::Lt(LineType::Continuous),
             lineweight: Some(0.7),
             shape: Shape::Line { a: end, b: end + inward * stroke },
-        });
-        let tail = end - v * (2.5 * stroke);
-        out.push(Piece::on(layers::DIMENSIONS, Shape::Leader(Leader { pts: vec![end, tail], text: String::new(), style: None })));
-        out.push(Piece::on(
+        },
+        Piece::on(layers::DIMENSIONS, Shape::Leader(Leader { pts: vec![end, tail], text: String::new(), style: None })),
+        Piece::on(
             layers::DIMENSIONS,
-            Shape::Text(Text::new(tail - v * (0.8 * h) - inward * (0.4 * h), h * 1.4, letter).aligned(HAlign::Center, VAlign::Middle)),
-        ));
+            Shape::Text(Text::new(tail - view * (0.8 * h) - inward * (0.4 * h), h * 1.4, letter).aligned(HAlign::Center, VAlign::Middle)),
+        ),
+    ]
+}
+
+/// The cutting-line symbol: a thin chain line with thick ends, arrows
+/// pointing in the viewing direction `view` and the letter at each end.
+pub fn cutting_line(a: V2, b: V2, view: V2, letter: &str, text_height: f64) -> Vec<Piece> {
+    cutting_path(&[a, b], view, letter, text_height)
+}
+
+/// The cut through the material along a polyline path, unfolded: distances
+/// along the path from its start. Jogs square to the first leg (an offset
+/// section) add no width; legs at other angles (an aligned section) are
+/// unfolded at their true length.
+pub fn path_intervals(curves: &[Curve], path: &[V2]) -> Vec<(f64, f64)> {
+    let mut out: Vec<(f64, f64)> = vec![];
+    let mut at = 0.0;
+    let dir = path.get(1).map(|p| (*p - path[0]).norm()).unwrap_or(V2::ZERO);
+    for (k, w) in path.windows(2).enumerate() {
+        let leg = w[1] - w[0];
+        if k > 0 && leg.norm().dot(dir).abs() < 0.05 {
+            continue;
+        }
+        for (s0, s1) in cut_intervals(curves, w[0], w[1]) {
+            match out.last_mut() {
+                // Material continuing across a bend is one face.
+                Some(last) if (last.1 - (at + s0)).abs() < 1e-7 => last.1 = at + s1,
+                _ => out.push((at + s0, at + s1)),
+            }
+        }
+        at += w[0].dist(w[1]);
     }
     out
 }
 
-/// A section view of a part `depth` thick, cut along `a`–`b` through the
-/// closed boundaries `curves`: the cut faces laid out from `origin` along x
-/// (as seen looking along the arrows) and hatched, with its title below.
-pub fn section_view(curves: &[Curve], a: V2, b: V2, depth: f64, origin: V2, letter: &str, text_height: f64) -> Vec<Piece> {
-    let spans = cut_intervals(curves, a, b);
+/// The cutting-line symbol for a straight or stepped path: thick strokes at
+/// the ends and at each bend, arrows and letters at the ends.
+pub fn cutting_path(path: &[V2], view: V2, letter: &str, text_height: f64) -> Vec<Piece> {
+    let n = path.len();
+    if n < 2 {
+        return vec![];
+    }
+    let v = view.norm();
+    let centre = if n == 2 { Shape::Line { a: path[0], b: path[1] } } else { Shape::Polyline { pts: path.to_vec(), closed: false } };
+    let mut out = vec![Piece { layer: layers::CENTER.into(), linetype: LtRef::Lt(LineType::Center), lineweight: None, shape: centre }];
+    out.extend(end_marks(path[0], (path[1] - path[0]).norm(), v, letter, text_height));
+    out.extend(end_marks(path[n - 1], (path[n - 2] - path[n - 1]).norm(), v, letter, text_height));
+    let half = 1.5 * text_height;
+    for k in 1..n - 1 {
+        let p = path[k];
+        for q in [path[k - 1], path[k + 1]] {
+            out.push(Piece {
+                layer: layers::OUTLINE.into(),
+                linetype: LtRef::Lt(LineType::Continuous),
+                lineweight: Some(0.7),
+                shape: Shape::Line { a: p, b: p + (q - p).norm() * half },
+            });
+        }
+    }
+    out
+}
+
+/// A section along a stepped path: the cut faces unfolded along x.
+pub fn section_view_path(curves: &[Curve], path: &[V2], depth: f64, origin: V2, letter: &str, text_height: f64) -> Vec<Piece> {
+    let spans = path_intervals(curves, path);
+    faces(&spans, depth, origin, letter, text_height)
+}
+
+fn faces(spans: &[(f64, f64)], depth: f64, origin: V2, letter: &str, text_height: f64) -> Vec<Piece> {
     let mut out = vec![];
-    for (s0, s1) in &spans {
+    for (s0, s1) in spans {
         let pts = vec![origin + V2::new(*s0, 0.0), origin + V2::new(*s1, 0.0), origin + V2::new(*s1, depth), origin + V2::new(*s0, depth)];
         out.push(Piece::on(
             layers::HATCH,
@@ -142,6 +196,13 @@ pub fn section_view(curves: &[Curve], a: V2, b: V2, depth: f64, origin: V2, lett
         ));
     }
     out
+}
+
+/// A section view of a part `depth` thick, cut along `a`–`b` through the
+/// closed boundaries `curves`: the cut faces laid out from `origin` along x
+/// (as seen looking along the arrows) and hatched, with its title below.
+pub fn section_view(curves: &[Curve], a: V2, b: V2, depth: f64, origin: V2, letter: &str, text_height: f64) -> Vec<Piece> {
+    faces(&cut_intervals(curves, a, b), depth, origin, letter, text_height)
 }
 
 /// A revolved section of a turned part drawn along its axis, cut across it
@@ -356,6 +417,25 @@ mod tests {
         assert!(v.iter().any(|p| matches!(&p.shape, Shape::Text(t) if t.content == "SECTION A–A")));
         let line = cutting_line(V2::new(-10.0, 20.0), V2::new(110.0, 20.0), V2::new(0.0, 1.0), "A", 2.5);
         assert_eq!(line.iter().filter(|p| matches!(p.shape, Shape::Leader(_))).count(), 2);
+    }
+
+    #[test]
+    fn stepped_section() {
+        // A plate with holes at (30, 20) and (70, 10): the cut steps down to
+        // pass through both.
+        let mut c = plate();
+        c.push(Curve::Circle(V2::new(70.0, 10.0), 4.0));
+        let path = [V2::new(-10.0, 20.0), V2::new(50.0, 20.0), V2::new(50.0, 10.0), V2::new(110.0, 10.0)];
+        let spans = path_intervals(&c, &path);
+        // From the path start: the plate edge at 10, the first hole 35–45;
+        // the jog adds no width and lies in material, so the face runs on to
+        // the second hole (66–74 along the last leg, which starts at 60).
+        assert_eq!(spans.len(), 3, "{spans:?}");
+        let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9;
+        assert!(near(spans[0], (10.0, 35.0)) && near(spans[1], (45.0, 76.0)) && near(spans[2], (84.0, 110.0)), "{spans:?}");
+        let marks = cutting_path(&path, V2::new(0.0, 1.0), "A", 2.5);
+        assert_eq!(marks.iter().filter(|p| p.lineweight == Some(0.7)).count(), 2 + 4);
+        assert_eq!(marks.iter().filter(|p| matches!(p.shape, Shape::Leader(_))).count(), 2);
     }
 
     #[test]

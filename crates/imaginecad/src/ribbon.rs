@@ -845,6 +845,7 @@ fn annotate(ui: &mut Ui, out: &mut Vec<String>) {
                     out,
                 );
                 small(ui, Icon::DetailView, "Detail", "DETAILVIEW — enlarged view of a circled area", "DETAILVIEW", out);
+                small(ui, Icon::Hatch, "Broken-out", "BROKENOUT — hatch the part inside a freehand boundary", "BROKENOUT", out);
             });
         }),
         panel("Sheet", Icon::TitleBlock, &[], |ui, out| {
