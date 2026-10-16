@@ -31,7 +31,7 @@ pub fn read(c: &Container) -> Option<Vars> {
     d.pos = start * 8;
     let _size = d.rl();
     if ver >= Ver::R2007 {
-        if c.maint > 3 || ver >= Ver::R2018 {
+        if (ver >= Ver::R2010 && c.maint > 3) || ver >= Ver::R2018 {
             d.rl();
         }
         d.rl();

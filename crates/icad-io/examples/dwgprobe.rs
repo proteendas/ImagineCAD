@@ -35,6 +35,13 @@ fn main() {
                 println!("  layers {} blocks {} entities {}", doc.layers.len(), doc.blocks.len(), doc.entities.len());
                 println!("  kinds {:?}", summary(&doc));
                 println!("  skipped {:?} damaged {}", rep.skipped, rep.damaged);
+                for e in &doc.entities {
+                    if let icad_core::entity::Shape::Dim(d) = &e.shape {
+                        if d.kind == icad_core::entity::DimKind::ArcLength {
+                            println!("  arc dim {:?} value {:.3}", d, d.measurement());
+                        }
+                    }
+                }
                 let e = doc.extents();
                 println!("  extents {:.1},{:.1} – {:.1},{:.1}", e.min.x, e.min.y, e.max.x, e.max.y);
             }

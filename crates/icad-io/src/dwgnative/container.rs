@@ -10,8 +10,8 @@
 //!   are each compressed (an LZ77 variant); the object map gives offsets in
 //!   the `AcDb:AcDbObjects` section.
 //!
-//! R2007 (AC1021) uses a different, Reed–Solomon coded layout and is not
-//! read here.
+//! * R2007 (AC1021): Reed–Solomon coded pages with their own compression
+//!   (see `r2007.rs`), and the same sections inside.
 
 use super::bits::{Bits, Ver};
 
@@ -47,7 +47,7 @@ pub fn read(file: &[u8]) -> Result<Container, String> {
     let maint = file[0x0b];
     match ver {
         Ver::R2000 => read_r2000(file, ver, maint),
-        Ver::R2007 => Err("DWG 2007 files are read through the DWG converter".into()),
+        Ver::R2007 => read_r2007(file, ver, maint),
         _ => read_r2004(file, ver, maint),
     }
 }
@@ -199,6 +199,15 @@ pub fn decompress(src: &[u8], out_size: usize) -> Result<Vec<u8>, String> {
     }
     out.resize(out_size, 0);
     Ok(out)
+}
+
+fn read_r2007(file: &[u8], ver: Ver, maint: u8) -> Result<Container, String> {
+    let f = super::r2007::File2007::open(file)?;
+    let objects = f.section("AcDb:AcDbObjects")?;
+    let handles = f.section("AcDb:Handles")?;
+    let header = f.section("AcDb:Header").unwrap_or_default();
+    let classes = f.section("AcDb:Classes").unwrap_or_default();
+    Ok(Container { ver, maint, map: object_map(&handles), objects, header, classes })
 }
 
 struct Page {

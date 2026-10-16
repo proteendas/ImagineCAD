@@ -15,6 +15,7 @@ pub mod classes;
 pub mod container;
 pub mod header;
 pub mod objects;
+pub mod r2007;
 
 use bits::Ver;
 use icad_core::curves::eval_bspline;
@@ -79,7 +80,7 @@ pub fn version_name(ver: Ver) -> &'static str {
 
 /// Whether the file is a DWG version this reader handles.
 pub fn supported(file: &[u8]) -> bool {
-    matches!(Ver::from_magic(file), Some(v) if v != Ver::R2007)
+    Ver::from_magic(file).is_some()
 }
 
 struct Item {
@@ -140,6 +141,10 @@ pub fn read(file: &[u8]) -> Result<(Document, Report), String> {
                 }
             }
             ty if ty >= 500 && classes.get(&ty).is_some_and(|c| c.0 == "IMAGE") => match objects::image(&mut o) {
+                Some((common, ent)) => items.push(Item { handle, common, ent, eed: std::mem::take(&mut o.eed) }),
+                None => report.damaged += 1,
+            },
+            ty if ty >= 500 && classes.get(&ty).is_some_and(|c| c.0 == "ARC_DIMENSION") => match objects::arc_dimension(&mut o) {
                 Some((common, ent)) => items.push(Item { handle, common, ent, eed: std::mem::take(&mut o.eed) }),
                 None => report.damaged += 1,
             },
@@ -611,6 +616,7 @@ fn dim(kind: u8, pts: &[(u8, P2)], rotation: f64, text: &str, xordinate: bool) -
         }
         4 => Dimension::new(DimKind::Radius, p(10), p(15), tmid),
         5 => Dimension::angular(p(15), p(13), p(14), p(10)),
+        7 => Dimension::arc_length(p(15), p(13), p(14), p(10)),
         6 => {
             let mut d = Dimension::ordinate(p(10), p(13), p(14));
             if xordinate {

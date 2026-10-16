@@ -76,3 +76,19 @@ fn reads_a_dwg_2018_drawing() {
     assert_eq!((doc.sheet.scale, doc.dimstyle.text_height, doc.dimstyle.arrow_size), (1.0, 2.5, 2.5));
     assert!(doc.layers.iter().any(|l| l.name == "Tavolo 3" && l.color == 4));
 }
+
+#[test]
+fn reads_a_dwg_2007_drawing() {
+    // DWG 2007 has its own container (Reed–Solomon coded, own compression).
+    let (doc, rep) = read("example_2007.dwg");
+    assert_eq!(rep.version, "DWG 2007");
+    assert_eq!(rep.damaged, 0);
+    let (d18, _) = read("example_2018.dwg");
+    let kinds = |d: &icad_core::Document| {
+        let mut v: Vec<&str> = d.entities.iter().map(|e| e.shape.type_name()).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(kinds(&doc), kinds(&d18));
+    assert_eq!(count(&doc, "Arc Length Dimension"), 1);
+}

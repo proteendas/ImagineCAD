@@ -896,6 +896,16 @@ fn hatch(o: &mut Obj) -> Option<Ent> {
     Some(Ent::Hatch { loops, pattern, solid, scale: scale.max(1e-6), angle })
 }
 
+/// Stand-in type number for the class-defined arc-length dimension.
+pub const ARC_DIMENSION: u16 = 0xffff;
+
+/// An arc-length dimension (a class-defined type).
+pub fn arc_dimension(o: &mut Obj) -> Option<(Common, Ent)> {
+    let c = entity_common(o);
+    let e = dimension(o, ARC_DIMENSION)?;
+    (!o.d.overrun && !o.h.overrun).then_some((c, e))
+}
+
 fn dimension(o: &mut Obj, ty: u16) -> Option<Ent> {
     let ver = o.ver;
     let d = &mut o.d;
@@ -973,6 +983,13 @@ fn dimension(o: &mut Obj, ty: u16) -> Option<Ent> {
             pts.push((10, p2(d.p3bd())));
             d.bd();
             3
+        }
+        ARC_DIMENSION => {
+            pts.push((10, p2(d.p3bd())));
+            pts.push((13, p2(d.p3bd())));
+            pts.push((14, p2(d.p3bd())));
+            pts.push((15, p2(d.p3bd())));
+            7
         }
         _ => return None,
     };
