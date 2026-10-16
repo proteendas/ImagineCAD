@@ -186,7 +186,7 @@ pub fn parts_of(loops: &[Vec<V2>]) -> Vec<Vec<Vec<V2>>> {
     }
     let mut parts: Vec<Vec<Vec<V2>>> = vec![];
     for &i in &order {
-        if depth[i] % 2 == 0 {
+        if depth[i].is_multiple_of(2) {
             let mut part = vec![loops[i].clone()];
             part.extend(order.iter().filter(|&&h| parent[h] == Some(i)).map(|&h| loops[h].clone()));
             parts.push(part);
@@ -213,8 +213,8 @@ pub fn assembly_spans(parts: &[Vec<Vec<V2>>], path: &[V2]) -> Vec<(f64, f64, usi
 /// Hatch of the `k`-th part cut in a section: adjacent parts are hatched
 /// in different directions (45°, 135°), then at a closer spacing.
 pub fn part_hatch(k: usize) -> (f64, f64) {
-    let angle = if k % 2 == 0 { 0.0 } else { std::f64::consts::FRAC_PI_2 };
-    let scale = if (k / 2) % 2 == 0 { 1.0 } else { 0.5 };
+    let angle = if k.is_multiple_of(2) { 0.0 } else { std::f64::consts::FRAC_PI_2 };
+    let scale = if (k / 2).is_multiple_of(2) { 1.0 } else { 0.5 };
     (angle, scale)
 }
 
