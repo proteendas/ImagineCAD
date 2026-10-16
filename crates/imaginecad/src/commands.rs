@@ -309,6 +309,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("INTERSECT", "IN"),
     ("MASSPROP", ""),
     ("OTRACK", ""),
+    ("MVIEW", "MV"),
+    ("LAYOUTNEW", ""),
+    ("PUBLISH", ""),
 ];
 
 pub fn create(name: &str) -> Option<Box<dyn Command>> {

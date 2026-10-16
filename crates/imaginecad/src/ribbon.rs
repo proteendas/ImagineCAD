@@ -585,8 +585,16 @@ fn view(ui: &mut Ui, st: &RibbonState, out: &mut Vec<String>) {
 
 fn output(ui: &mut Ui, out: &mut Vec<String>) {
     panel(ui, "Plot", &[], out, |ui, out| {
-        big(ui, Icon::Pdf, "Plot\nto PDF", "PLOT — true-scale vector PDF of the sheet", "PLOT", out);
-        big(ui, Icon::PageSetup, "Page\nSetup", "PAGESETUP", "PAGESETUP", out);
+        big(ui, Icon::Pdf, "Plot\nto PDF", "PLOT — true-scale vector PDF of the sheet or layout on screen", "PLOT", out);
+        big(ui, Icon::Pdf, "Publish", "PUBLISH — batch plot sheets and layouts of open drawings to PDF", "PUBLISH", out);
+        big(ui, Icon::PageSetup, "Page\nSetup", "PAGESETUP — paper, scale, title block and plot style", "PAGESETUP", out);
+    });
+    panel(ui, "Layouts", &[], out, |ui, out| {
+        big(ui, Icon::TitleBlock, "New\nLayout", "LAYOUTNEW — a paper layout with a viewport of the model", "LAYOUTNEW", out);
+        column(ui, |ui| {
+            small(ui, Icon::ZoomWindow, "Viewport", "MVIEW (MV) — add a viewport on a layout (F = fit)", "MVIEW", out);
+            small(ui, Icon::PageSetup, "Model", "MODEL — back to model space", "MODEL", out);
+        });
     });
     panel(ui, "Export", &[], out, |ui, out| {
         big(ui, Icon::Dwg, "DWG", "Export DWG", "EXPORT DWG", out);

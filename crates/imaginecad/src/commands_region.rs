@@ -19,6 +19,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "SUBTRACT" | "SU" => Box::new(BoolCmd::new(BoolOp::Subtract)),
         "INTERSECT" | "IN" => Box::new(BoolCmd::new(BoolOp::Intersect)),
         "MASSPROP" => Box::new(MassPropCmd),
+        "MVIEW" | "MV" => Box::new(crate::layouts_ui::MviewCmd::default()),
         _ => return None,
     };
     Some(c)

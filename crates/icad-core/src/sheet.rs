@@ -126,6 +126,9 @@ pub struct Sheet {
     /// attributes are filled from the title fields by tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_block: Option<String>,
+    /// How this sheet plots.
+    #[serde(default)]
+    pub plot_style: crate::layout::PlotStyle,
 }
 
 impl Default for Sheet {
@@ -138,6 +141,7 @@ impl Default for Sheet {
             visible: true,
             title: TitleBlock::default(),
             title_block: None,
+            plot_style: Default::default(),
         }
     }
 }

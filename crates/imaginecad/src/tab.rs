@@ -26,6 +26,12 @@ pub struct Tab {
     pub last_window: Option<icad_core::geom::BBox>,
     /// Previous views for ZOOM Previous.
     pub view_history: Vec<(icad_core::geom::V2, f64)>,
+    /// Paper-space layout shown (index into `doc.layouts`), its selected
+    /// viewport, and the paper view (millimetres).
+    pub paper: Option<usize>,
+    pub paper_vp: Option<usize>,
+    pub paper_view: View,
+    pub paper_fit: bool,
 }
 
 impl Tab {
@@ -43,6 +49,10 @@ impl Tab {
             needs_fit: 3,
             last_window: None,
             view_history: vec![],
+            paper: None,
+            paper_vp: None,
+            paper_view: View::default(),
+            paper_fit: true,
         }
     }
 

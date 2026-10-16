@@ -197,6 +197,12 @@ impl App {
         if self.app_command(&up, &rest) {
             return;
         }
+        // Layouts show the model through viewports; drawing happens in Model.
+        if self.tabs[self.active].paper.is_some() && !crate::layouts_ui::allowed_on_paper(&up) && commands::create(&up).is_some() {
+            self.log
+                .push(format!("{up}: switch to the Model tab to draw and edit; on a layout use MVIEW, ZOOM and the viewport properties."));
+            return;
+        }
         let created: Option<Box<dyn Command>> = if up == "PASTECLIP" {
             if self.clipboard.is_empty() {
                 self.log.push("Clipboard is empty.".into());
@@ -363,7 +369,9 @@ impl App {
                     self.view_req = Some(ViewReq::Sheet);
                 }
             }
-            "MODEL" => self.tab().layout = false,
+            "MODEL" => self.show_sheet(None),
+            "LAYOUTNEW" | "NEWLAYOUT" => self.new_layout(),
+            "PUBLISH" | "BATCHPLOT" => self.open_publish(),
             "REGEN" | "RE" | "REGENALL" => {}
             "HELP" | "?" => self.dlg.help = true,
             "ABOUT" => self.dlg.about = true,
@@ -447,7 +455,7 @@ impl App {
         self.with_cmd(|c, cx| c.value(cx, &t));
     }
 
-    fn feed_point(&mut self, p: V2) {
+    pub fn feed_point(&mut self, p: V2) {
         self.last_point = Some(p);
         self.with_cmd(|c, cx| c.point(cx, p));
     }
@@ -531,7 +539,16 @@ impl App {
             path.set_extension(ext);
         }
         let opts = self.export_options();
-        match icad_io::save(&self.tabs[self.active].doc, &path, &opts) {
+        // On a paper layout, PDF plots that layout.
+        let t = &self.tabs[self.active];
+        let result = match (ext, t.paper) {
+            ("pdf", Some(li)) => match icad_io::pdf::layout_page(&t.doc, li, &opts.plot) {
+                Some(page) => std::fs::write(&path, icad_io::pdf::write_pages(&[page], &t.doc.layouts[li].name)).map_err(|e| e.to_string()),
+                None => Err("no such layout".into()),
+            },
+            _ => icad_io::save(&t.doc, &path, &opts),
+        };
+        match result {
             Ok(()) => self.log.push(format!("Exported {}", path.display())),
             Err(e) => self.error(format!("Export failed: {e}")),
         }
@@ -544,7 +561,7 @@ impl App {
                 explode_dimensions: self.settings.explode_dims_dxf,
                 version: if self.settings.dxf_r12 { icad_io::DxfVersion::R12 } else { icad_io::DxfVersion::R2000 },
             },
-            plot: icad_io::PlotOptions { monochrome: self.settings.monochrome_plot, include_sheet: true, lineweights: true },
+            plot: icad_io::PlotOptions { style: None, include_sheet: true, lineweights: true },
         }
     }
 
@@ -1279,14 +1296,7 @@ impl App {
             .frame(egui::Frame::NONE.fill(theme::STATUS).inner_margin(egui::Margin::symmetric(6, 2)))
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let layout = self.tabs[self.active].layout;
-                    if ui.selectable_label(!layout, "Model").clicked() {
-                        self.tabs[self.active].layout = false;
-                    }
-                    if ui.selectable_label(layout, "Layout").clicked() {
-                        self.run("LAYOUT");
-                        self.tabs[self.active].layout = true;
-                    }
+                    self.layout_tabs(ui);
                     ui.separator();
                     ui.label(
                         RichText::new(format!("{:>10}, {:>10}", commands::fmt(self.cursor.x), commands::fmt(self.cursor.y)))
@@ -1383,6 +1393,10 @@ impl App {
                 });
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    if let Some(li) = self.tabs[self.active].paper {
+                        self.layout_properties(ui, li);
+                        return;
+                    }
                     let changed = properties_ui(ui, &mut self.tabs[self.active], &mut self.prop_editing);
                     if changed {
                         ui.ctx().request_repaint();
@@ -2048,7 +2062,10 @@ impl eframe::App for App {
         self.command_line(ctx);
         self.properties(ctx);
         self.chat_panel(ctx);
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::CANVAS)).show(ctx, |ui| self.canvas(ui));
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::CANVAS)).show(ctx, |ui| match self.tabs[self.active].paper {
+            Some(li) => self.paper_canvas(ui, li),
+            None => self.canvas(ui),
+        });
         self.context_menu(ctx);
         self.dialogs(ctx);
         // Associative dimensions follow edits made this frame.

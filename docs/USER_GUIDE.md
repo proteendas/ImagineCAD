@@ -288,6 +288,27 @@ automatically. **Create editable copy** adds the built-in title block as such a
 block to start from.
 `UNITS` sets the unit label and precision.
 
+## Layouts, viewports and plotting
+
+The tabs at the bottom left switch between **Model**, **Layout1** (the main
+sheet, drawn over the model) and any number of **paper layouts**:
+
+- **+** (or `LAYOUTNEW`) adds a layout: its own paper, title block and plot
+  style, with one viewport showing the model at a standard scale that fits.
+- `MVIEW` (`MV`) on a layout adds a viewport by two corners (**F** fills the
+  drawable area). Click a viewport to set its scale, view centre and size in
+  the Properties palette, lock it, fit the model, or delete it. The title
+  block shows the main viewport's scale.
+- Right-click a layout tab to rename, page-set-up, plot or delete it. Draw and
+  edit in Model; layouts present the model.
+- **Plot styles** (Page Setup, Export, or the layout's properties):
+  monochrome, colour as displayed, grayscale, or screened 50 %.
+- `PLOT` writes the sheet or layout on screen as a true-scale PDF. `PUBLISH`
+  batch-plots any sheets and layouts of the open drawings into one multi-page
+  PDF or one PDF per sheet.
+
+Layouts are saved in `.icad` drawings; DXF/DWG exports contain the main sheet.
+
 ## Files
 
 | Action | Formats |

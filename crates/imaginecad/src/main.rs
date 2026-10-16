@@ -16,6 +16,7 @@ mod commands_region;
 mod dialogs;
 mod dialogs2;
 mod icons;
+mod layouts_ui;
 mod ribbon;
 mod secrets;
 mod settings;

@@ -42,7 +42,7 @@ added).
 - [x] Ordinate and arc-length dimensions, `QDIM`, dimension associativity
 - [x] GD&T feature control frames, surface-finish and weld symbols
 - [x] Object snap tracking, selection cycling, `BOUNDARY`, `REGION`
-- [ ] Multiple layouts with viewports; plot styles; batch plot
+- [x] Multiple layouts with viewports; plot styles; batch plot
 - [ ] External references (`XREF`) and DWG attached images round-trip
 - [ ] Image to CAD: enforce slanted/angular dimensions and fillet radii, multiple aligned views, overlay review
 

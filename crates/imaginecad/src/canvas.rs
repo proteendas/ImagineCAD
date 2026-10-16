@@ -567,3 +567,24 @@ pub fn preview_prims(ui: &mut egui::Ui, prims: &[Prim], size: egui::Vec2) {
     }
     painter.extend(shapes);
 }
+
+/// Draw resolved items (paper-space layouts): dashes in paper millimetres.
+pub fn draw_items(painter: &Painter, view: &View, doc: &Document, items: &[icad_core::document::RenderItem], lineweights: bool) {
+    let mut shapes = vec![];
+    let mut texts = vec![];
+    for it in items {
+        let st = Style {
+            color: theme::aci(it.color, true),
+            width: if lineweights { (it.lineweight * view.zoom * 0.9).clamp(1.0, 6.0) as f32 } else { 1.0 },
+            dash: it.linetype.pattern().iter().map(|v| v * doc.ltscale).collect(),
+        };
+        match &it.prim {
+            Prim::Text(t) => texts.push((t.clone(), st.color)),
+            p => prim_shapes(view, p, &st, &mut shapes),
+        }
+    }
+    painter.extend(shapes);
+    for (t, c) in texts {
+        draw_text(painter, view, &t, c);
+    }
+}

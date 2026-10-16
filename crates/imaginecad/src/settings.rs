@@ -42,7 +42,6 @@ pub struct Settings {
     pub lineweights: bool,
     pub dyn_input: bool,
     pub show_properties: bool,
-    pub monochrome_plot: bool,
     pub explode_dims_dxf: bool,
     /// Write DXF R12 instead of DXF 2000.
     pub dxf_r12: bool,
@@ -70,7 +69,6 @@ impl Default for Settings {
             lineweights: true,
             dyn_input: true,
             show_properties: true,
-            monochrome_plot: true,
             explode_dims_dxf: false,
             dxf_r12: false,
             polar: true,

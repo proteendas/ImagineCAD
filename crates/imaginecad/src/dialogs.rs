@@ -244,6 +244,8 @@ pub struct Dialogs {
     pub mleader_styles: bool,
     pub style: Option<crate::text_ui::StyleDialog>,
     pub spell: Option<crate::spell::SpellDialog>,
+    pub layout_rename: Option<(usize, String)>,
+    pub publish: Option<crate::layouts_ui::PublishDialog>,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -338,6 +340,7 @@ impl App {
         self.table_dialogs(ctx);
         self.style_dialog(ctx);
         self.spell_dialog(ctx);
+        self.layout_dialogs(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -957,7 +960,22 @@ impl App {
         self.dlg.layers = open;
     }
 
+    /// Page Setup edits the sheet on screen: the main sheet, or the shown layout's.
     fn page_dialog(&mut self, ctx: &egui::Context) {
+        let t = &mut self.tabs[self.active];
+        let paper = t.paper.filter(|li| *li < t.doc.layouts.len());
+        if let Some(li) = paper {
+            let d = &mut t.doc;
+            std::mem::swap(&mut d.sheet, &mut d.layouts[li].sheet);
+        }
+        self.page_dialog_sheet(ctx);
+        if let Some(li) = paper {
+            let d = &mut self.tabs[self.active].doc;
+            std::mem::swap(&mut d.sheet, &mut d.layouts[li].sheet);
+        }
+    }
+
+    fn page_dialog_sheet(&mut self, ctx: &egui::Context) {
         if !self.dlg.page {
             return;
         }
@@ -1184,7 +1202,21 @@ impl App {
         let mut open = true;
         let mut go = None;
         egui::Window::new("Export").open(&mut open).default_width(380.0).show(ctx, |ui| {
-            ui.checkbox(&mut self.settings.monochrome_plot, "PDF/SVG: plot in black (monochrome)");
+            ui.horizontal(|ui| {
+                ui.label("PDF/SVG plot style");
+                let t = &mut self.tabs[self.active];
+                let sheet = match t.paper {
+                    Some(li) => &mut t.doc.layouts[li].sheet,
+                    None => &mut t.doc.sheet,
+                };
+                egui::ComboBox::from_id_salt("exp_style").selected_text(sheet.plot_style.name()).show_ui(ui, |ui| {
+                    for s in icad_core::layout::PlotStyle::ALL {
+                        if ui.selectable_value(&mut sheet.plot_style, s, s.name()).changed() {
+                            t.dirty = true;
+                        }
+                    }
+                });
+            });
             ui.checkbox(&mut self.settings.explode_dims_dxf, "DXF: explode dimensions into lines and text");
             ui.separator();
             ui.horizontal(|ui| {

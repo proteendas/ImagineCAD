@@ -36,6 +36,9 @@ pub struct Document {
     pub mleader_styles: Vec<crate::table::MLeaderStyle>,
     #[serde(default = "standard")]
     pub mleader_style: String,
+    /// Paper-space layouts besides the main sheet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layouts: Vec<crate::layout::Layout>,
     /// Text styles and the current one.
     #[serde(default = "default_text_styles")]
     pub text_styles: Vec<crate::fonts::TextStyle>,
@@ -128,6 +131,7 @@ impl Document {
             part: None,
             mleader_styles: default_mleader_styles(),
             mleader_style: standard(),
+            layouts: vec![],
             text_styles: default_text_styles(),
             text_style: standard(),
             file_name: String::new(),
@@ -286,7 +290,11 @@ impl Document {
     /// chosen in `sheet.title_block` with its attributes filled from the
     /// title fields (each attribute tag names a field: COMPANY, TITLE, SCALE…).
     pub fn sheet_prims(&self) -> Vec<(Prim, f64)> {
-        let sh = &self.sheet;
+        self.sheet_prims_for(&self.sheet)
+    }
+
+    /// Border and title block of any sheet of this drawing (main or layout).
+    pub fn sheet_prims_for(&self, sh: &crate::sheet::Sheet) -> Vec<(Prim, f64)> {
         let Some(b) = sh.title_block.as_deref().and_then(|n| self.block(n)) else { return sh.prims() };
         let mut out = sh.prims_with(false);
         let mut ins = Insert::new(b.name.clone(), sh.title_anchor());

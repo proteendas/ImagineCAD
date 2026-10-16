@@ -76,12 +76,35 @@ fn poly_path(s: &mut String, pts: &[V2], closed: bool) {
     }
 }
 
+/// One page: paper size in millimetres and what is drawn on it.
+pub struct Page {
+    pub w: f64,
+    pub h: f64,
+    pub items: Vec<PlotItem>,
+}
+
+/// The document's main sheet as a page.
+pub fn sheet_page(doc: &Document, opts: &PlotOptions) -> Page {
+    let (w, h) = doc.sheet.paper_mm();
+    Page { w, h, items: plot_items(doc, opts) }
+}
+
+/// Paper-space layout `index` as a page.
+pub fn layout_page(doc: &Document, index: usize, opts: &PlotOptions) -> Option<Page> {
+    let l = doc.layouts.get(index)?;
+    let (w, h) = l.sheet.paper_mm();
+    Some(Page { w, h, items: crate::plot::layout_plot_items(doc, index, opts) })
+}
+
 /// Render the document's sheet to a single-page PDF.
 pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
-    let (w, h) = doc.sheet.paper_mm();
-    let items = plot_items(doc, opts);
+    write_pages(&[sheet_page(doc, opts)], &doc.sheet.title.title)
+}
+
+/// Content stream of one page; images are added to `images` (shared by all pages).
+fn page_content(page: &Page, images: &mut Vec<(String, u8)>) -> String {
+    let (w, h, items) = (page.w, page.h, &page.items);
     let mut c = String::with_capacity(256 * 1024);
-    let mut images: Vec<(String, u8)> = vec![];
     c.push_str("1 J 1 j\n");
     // Clip to the page.
     let _ = writeln!(c, "0 0 {} {} re W n", n(w * PT), n(h * PT));
@@ -161,9 +184,19 @@ pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
         }
     }
 
-    let title = pdf_str(&doc.sheet.title.title);
+    c
+}
+
+/// A multi-page PDF (batch plot); each page keeps its own paper size.
+pub fn write_pages(pages: &[Page], title: &str) -> Vec<u8> {
+    let mut images: Vec<(String, u8)> = vec![];
+    let contents: Vec<String> = pages.iter().map(|p| page_content(p, &mut images)).collect();
+    let title = pdf_str(title);
+    // Objects: 1 catalog, 2 pages, 3 font, 4 info, then images, then page + content pairs.
+    let mut objs: Vec<Vec<u8>> =
+        vec![vec![], vec![], b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec()];
+    objs.push(format!("<< /Title {title} /Producer (ImagineCAD) /Creator (ImagineCAD) >>").into_bytes());
     // Image XObjects (RGB, Flate-compressed); unreadable images are skipped.
-    let mut xobjects: Vec<Vec<u8>> = vec![];
     let mut xnames = String::new();
     for (i, (path, fade)) in images.iter().enumerate() {
         let Ok(img) = image::open(path) else { continue };
@@ -179,27 +212,30 @@ pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
         .into_bytes();
         obj.extend_from_slice(&data);
         obj.extend_from_slice(b"\nendstream");
-        let _ = write!(xnames, "/Im{i} {} 0 R ", 7 + xobjects.len());
-        xobjects.push(obj);
+        objs.push(obj);
+        let _ = write!(xnames, "/Im{i} {} 0 R ", objs.len());
     }
-    let content = miniz_oxide::deflate::compress_to_vec_zlib(c.as_bytes(), 6);
-    let mut stream = format!("<< /Length {} /Filter /FlateDecode >>\nstream\n", content.len()).into_bytes();
-    stream.extend_from_slice(&content);
-    stream.extend_from_slice(b"\nendstream");
-    let mut objs: Vec<Vec<u8>> = vec![
-        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 5 0 R >> /XObject << {xnames}>> >> /Contents 4 0 R >>",
-            n(w * PT),
-            n(h * PT)
-        )
-        .into_bytes(),
-        stream,
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec(),
-        format!("<< /Title {title} /Producer (ImagineCAD) /Creator (ImagineCAD) >>").into_bytes(),
-    ];
-    objs.extend(xobjects);
+    let mut kids = vec![];
+    for (page, content) in pages.iter().zip(&contents) {
+        let page_no = objs.len() + 1;
+        kids.push(format!("{page_no} 0 R"));
+        objs.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >> /XObject << {xnames}>> >> /Contents {} 0 R >>",
+                n(page.w * PT),
+                n(page.h * PT),
+                page_no + 1
+            )
+            .into_bytes(),
+        );
+        let data = miniz_oxide::deflate::compress_to_vec_zlib(content.as_bytes(), 6);
+        let mut stream = format!("<< /Length {} /Filter /FlateDecode >>\nstream\n", data.len()).into_bytes();
+        stream.extend_from_slice(&data);
+        stream.extend_from_slice(b"\nendstream");
+        objs.push(stream);
+    }
+    objs[0] = b"<< /Type /Catalog /Pages 2 0 R >>".to_vec();
+    objs[1] = format!("<< /Type /Pages /Kids [{}] /Count {} >>", kids.join(" "), kids.len()).into_bytes();
     let mut out: Vec<u8> = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::new();
     for (i, o) in objs.iter().enumerate() {
@@ -213,7 +249,7 @@ pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
     for o in offsets {
         let _ = writeln!(x, "{:010} 00000 n ", o);
     }
-    let _ = write!(x, "trailer\n<< /Size {} /Root 1 0 R /Info 6 0 R >>\nstartxref\n{}\n%%EOF\n", objs.len() + 1, xref);
+    let _ = write!(x, "trailer\n<< /Size {} /Root 1 0 R /Info 4 0 R >>\nstartxref\n{}\n%%EOF\n", objs.len() + 1, xref);
     out.extend_from_slice(x.as_bytes());
     out
 }
@@ -222,6 +258,23 @@ pub fn write_pdf(doc: &Document, opts: &PlotOptions) -> Vec<u8> {
 mod tests {
     use super::*;
     use icad_core::entity::Shape;
+
+    #[test]
+    fn multi_page_batch() {
+        let mut d = Document::new();
+        d.add(Shape::Line { a: V2::new(0., 0.), b: V2::new(100., 0.) });
+        d.layouts.push(icad_core::layout::Layout::new("Detail", d.sheet.clone(), &d.extents()));
+        d.layouts[0].sheet.paper = icad_core::sheet::PaperSize::A4;
+        let opts = PlotOptions::default();
+        let pages = vec![sheet_page(&d, &opts), layout_page(&d, 0, &opts).unwrap()];
+        let pdf = write_pages(&pages, "set");
+        let s = String::from_utf8_lossy(&pdf);
+        assert_eq!(s.matches("/Type /Page ").count(), 2);
+        assert!(s.contains("/Count 2"));
+        // A3 then A4 landscape.
+        let boxes: Vec<&str> = s.match_indices("/MediaBox [").map(|(i, _)| &s[i..i + 40]).collect();
+        assert!(s.contains("/MediaBox [0 0 1190.551 841.89]") && s.contains("/MediaBox [0 0 841.89 595.276]"), "{boxes:?}");
+    }
 
     #[test]
     fn writes_valid_structure() {

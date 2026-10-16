@@ -21,6 +21,9 @@ All notable changes to ImagineCAD are documented here. The format follows
 - **Spell check:** `SPELL` over text, multiline text, leaders, dimension text, attributes and table cells, with suggestions, Change All, Ignore All and a personal dictionary.
 - **Regions:** `BOUNDARY`, `REGION` (from closed objects or chained lines and arcs), `UNION`, `SUBTRACT`, `INTERSECT`, and `MASSPROP` (area, perimeter, centroid, moments and products of inertia, radii of gyration, principal moments).
 - **Object snap tracking** (`OTRACK`, F11) with acquired points, alignment and intersection tracking; **selection cycling** of overlapping objects.
+- **Layouts:** paper-space layouts with their own paper, title block and plot style; viewports (`MVIEW`) with scale, view centre, size and lock; layout tabs with rename, page setup, plot and delete.
+- **Plot styles:** monochrome, colour, grayscale and screened, per sheet or layout.
+- **Batch plot:** `PUBLISH` to one multi-page PDF (each page its own paper size) or one PDF per sheet.
 - **Compact ribbon:** split buttons with variant lists (Circle ▾, Arc ▾, Dimension ▾, Trim ▾, Fillet ▾, Array ▾…), icon tool columns and panel-title menus (Draw ▾, Modify ▾, Annotation ▾, Layers ▾), so each tab fits without scrolling.
 - DXF/DWG: objects without a DXF 2000 equivalent are written as their graphics plus ImagineCAD extended data, so other programs show them and ImagineCAD reads them back exactly.
 
