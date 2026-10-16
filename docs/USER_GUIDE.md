@@ -160,6 +160,24 @@ opened DXF/DWG files and in Image to CAD results are associated automatically.
 Objects inside a block that are on layer `0` with ByLayer properties take the
 insert's layer, colour and linetype, the usual CAD convention.
 
+### Dynamic blocks
+
+One block definition can draw many sizes and variants. `BEDIT` (`BE`) opens a
+block (by name, or the selected reference) in the block editor (Insert tab →
+*Dynamic Block*), where parameters are added:
+
+| Command | Parameter |
+|---|---|
+| `BSTRETCH` | base point → end point (direction and default length) → stretch frame → objects. Points inside the frame move with the value; optional minimum and maximum |
+| `BFLIP` | flip axis (two points) → objects mirrored when the reference is flipped |
+| `BVSTATE` | a named visibility state → the objects shown in it (objects in no state are always shown) |
+| `BLOOKUP` | a table of named rows, each setting several parameters at once (e.g. sizes M8, M10, M12) |
+
+`BSAVE` saves the definition, `BCLOSE` saves and returns to the drawing. Each
+reference then has its own values in the Properties palette: type a length,
+tick *Flip*, or pick a visibility state or a lookup row. Dynamic blocks round-
+trip through DXF and DWG.
+
 ### Layers
 
 `LAYER` (`LA`) opens the Layer Properties Manager: new, delete (empty layers),
@@ -325,6 +343,13 @@ sheet, drawn over the model) and any number of **paper layouts**:
 - `PLOT` writes the sheet or layout on screen as a true-scale PDF. `PUBLISH`
   batch-plots any sheets and layouts of the open drawings into one multi-page
   PDF or one PDF per sheet.
+- **Plot stamp** (`PLOTSTAMP`, Output tab): a line in the page margin with the
+  drawing name, layout, date and time (UTC), user, paper size, scale and any
+  extra text (e.g. *PRELIMINARY*), in a corner of your choice. It is printed on
+  every PDF and SVG plot while it is on.
+- **PDF/A** (Export options): PDF files written as PDF/A-2b for long-term
+  archiving: text is drawn as outlines so no fonts are needed, with an
+  embedded sRGB colour profile and XMP metadata.
 
 Layouts are saved in `.icad` drawings; DXF/DWG exports contain the main sheet.
 
@@ -370,6 +395,25 @@ happens when a dimension is placed and when the points it measures move;
 text you drag on purpose stays where you put it. `DIMARRANGE` (`DARR`) tidies
 selected dimensions, or all of them, for drawings made elsewhere.
 
+## Section and detail views
+
+`SECTIONVIEW` (Annotate tab → *Views*) draws a section of a part of constant
+thickness, such as a plate: select the part's outline (Enter = everything),
+draw the cutting line across it, give the thickness, and place the view. The
+cut faces are drawn hatched, with gaps where the line crosses holes. The
+cutting line gets thick ends, arrows and letters (`A`–`A`, then `B`, …; I, O
+and Q are skipped), and the view is titled *SECTION A–A*. The arrows point
+away from the view; type **A** before placing it to point them toward it.
+
+`DETAILVIEW` enlarges an area: pick the centre and radius of the area to
+circle, the scale (`2`, `5:1`…), and where to put the view. The geometry
+inside the circle is clipped, enlarged and framed, titled *DETAIL B (2 : 1)*,
+and the area is circled and lettered on the original. Hatching is clipped
+too; dimensions and text are not copied, so the detail can be dimensioned at
+its own scale.
+
+![Section A–A of a plate and detail B at 3 : 1](images/section-views.png)
+
 ## Parametric drafting
 
 Constraints keep relationships true while you edit (Parametric tab and menu).
@@ -407,7 +451,7 @@ DXF and DWG drawings (other programs see the geometry).
 | Open | `.icad`, `.dwg`, `.dxf`; sketch images open Image to CAD. Also by double-clicking a drawing in Finder, Explorer or a Linux file manager, *Open With*, or dropping files on the window or the Dock icon |
 | Save / Save As | `.icad`, `.dwg`, `.dxf` (a drawing opened from DWG saves back to DWG) |
 | Export | DWG, DXF (2000, or R12 in Export options), PDF, SVG |
-| Plot | `PLOT` / `Ctrl+P`: true-scale vector PDF of the sheet |
+| Plot | `PLOT` / `Ctrl+P`: true-scale vector PDF (or PDF/A) of the sheet, with an optional plot stamp |
 
 Typing `EXPORT` with no argument opens the export options. Layers with
 *Plot* off (e.g. `AI-REVIEW`, `CONSTRUCTION`) are not plotted.

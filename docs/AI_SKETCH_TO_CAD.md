@@ -98,23 +98,25 @@ accepts `--api-key` (auto-detected the same way).
 
 ## How it works
 
-1. **Reading values (AI).** A sharpened, contrast-stretched copy of the image (longest side at most 2400 px) is sent with a strict JSON prompt. The model returns each dimension text (`50`, `12.5`, `Ø20`, `2x Ø8`, `R5`, `M6`, `45°`) and its bounding box, ignoring crossed-out values.
+1. **Reading values (AI).** A sharpened, contrast-stretched copy of the image (longest side at most 2400 px) is sent with a strict JSON prompt. The model returns each dimension text (`50`, `12.5`, `Ø20`, `2x Ø8`, `R5`, `M6`, `M20x1.5`, `45°`) and surface finish (`Ra 0.8`, `Rz 6.3`) with its bounding box, ignoring crossed-out values.
    - **Part reconstruction.** The model also describes the part, using the written values:
-     - a turned **shaft** (stepped diameters, keyways, chamfers);
+     - a turned **shaft** (stepped diameters, keyways, chamfers, threaded steps drawn with thin thread roots at the minor diameter and dimensioned with their designation, e.g. `M20x1.5`, and surface finish symbols on the steps that have one);
      - a **round part**: ring, washer, bush, flange (hub, bolt circle), wheel or pulley (rim, web, hub, V-grooves, bore keyway), drawn as an end view plus a hatched section;
      - a **spur gear** (module, number of teeth, pressure angle, face width, bore, hub, keyway), drawn with true involute teeth, a hatched section and a gear data table;
      - a helical **compression spring** (wire, outside diameter, free length, active and total coils, ground ends), drawn in section with a spring data table;
      - a rectangular **plate** with holes;
      - any other **profile**: exact lines, arcs, circles and polylines in millimetres, with views placed in projection, plus the dimensions it read.
+     - **several parts** on one sheet (an assembly or a set of parts): each part is described as above with a name, quantity and material, then drawn side by side, numbered with balloons, and listed in a parts list.
      ImagineCAD builds the drawing directly from that description, with every value dimensioned and the dimensions laid out clear of the part and of each other on a sheet sized for it. Turn this off with **Let AI rebuild the part exactly from the written dimensions**.
    - **Validation.** Before a description is drawn it is checked:
      - against the values the model read: every written length, diameter and angle must be used, and every diameter in the description must be written;
      - for gaps: a step or groove without a size;
-     - for a profile, by measuring every dimension on its own geometry, and checking that its points lie on that geometry.
+     - for a profile, by measuring every dimension on its own geometry, and checking that its points lie on that geometry;
+     - for several parts, each part on its own, and every written value must be used by one of them.
      A description with problems is sent back once with the list of problems ("the sketch shows Ø140 but no segment has that diameter", "the dimension 50 measures 48 on the geometry"). If it still does not check out, it is not drawn: the sketch is traced with the values instead (steps 2–7) and the reason is reported.
 2. **Vectorising (computer vision).** Adaptive thresholding, removal of handwriting, specks and a printed sheet border, Zhang–Suen thinning, skeleton tracing, Douglas–Peucker lines and least-squares circle/arc fits. An arc is accepted only where the stroke curves evenly, so obtuse corners and a straight run meeting a fillet stay separate.
 3. **Part vs. annotation.** Components that enclose real area are the part. For each label the pipeline finds its dimension line, extension lines (following them through outline crossings) and arrowheads; leader arrows decide which hole a Ø/R value belongs to; an angle value goes to the corner it sits in. A label next to an outline edge with no dimension line of its own dimensions that edge.
-4. **Drafting conventions.** Rows of short collinear strokes with clear gaps become hidden lines (equal dashes) or centre lines (long and short dashes). A regular family of parallel strokes at about 45° running from edge to edge becomes section hatching filling the regions it covers. Handwriting is not taken for hatching.
+4. **Drafting conventions.** A thread designation (`M10`, `M20x1.5`) at a hole makes it a tapped hole: the tap drill circle with a thin three-quarter circle at the nominal size. A surface finish value becomes a finish symbol on the nearest edge of the part, pointing outward. Rows of short collinear strokes with clear gaps become hidden lines (equal dashes) or centre lines (long and short dashes). A regular family of parallel strokes at about 45° running from edge to edge becomes section hatching filling the regions it covers. Handwriting is not taken for hatching.
 5. **Beautification and views.** Snap angles, merge strokes, align coordinates, weld endpoints, close T-junctions. Separate views (front above top, side beside front) are recognised and their edges snapped to each other, so hand-drawn misalignment between views does not carry over.
 6. **Making dimensions true.** The distinct x and y coordinates become *stations*. Horizontal and vertical dimensions are hard constraints, undimensioned gaps are springs that keep the sketch's proportions, and a least-squares solve per axis repositions everything through a monotone map. Contradictory dimensions are dropped and reported.
 7. **Slanted lengths, angles and radii.** A Levenberg–Marquardt solve over the outline vertices then enforces what one axis at a time cannot: slanted lengths, angles between edges, arc radii and fillet tangency, while horizontal and vertical edges and dimensions stay as solved.
@@ -132,7 +134,7 @@ accepts `--api-key` (auto-detected the same way).
 - Dense, finely printed hatching (CAD printouts) is traced as strokes rather than recognised as a hatch; hand-drawn hatching is recognised.
 - Very large outlines (more than 160 vertices) skip the slanted/angle refinement; horizontal and vertical dimensions are still exact.
 - Keyway widths that are not written on the sketch are drawn at a nominal width; check them.
-- Threads and surface-finish symbols are not recognised.
+- Threads are recognised from their designation (metric ISO coarse and fine); other thread forms are drawn as metric. Surface finish is read as a value; lay and process marks of a finish symbol are not.
 
 ## Command line
 

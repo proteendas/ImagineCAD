@@ -6,6 +6,19 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-16
+
+### Added
+- **Dynamic blocks:** a block editor (`BEDIT`, `BSAVE`, `BCLOSE`) with stretch (`BSTRETCH`, with optional limits), flip (`BFLIP`), visibility state (`BVSTATE`) and lookup table (`BLOOKUP`) parameters. Each block reference sets its own values in the Properties palette, and drawing, picking, snapping, explode and export all follow them.
+- **Section views** (`SECTIONVIEW`): the hatched cut faces of a part of constant thickness along a cutting line, with the cutting-line symbol, view letters and title.
+- **Detail views** (`DETAILVIEW`): a circled area clipped, enlarged at any scale and titled, with the circle and letter on the original view.
+- **Plot stamps** (`PLOTSTAMP`): drawing, layout, date and time, user, paper, scale and free text in the page margin of every PDF and SVG plot.
+- **PDF/A-2b** output for archiving (text as outlines, sRGB output intent, XMP metadata), in Export options; `imaginecad export` and `imaginecad publish` take `--pdfa` and `--stamp [TEXT]`.
+- **Image to CAD:** threaded shaft steps (thin thread roots at the minor diameter, dimensioned with the designation) and tapped holes (tap drill with a thin three-quarter circle); surface finish values become finish symbols on the nearest edge; sketches of several parts are drawn side by side with balloons and a parts list, each part validated and every written value required to be used by one of them.
+
+### Changed
+- Constraints and driving dimensions round-trip through DXF and DWG (`IMAGINECAD_CONSTRAINTS` XRECORD), as do dynamic block parameters (`IMAGINECAD_DYNBLOCKS`).
+
 ## [0.4.0] - 2026-10-16
 
 ### Added

@@ -62,7 +62,15 @@ other programs draw them) with extended data that keeps them clouds for
 ImagineCAD. Constraints and driving dimensions are stored in an `XRECORD`
 (`IMAGINECAD_CONSTRAINTS` in the named object dictionary) as JSON that refers
 to entities by their handles, so they survive DXF and DWG round trips; other
-programs ignore it and show the geometry.
+programs ignore it and show the geometry. Dynamic block parameters are kept
+the same way (`IMAGINECAD_DYNBLOCKS`, keyed by block record handle); a
+reference with its own parameter values is written as an anonymous block of
+its current geometry with extended data holding the values, so other programs
+show each size as drawn.
+
+**PDF:** true-scale vector PDF 1.4 (or PDF/A-2b, with text as outlines, an
+sRGB output intent, XMP metadata and a file identifier), with an optional plot
+stamp in the margin.
 
 **R12 (option):** for very old readers. Entities newer than R12 are written as
 equivalents: ellipses and splines become polylines, hatches become lines or

@@ -4,7 +4,25 @@ ImagineCAD's goal is complete day-to-day 2D mechanical drafting at the level
 of mature commercial CAD suites, plus AI sketch conversion. This page is an
 honest map of what exists and what is next.
 
-## 0.4 (current)
+## 0.5 (current)
+
+Everything in 0.4, plus:
+
+**Blocks:** dynamic blocks with stretch, flip, visibility and lookup
+parameters, edited in a block editor and set per reference.
+
+**Views:** section views from a cutting line (`SECTIONVIEW`) and enlarged
+detail views (`DETAILVIEW`).
+
+**Output:** plot stamps; PDF/A-2b for archiving.
+
+**Interoperability:** constraints and dynamic blocks round-trip through DXF
+and DWG.
+
+**AI:** threads (shaft steps and tapped holes) and surface finish recognised;
+sketches of several parts drawn side by side with balloons and a parts list.
+
+## 0.4
 
 Everything in 0.3, plus:
 
@@ -63,19 +81,17 @@ Core drafting, modify and dimension commands, layers, blocks, hatching, DWG via
 bundled LibreDWG, DXF 2000/R12, PDF/SVG, Image to CAD with any provider's key,
 installers for macOS, Windows and Linux.
 
-## Next (0.5)
+## Next (0.6)
 
-- [ ] Constraints round-tripped through DXF/DWG
-- [ ] Dynamic blocks (stretch, flip, visibility, lookup parameters)
-- [ ] Image to CAD: threads and surface-finish symbols recognised; multi-part assembly sketches with a BOM
-- [ ] Section views generated from a cutting line (SECTIONVIEW) and detail views
-- [ ] Plot stamps and PDF/A output
+- [ ] Scripting: run command scripts (`SCRIPT`), and a plugin API for new commands
+- [ ] Localisation of the interface (German, French, Spanish, Hindi, Chinese to start)
+- [ ] Section views of turned parts (revolved sections) and broken-out sections
+- [ ] Dynamic blocks: rotate, array and polar stretch parameters
 
 ## Later
 
 - [ ] Native DWG reader/writer in Rust (removing the external converter)
 - [ ] 3D modelling (solids, extrude/revolve, 2D views from 3D)
-- [ ] Scripting / plugin API, localisation
 
 ## Principles
 
