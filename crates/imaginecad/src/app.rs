@@ -19,6 +19,8 @@ use icad_core::Document;
 use std::path::{Path, PathBuf};
 
 pub struct App {
+    /// The logo for the application menu button.
+    logo: Option<egui::TextureHandle>,
     pub tabs: Vec<Tab>,
     pub active: usize,
     pub settings: Settings,
@@ -62,7 +64,13 @@ impl App {
         if let Some(k) = crate::secrets::load() {
             settings.convert.ai.api_key = k;
         }
+        let logo = image::load_from_memory(include_bytes!("../../../assets/icon-128.png")).ok().map(|img| {
+            let img = img.to_rgba8();
+            let ci = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+            cc.egui_ctx.load_texture("imaginecad_logo", ci, egui::TextureOptions::LINEAR)
+        });
         let mut app = Self {
+            logo,
             tabs: vec![],
             active: 0,
             settings,
@@ -1098,9 +1106,12 @@ impl App {
             .frame(egui::Frame::NONE.fill(theme::TITLE_BAR).inner_margin(egui::Margin::symmetric(6, 3)))
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let menu_btn = egui::Button::new(RichText::new(" IC ").strong().color(Color32::WHITE).size(14.0))
-                        .fill(theme::BRAND)
-                        .corner_radius(3);
+                    let menu_btn = match &self.logo {
+                        Some(t) => egui::Button::image(egui::Image::new(t).fit_to_exact_size(vec2(22.0, 22.0))).frame(false),
+                        None => egui::Button::new(RichText::new(" IC ").strong().color(Color32::WHITE).size(14.0))
+                            .fill(theme::BRAND)
+                            .corner_radius(3),
+                    };
                     egui::menu::menu_custom_button(ui, menu_btn, |ui| {
                         ui.set_min_width(220.0);
                         let run = |ui: &mut egui::Ui, label: &str, cmd: &str, me: &mut App| {

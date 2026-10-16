@@ -142,8 +142,10 @@ See [FILE_FORMATS.md](FILE_FORMATS.md). Highlights:
 ```
 image bytes
   │ raster::load            decode, flatten alpha, grayscale, resize (≈1000–1600 px)
-  │ llm::read_labels        vision model reads dimension text + boxes ┐ optional,
-  │ ocr::read_labels        Tesseract reads printed numbers         ┘ merged
+  │ llm::read_labels        vision model reads dimension text + boxes and describes the part ┐ optional,
+  │   └ parts::PartSpec     shaft / wheel / plate / profile, validated (issues_with,        │ merged
+  │                         self_check); one correction round; accepted → build, done       │
+  │ ocr::read_labels        Tesseract reads printed numbers                                ┘
   │ raster::binarize        Bradley adaptive threshold + paper-relative limit
   │ raster::close/components   morphology, 8-connected components, drop text/specks
   │ raster::thin            Zhang–Suen thinning + staircase cleanup
@@ -152,17 +154,23 @@ image bytes
   │ part detection          components enclosing real area = part outline
   │ solve::associate        label → dimension line / edge / circle (+ leader)
   │ beautify::run           snap angles, merge collinear, align axes, weld, T-junctions
+  │ align_views             projected views found as clusters, edges snapped across views
   │ solve::solve_axis ×2    1-D weighted least squares per axis, monotone mapping
+  │ refine::refine          Levenberg–Marquardt over outline vertices: slanted lengths,
+  │                         angles, arc radii, fillet tangency (H/V held)
   ▼
 Conversion { shapes on layers, title, log, warnings }  →  pipeline::apply(doc)
 ```
 
 Design choices worth knowing:
 
-- **AI is only used for reading text.** Geometry comes from deterministic
-  computer vision, so results are reproducible and work offline without any
-  model. Vision-language models are good at reading handwriting but poor at
-  precise coordinates, so ImagineCAD never asks them for geometry.
+- **The AI is trusted only where it can be checked.** It reads the written
+  values and may describe the part from them (a shaft, a round part, a plate,
+  or a general profile in millimetres constructed from the values, never
+  coordinates measured off the photo). A description is drawn only when it
+  agrees with the values it read and, for a profile, when every dimension
+  measures true on its own geometry. Otherwise the geometry comes from
+  deterministic computer vision, which also works offline without any model.
 - **Dimensions drive the geometry.** Distinct x and y coordinates of the
   cleaned sketch become "stations"; each horizontal/vertical dimension is a
   hard constraint between two stations, and undimensioned gaps are springs
@@ -196,7 +204,11 @@ A detailed walk-through is in [AI_SKETCH_TO_CAD.md](AI_SKETCH_TO_CAD.md).
 | `commands_ext.rs` | Ellipse, spline, point, xline/ray, mtext, leader, angular/baseline/continue dims, hatch, block/insert, image attach, stretch, break, join, lengthen, polar array, divide/measure, area/id/list, overkill, layer tools |
 | `dialogs2.rs` | Blocks palette, Quick Select, text editor, Units |
 | `secrets.rs` | API key storage (Keychain / Credential Manager / owner-only file) |
-| `ribbon.rs`, `icons.rs` | Ribbon tabs/panels and vector-drawn icons |
+| `ribbon.rs`, `icons.rs` | Ribbon tabs/panels (collapsing to dropdowns to fit the window) and vector-drawn icons |
+| `menus.rs` | The menu bar: every command, grouped, with its alias (a test keeps it complete) |
+| `macos_open.rs` | Finder's open-documents Apple event (double-click, Open With, Dock) |
+| `chat.rs` | AI Chat panel |
+| `commands_dim.rs`, `commands_region.rs`, `attributes.rs`, `tables.rs`, `symbol_ui.rs`, `text_ui.rs`, `spell.rs`, `tracking.rs`, `layouts_ui.rs`, `xref_ui.rs` | Ordinate/arc/quick dimensions; regions and mass properties; block attributes; tables and multileader styles; GD&T and symbols; text styles; spell check; object snap tracking; layouts, viewports and publishing; external references |
 | `dialogs.rs` | Image to CAD, AI settings, layers, page setup/title block, dimension style, export, help |
 | `settings.rs` | Persisted user settings (`<config dir>/ImagineCAD/settings.json`) |
 | `theme.rs` | Dark theme colours |

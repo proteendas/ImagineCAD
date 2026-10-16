@@ -22,6 +22,13 @@ clean, editable, dimension-exact CAD drawing with a title block.
 | `DIMENSIONS` | real dimension objects measured from the geometry |
 | `AI-REVIEW` | uncertain strokes and unmatched labels (magenta, not plotted) |
 | `AI-SKETCH-ANNOTATION` | the sketch's own dimension lines and handwriting (hidden) |
+| `AI-SKETCH-IMAGE` | the sketch itself under the result, faded, for review (not plotted) |
+| `HATCH`, `HIDDEN` | section hatching and hidden edges of rebuilt parts |
+
+**Reviewing the result.** With *Overlay the sketch to review the result* (on by
+default, with a *fade* slider), the photo is placed under the drawing so you can
+compare them. Change its fade in the Properties palette, or turn the layer off
+when you are done.
 
 ## Connecting an AI model
 
@@ -47,6 +54,17 @@ OpenRouter keys without credit are set up with a free vision model (ids ending
 in `:free`, for example `google/gemma-4-31b-it:free`). If a paid model answers
 `402` (not enough credit), ImagineCAD switches to a free vision model the same
 way. Free models are rate-limited by OpenRouter.
+
+### Choosing a model
+
+Reading handwritten dimensions and describing a whole part is demanding.
+Strong vision models (current Gemini, Claude, GPT models) read sketches reliably
+and get most parts exact. Small free models often misread digits or describe
+the part wrongly; ImagineCAD's checks catch that (see *Validation* below) and
+fall back to tracing the sketch, so the result is correct but less polished.
+A free Google AI Studio key (`AIza…`) gives access to Gemini vision models
+within Google's free-tier limits and is the best free choice at the time of
+writing.
 
 | Provider | Key looks like | Default model choice |
 |---|---|---|
@@ -80,12 +98,23 @@ accepts `--api-key` (auto-detected the same way).
 
 ## How it works
 
-1. **Reading values (AI).** The image (aspect ratio kept, longest side at most 2000 px) is sent with a strict JSON prompt. The model returns each dimension text (`50`, `12.5`, `Ø20`, `2x Ø8`, `R5`, `M6`, `45°`) and its bounding box, ignoring crossed-out values.
-   - **Part reconstruction.** When the model recognises a turned **shaft** (stepped diameters, keyways, chamfers) or a rectangular **plate** with holes, it also returns the part's parameters. ImagineCAD then builds the drawing directly from the written dimensions. It is exact by construction, with every length, diameter, keyway and chamfer dimensioned, laid out for the sheet scale, and on a sheet sized for slender parts (for example A3 at 1:10 for a 2.8 m shaft). Steps 2–5 are skipped. Turn this off with **Let AI rebuild shafts and plates exactly from the written dimensions** in the Image to CAD dialog.
-2. **Vectorising (computer vision).** Adaptive thresholding, removal of handwriting and specks, Zhang–Suen thinning, skeleton tracing, Douglas–Peucker lines and least-squares circle/arc fits.
-3. **Part vs. annotation.** Components that enclose real area are the part. For each label the pipeline finds its dimension line, extension lines (following them through outline crossings) and arrowheads; leader arrows decide which hole a Ø/R value belongs to.
-4. **Beautification.** Snap angles, merge strokes, align coordinates, weld endpoints, close T-junctions.
+1. **Reading values (AI).** A sharpened, contrast-stretched copy of the image (longest side at most 2400 px) is sent with a strict JSON prompt. The model returns each dimension text (`50`, `12.5`, `Ø20`, `2x Ø8`, `R5`, `M6`, `45°`) and its bounding box, ignoring crossed-out values.
+   - **Part reconstruction.** The model also describes the part, using the written values:
+     - a turned **shaft** (stepped diameters, keyways, chamfers);
+     - a **round part**: ring, washer, bush, flange (hub, bolt circle), wheel or pulley (rim, web, hub, V-grooves, bore keyway), drawn as an end view plus a hatched section;
+     - a rectangular **plate** with holes;
+     - any other **profile**: exact lines, arcs, circles and polylines in millimetres, with views placed in projection, plus the dimensions it read.
+     ImagineCAD builds the drawing directly from that description, with every value dimensioned and the dimensions laid out clear of the part and of each other on a sheet sized for it. Turn this off with **Let AI rebuild the part exactly from the written dimensions**.
+   - **Validation.** Before a description is drawn it is checked:
+     - against the values the model read: every written length, diameter and angle must be used, and every diameter in the description must be written;
+     - for gaps: a step or groove without a size;
+     - for a profile, by measuring every dimension on its own geometry, and checking that its points lie on that geometry.
+     A description with problems is sent back once with the list of problems ("the sketch shows Ø140 but no segment has that diameter", "the dimension 50 measures 48 on the geometry"). If it still does not check out, it is not drawn: the sketch is traced with the values instead (steps 2–6) and the reason is reported.
+2. **Vectorising (computer vision).** Adaptive thresholding, removal of handwriting, specks and a printed sheet border, Zhang–Suen thinning, skeleton tracing, Douglas–Peucker lines and least-squares circle/arc fits. An arc is accepted only where the stroke curves evenly, so obtuse corners and a straight run meeting a fillet stay separate.
+3. **Part vs. annotation.** Components that enclose real area are the part. For each label the pipeline finds its dimension line, extension lines (following them through outline crossings) and arrowheads; leader arrows decide which hole a Ø/R value belongs to; an angle value goes to the corner it sits in. A label next to an outline edge with no dimension line of its own dimensions that edge.
+4. **Beautification and views.** Snap angles, merge strokes, align coordinates, weld endpoints, close T-junctions. Separate views (front above top, side beside front) are recognised and their edges snapped to each other, so hand-drawn misalignment between views does not carry over.
 5. **Making dimensions true.** The distinct x and y coordinates become *stations*. Horizontal and vertical dimensions are hard constraints, undimensioned gaps are springs that keep the sketch's proportions, and a least-squares solve per axis repositions everything through a monotone map. Contradictory dimensions are dropped and reported.
+6. **Slanted lengths, angles and radii.** A Levenberg–Marquardt solve over the outline vertices then enforces what one axis at a time cannot: slanted lengths, angles between edges, arc radii and fillet tangency, while horizontal and vertical edges and dimensions stay as solved.
 
 ## Tips
 
@@ -96,10 +125,11 @@ accepts `--api-key` (auto-detected the same way).
 
 ## Limitations
 
-- Horizontal/vertical dimensions are enforced exactly; slanted and angular values are drawn but not yet enforced.
-- One view per conversion works best.
-- Part reconstruction covers shafts and rectangular plates. Keyway widths that are not written on the sketch are drawn at a nominal width; check them.
-- Hatching, threads and surface-finish symbols are not recognised.
+- How exact a rebuilt part is depends on the model reading the sketch correctly; the checks above stop wrong descriptions, but cannot recover a value no model could read.
+- When tracing (no usable description), section hatching and hidden lines are traced as plain strokes; check them on the `AI-REVIEW` layer.
+- Very large outlines (more than 160 vertices) skip the slanted/angle refinement; horizontal and vertical dimensions are still exact.
+- Keyway widths that are not written on the sketch are drawn at a nominal width; check them.
+- Threads and surface-finish symbols are not recognised.
 
 ## Command line
 

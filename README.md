@@ -39,9 +39,9 @@
 
 ## Highlights
 
-- **Industry-standard drafting workflow.** Ribbon, command line with aliases and autocomplete, object snaps, polar tracking, ortho, grips, layers, a properties palette, blocks, hatching, dimensions and leaders, model and paper layouts.
+- **Industry-standard drafting workflow.** Ribbon that fits any window, a menu bar with every command, command line with aliases and autocomplete, object snaps, polar tracking, ortho, grips, layers, a properties palette, blocks, hatching, dimensions and leaders, model and paper layouts.
 - **Open, edit and save DWG and DXF.** DWG support ships inside the installer (GNU LibreDWG), and the free ODA File Converter is used automatically when installed. DXF 2000 is written natively with full fidelity, or R12 for maximum compatibility.
-- **Image to CAD.** Upload a photo of a hand-drawn mechanical sketch. Computer vision extracts the geometry, an AI model reads the handwritten dimensions, and a solver makes every dimension exact. You get an editable drawing with a title block.
+- **Image to CAD.** Upload a photo of a hand-drawn mechanical sketch. An AI model reads the handwritten dimensions and describes the part (shafts, rings, flanges, pulleys, plates, or any profile); the description is validated against the written values and its own geometry before it is drawn. Otherwise computer vision traces the sketch and a solver makes every dimension exact, including slanted lengths, angles and fillet radii, across aligned views. You get an editable drawing with a title block, with the sketch overlaid for review.
 - **AI Chat.** Describe a change ("make the long segment 1400 mm", "set the material to C45") and the AI edits the drawing; each answer is one undo step, and manual editing stays available.
 - **Any AI provider.** Paste any API key (OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, Together, Hugging Face, NVIDIA, Fireworks…). ImagineCAD recognises the provider and configures the best vision model automatically. Prefer free and private? Use a local Ollama model, or no AI at all.
 - **Title block and true-scale plotting.** ISO-style title block with your company name in the bottom-right corner; PDF and SVG output at true scale with lineweights.

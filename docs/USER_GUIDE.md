@@ -3,7 +3,7 @@
 ## The window
 
 ```
-┌ IC ▾  New Open Save Undo Redo Plot      ImagineCAD — Drawing1          Image to CAD  ? ┐  title bar / quick access
+┌ [logo] New Open Save Undo Redo Plot  File Edit View Insert Format Draw … Help   Image to CAD ? ┐  title bar / menus
 ├ Home  Insert  Annotate  View  Output  AI ──────────────────────────────────────────────┤  ribbon tabs
 │ Draw │ Modify │ Annotation │ Layers │ Block │ Utilities │ Clipboard                      │  ribbon panels
 ├ Drawing1 × | bracket.dwg* × | + ────────────────────────────────────────────────────────┤  drawing tabs
@@ -16,11 +16,12 @@
 ├ Model Layout │ 125.4, 88.2 │         GRID SNAP POLAR ORTHO OSNAP LWT DYN  Scale 1:2 ┤  status bar
 ```
 
-- **IC menu**: new, open, save, export, plot, recent drawings, About, exit.
-- **Ribbon**: every button runs the same command you could type; hover for the command name and alias. Buttons with a **▾** are split buttons: click the top for the usual tool, the arrow for its variants (Circle ▾: centre/radius, centre/diameter, 2-point, 3-point; Dimension ▾: every dimension type). Click a panel title with a ▾ (**Draw ▾**, **Modify ▾**, **Annotation ▾**, **Layers ▾**) for the panel's other tools, so each tab fits on screen without scrolling.
+- **Logo menu** (top left): new, open, save, export, plot, recent drawings, About, exit.
+- **Menu bar**: *File, Edit, View, Insert, Format, Draw, Dimension, Modify, Tools, AI, Help* list every command with its alias, so anything can be found without the ribbon.
+- **Ribbon**: every button runs the same command you could type; hover for the command name and alias. Buttons with a **▾** are split buttons: click the top for the usual tool, the arrow for its variants (Circle ▾: centre/radius, centre/diameter, 2-point, 3-point; Dimension ▾: every dimension type). Click a panel title with a ▾ (**Draw ▾**, **Modify ▾**, **Annotation ▾**, **Layers ▾**) for the panel's other tools. The ribbon never scrolls: when the window is too narrow, panels collapse from the right into single buttons (**Layers ▾**, **Block ▾**…) that drop the whole panel down as a menu, and whatever still does not fit goes under **More ▾**.
 - **Properties palette** (`PR`): layer, colour, linetype and exact geometry of the selection: coordinates, lengths, angles, radii, ellipse axes, spline fit points, text, hatch pattern/scale/angle, block scale/rotation, image width/fade.
 - **Command line**: start typing anywhere on the canvas. Suggestions appear as you type; `Tab` completes.
-- **Status bar**: Model/Layout, coordinates, drafting aids, sheet scale. Right-click **POLAR** to set the angle increment, **OSNAP** to choose snap modes, **SNAP** to set the spacing.
+- **Status bar**: Model/Layout, coordinates, drafting aids, annotation scale. Right-click **POLAR** to set the angle increment, **OSNAP** to choose snap modes, **SNAP** to set the spacing. Click **Scale** to pick the annotation scale (1:1, 1:2, 1:5 … 1:1000, 2:1 …): dimension text and arrows, like the sheet, are sized for that plot scale.
 
 ## Navigating
 
@@ -30,6 +31,7 @@
 | Pan | Middle-button drag, `Alt`/`Option` + drag, or `PAN` |
 | Zoom extents | Double-click middle button, `ZOOM E` |
 | Zoom window / previous / sheet | `ZOOM W`, `ZOOM P`, `ZOOM A` |
+| Zoom by a factor | `ZOOM 2X` (in), `ZOOM 0.5X` (out) |
 | Paper view | `LAYOUT` or the *Layout* button |
 
 ## Entering points
@@ -273,7 +275,11 @@ the field codes in DXF/DWG.
 
 ## Sheet, scale and title block
 
-**Annotate → Title Block** (or click the scale in the status bar): paper size,
+Text, dimensions and arrows are sized in paper millimetres and scaled by the
+sheet (annotation) scale, so they print at their real size and keep their
+proportion to the geometry at any zoom; choose the scale from the status bar.
+
+**Annotate → Title Block** (or **Page Setup…** under the status-bar scale): paper size,
 orientation, plot scale, **Fit sheet to drawing**, and the title block fields
 (company, title, drawing number, revision, drawn/checked/approved by, date,
 material, finish, sheet, units, general tolerances, projection).
@@ -326,7 +332,7 @@ Layouts are saved in `.icad` drawings; DXF/DWG exports contain the main sheet.
 
 | Action | Formats |
 |---|---|
-| Open | `.icad`, `.dwg`, `.dxf`; sketch images open Image to CAD |
+| Open | `.icad`, `.dwg`, `.dxf`; sketch images open Image to CAD. Also by double-clicking a drawing in Finder, Explorer or a Linux file manager, *Open With*, or dropping files on the window or the Dock icon |
 | Save / Save As | `.icad`, `.dwg`, `.dxf` (a drawing opened from DWG saves back to DWG) |
 | Export | DWG, DXF (2000, or R12 in Export options), PDF, SVG |
 | Plot | `PLOT` / `Ctrl+P`: true-scale vector PDF of the sheet |

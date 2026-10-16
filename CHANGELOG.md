@@ -6,7 +6,15 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-16
+
 ### Added
+- **Image to CAD, validated part reconstruction for any drawing:** besides shafts and plates, the AI can describe round parts (rings, washers, bushes, flanges with hub and bolt circle, wheels and pulleys with rim, web, hub, V-grooves and bore keyway), drawn as an end view and a hatched section, and any other part as an exact profile (lines, arcs, circles, polylines in projected views) with its dimensions. Every description is checked against the values written on the sketch, for missing sizes, and (for profiles) by measuring each dimension on its own geometry; a description with problems gets one correction round, and one that still does not check out is not drawn: the sketch is traced instead and the reason reported.
+- **Image to CAD, exact slanted and angular dimensions:** slanted lengths, angles between edges, arc and fillet radii and fillet tangency are enforced by a Levenberg–Marquardt refinement after the per-axis solve; angle labels become angular dimensions.
+- **Image to CAD, multiple views:** projected views are recognised and their edges snapped to each other, so hand-drawn misalignment between views does not carry over.
+- **Image to CAD, review overlay:** the sketch can be laid under the result, faded, on layer `AI-SKETCH-IMAGE` (not plotted).
+- **Menu bar** with every command and its alias (File, Edit, View, Insert, Format, Draw, Dimension, Modify, Tools, AI, Help).
+- **Annotation scale** picker on the status bar; `ZOOM` accepts a factor (`2X`, `0.5X`).
 - **AI Chat** panel (`AICHAT`, AI tab): describe changes in plain language and the AI edits the drawing — add, change, move, copy, rotate, scale, mirror and delete objects, layers, title block, sheet and dimension style. Parts created by Image to CAD are regenerated from their parameters. Each answer is one undo step; questions are answered without changes. Works with every AI engine.
 - `imaginecad ask DRAWING "CHANGE" -o OUT`: the same from the command line.
 - Drawings remember the parametric part they were generated from (`.icad`).
@@ -26,11 +34,19 @@ All notable changes to ImagineCAD are documented here. The format follows
 - **Batch plot:** `PUBLISH` to one multi-page PDF (each page its own paper size) or one PDF per sheet.
 - **External references:** `XATTACH`, the `XREF` palette (reload, re-path, open, bind, detach), automatic reload on open, `NAME|LAYER` dependent layers; written to DXF/DWG as external blocks.
 - **Raster images in DXF/DWG:** IMAGE entities with image definitions, size and fade, read and written.
-- **Compact ribbon:** split buttons with variant lists (Circle ▾, Arc ▾, Dimension ▾, Trim ▾, Fillet ▾, Array ▾…), icon tool columns and panel-title menus (Draw ▾, Modify ▾, Annotation ▾, Layers ▾), so each tab fits without scrolling.
+- **Compact ribbon:** split buttons with variant lists (Circle ▾, Arc ▾, Dimension ▾, Trim ▾, Fillet ▾, Array ▾…), icon tool columns and panel-title menus (Draw ▾, Modify ▾, Annotation ▾, Layers ▾). On narrower windows panels collapse from the right into single buttons that drop the whole panel down as a menu, and any that still do not fit go under **More**; the ribbon never scrolls.
+- The ImagineCAD logo opens the application menu.
 - DXF/DWG: objects without a DXF 2000 equivalent are written as their graphics plus ImagineCAD extended data, so other programs show them and ImagineCAD reads them back exactly.
 
 ### Changed
 - Ctrl+Z / Ctrl+Y in a text box undo the typing, not the drawing.
+- The AI reads a sharper, contrast-stretched copy of the sketch (up to 2400 px), which reads handwritten digits markedly better.
+- Windows: ImagineCAD is listed under *Open with* for `.icad`, `.dxf`, `.dwg` and sketch images. Linux: `.icad` MIME type registered; several selected files open at once.
+
+### Fixed
+- Opening a drawing from Finder (double-click, *Open With*, Dock) failed with "ImagineCAD cannot open files in the DWG/DXF Drawing format".
+- Reopening a DXF or DWG changed its annotation scale (the sheet was re-fitted to extents that included an exported border), making dimension text far too big and overlapping.
+- Image to CAD: obtuse corners and a straight run meeting a fillet were fitted as one large arc; a label next to an outline edge took that edge away as a dimension line; a printed sheet border was traced as the part.
 
 ## [0.2.0] - 2026-10-15
 

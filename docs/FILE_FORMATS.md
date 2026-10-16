@@ -43,6 +43,20 @@ angular) with anonymous `*D` blocks, `SOLID`; layer lineweights (370) and
 plot flags. Validated with an independent DXF auditor (ezdxf, strict load, zero
 errors and zero fixes).
 
+Also native: ordinate dimensions, `TOLERANCE` (feature control frames, GD&T
+font codes), `ATTDEF` and `ATTRIB` (block attributes), the `STYLE` table with
+TrueType font files and text style references, `IMAGE` with `IMAGEDEF` /
+`IMAGEDEF_REACTOR` and a `CLASSES` section, and external references (block
+flag 4 with the file path, repeated in extended data because some converters
+drop it). Objects with no DXF 2000 equivalent (arc-length dimensions, datum,
+surface-texture and weld symbols, tables, regions) are written as an anonymous
+block of their graphics with an `INSERT`, plus `IMAGINECAD` extended data that
+holds the exact object, so other programs show them and ImagineCAD reads them
+back unchanged. Fields are written as their current values, with the field
+codes kept in extended data. The header carries `$DIMSCALE` and the dimension
+style (`$DIMTXT`, `$DIMASZ`, `$DIMEXO`, `$DIMEXE`, `$DIMGAP`, `$DIMDEC`), and
+reading restores them, so a drawing keeps its annotation scale.
+
 **R12 (option):** for very old readers. Entities newer than R12 are written as
 equivalents: ellipses and splines become polylines, hatches become lines or
 solids, multiline text becomes text lines, and construction lines become long
