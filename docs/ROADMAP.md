@@ -4,7 +4,30 @@ ImagineCAD's goal is complete day-to-day 2D mechanical drafting at the level
 of mature commercial CAD suites, plus AI sketch conversion. This page is an
 honest map of what exists and what is next.
 
-## 0.3 (current)
+## 0.4 (current)
+
+Everything in 0.3, plus:
+
+**Parametric drafting:** geometric constraints (horizontal, vertical,
+parallel, perpendicular, collinear, equal, coincident, concentric, tangent,
+fix) and named driving dimensions with expressions, solved after every edit;
+AUTOCONSTRAIN; the Parameters manager.
+
+**Markup:** revision clouds, an automatic bill of materials and numbered
+balloons.
+
+**Sheets:** sheet sets with numbering, shared title block values, set
+publishing and sheet lists.
+
+**Annotation:** dimension text that moves itself clear of other text and of
+the part.
+
+**AI:** gears (true involute teeth) and compression springs as part types;
+hidden lines, centre lines and section hatching recognised when tracing.
+
+**Interface:** a redesigned, consistent icon set.
+
+## 0.3
 
 Everything in 0.2, plus:
 
@@ -40,13 +63,13 @@ Core drafting, modify and dimension commands, layers, blocks, hatching, DWG via
 bundled LibreDWG, DXF 2000/R12, PDF/SVG, Image to CAD with any provider's key,
 installers for macOS, Windows and Linux.
 
-## Next (0.4)
+## Next (0.5)
 
-- [ ] Geometric and dimensional constraints (parametric drafting)
-- [ ] Revision clouds, balloons and an automatic bill of materials
-- [ ] Image to CAD: section hatching and hidden lines recognised when tracing; gears and springs as part types
-- [ ] Sheet sets
-- [ ] Dimension text that moves itself clear of other annotation when edited
+- [ ] Constraints round-tripped through DXF/DWG
+- [ ] Dynamic blocks (stretch, flip, visibility, lookup parameters)
+- [ ] Image to CAD: threads and surface-finish symbols recognised; multi-part assembly sketches with a BOM
+- [ ] Section views generated from a cutting line (SECTIONVIEW) and detail views
+- [ ] Plot stamps and PDF/A output
 
 ## Later
 

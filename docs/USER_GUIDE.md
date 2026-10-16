@@ -328,6 +328,78 @@ sheet, drawn over the model) and any number of **paper layouts**:
 
 Layouts are saved in `.icad` drawings; DXF/DWG exports contain the main sheet.
 
+## Sheet sets
+
+`SHEETSET` (`SSM`, Output → Sheet Set) opens the **Sheet Set Manager**: a
+named, ordered set of sheets from any number of drawings, saved as an
+`.icadset` file next to them (double-click it to open the manager).
+
+- **+ Current drawing** / **+ Drawings…** add each drawing's main sheet and its
+  layouts. Give every sheet a number and a title; **Renumber** numbers them in
+  order; ▲ ▼ reorder, × removes, **Open** shows the sheet.
+- The **project values** (company, drawn, checked and approved by, a drawing
+  number prefix such as `GB-`) are shared by every title block.
+- **Publish set to PDF…** plots every sheet into one PDF with its set number,
+  title and `n OF N` in its title block, without changing the drawings
+  (`imaginecad publish SET.icadset -o OUT.pdf` does the same from a script).
+- **Update title blocks** writes the numbering and values into the drawings
+  themselves (open drawings change as one undo step; closed ones are saved).
+- **Insert sheet list** places a sheet index table in the current drawing.
+
+## Markup and parts lists
+
+- **Revision clouds** (`REVCLOUD`, `RC`; Annotate → Markup): two corners for a
+  rectangular cloud, **P** for a polygonal one, **O** to turn a closed
+  polyline, circle or ellipse into a cloud, **A** for the arc length (scaled to
+  the sheet by default). Grips move the cloud's corners.
+- **Bill of materials** (`BOM`): a parts list built from the block references
+  in the drawing, one item per block and set of attribute values, with the
+  quantity counted and columns for `PART_NO`, `DESCRIPTION`, `MATERIAL` and
+  any other attributes (the block name describes blocks without attributes).
+  Run `BOM` again after changes to refresh it in place.
+- **Balloons** (`BALLOON`): Enter balloons every BOM item at once, round the
+  drawing, each in the direction of its part and spread so they keep clear of
+  each other; or pick one part and place its balloon.
+
+## Keeping dimension text clear
+
+Dimension text moves itself to the nearest clear place when it would overlap
+other text or run through the part: along its dimension line first, then one
+row further out (radius and diameter text swings round the circle). This
+happens when a dimension is placed and when the points it measures move;
+text you drag on purpose stays where you put it. `DIMARRANGE` (`DARR`) tidies
+selected dimensions, or all of them, for drawings made elsewhere.
+
+## Parametric drafting
+
+Constraints keep relationships true while you edit (Parametric tab and menu).
+
+**Geometric constraints** apply to lines, polyline segments, circles and arcs:
+`GCHORIZONTAL`, `GCVERTICAL`, `GCPARALLEL`, `GCPERPENDICULAR`, `GCCOLLINEAR`,
+`GCEQUAL` (lengths or radii), `GCCOINCIDENT` (two points), `GCCONCENTRIC`,
+`GCTANGENT` (line and circle, or two circles), `GCFIX` (hold a point).
+`AUTOCONSTRAIN` (`AC`) adds the obvious ones to a selection: horizontal and
+vertical edges, joined end points, tangent arcs, concentric circles.
+
+**Driving dimensions** set sizes by name: `DCHORIZONTAL`, `DCVERTICAL`,
+`DCALIGNED`, `DCRADIUS`, `DCDIAMETER`, `DCANGULAR`. Each is named `d1`, `d2`,
+… and takes a value or an expression of the others, for example `d2 = d1 / 2`
+or `d3 = sqrt(d1^2 + d2^2)` (operators `+ - * / ^`, `sqrt`, `sin`, `cos`,
+`tan` in degrees, `abs`, `pi`). Type it when placing the dimension, or edit it
+in the **Parameters** manager (`PARAMETERS`, `PAR`); the geometry follows, and
+grows from the dimension's first point.
+
+After every edit the constraints are solved again: what you drag or move
+stays exactly where you put it when the constraints allow, and the rest
+adapts. A constraint that contradicts the others is refused. The log reports
+how many degrees of freedom remain (0 = fully constrained).
+
+Teal glyphs mark the constraints (H, V, //, ⊥, =, T, ◎, F; a dot for
+coincident points) and driving dimensions show as `d1=50`; neither is plotted.
+`CONSTRAINTBAR` (`CBAR`) hides or shows the glyphs; `DELCONSTRAINT` removes the
+constraints of the selected objects (or all). Constraints are saved in `.icad`
+drawings; DXF and DWG files keep the geometry only.
+
 ## Files
 
 | Action | Formats |

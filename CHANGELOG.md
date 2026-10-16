@@ -6,6 +6,19 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
+### Added
+- **Parametric drafting:** geometric constraints on lines, polyline segments, circles and arcs (`GCHORIZONTAL`, `GCVERTICAL`, `GCPARALLEL`, `GCPERPENDICULAR`, `GCCOLLINEAR`, `GCEQUAL`, `GCCOINCIDENT`, `GCCONCENTRIC`, `GCTANGENT`, `GCFIX`), `AUTOCONSTRAIN`, and named driving dimensions (`DCHORIZONTAL`, `DCVERTICAL`, `DCALIGNED`, `DCRADIUS`, `DCDIAMETER`, `DCANGULAR`) whose values may be expressions of each other, edited in the **Parameters** manager. A least-squares solve keeps every constraint true after each edit, holds what you drag exactly where you put it when possible, refuses conflicting constraints and reports the remaining degrees of freedom. Constraint glyphs and driving dimensions on the canvas (`CONSTRAINTBAR`, `DELCONSTRAINT`); a Parametric ribbon tab and menu.
+- **Revision clouds** (`REVCLOUD`): rectangular, polygonal or from an object, with a settable arc length; saved to DXF/DWG as bulged polylines.
+- **Bill of materials** (`BOM`) built from the block references and their attributes, refreshed in place; **balloons** (`BALLOON`) numbered to match, placed automatically round the drawing or one at a time.
+- **Sheet sets** (`SHEETSET`): sheets from many drawings with numbers, titles and shared title block values; publish the set to one PDF (also `imaginecad publish`), update the drawings' title blocks, insert a sheet list. `.icadset` files open by double-click.
+- **Dimension text keeps clear** of other text and of the part when placed or when its geometry moves; `DIMARRANGE` tidies existing drawings.
+- **Image to CAD:** spur gears with true involute teeth and gear data, compression springs with spring data; hidden lines, centre lines and section hatching recognised when tracing.
+
+### Changed
+- Redesigned icon set: one visual language throughout (neutral line work, blue for what a tool creates, red for what it removes, violet for AI), crisp at every size; new icons for the new tools.
+
 ## [0.3.0] - 2026-10-16
 
 ### Added

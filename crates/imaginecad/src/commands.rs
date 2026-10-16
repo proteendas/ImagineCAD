@@ -340,6 +340,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("DELCONSTRAINT", "DELCON"),
     ("PARAMETERS", "PAR"),
     ("CONSTRAINTBAR", "CBAR"),
+    ("RIBBON", ""),
     ("DIMARRANGE", "DARR"),
     ("BOM", ""),
     ("BALLOON", "BAL"),

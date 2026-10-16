@@ -103,6 +103,20 @@ selection (`select_box`), extents, and ByLayer resolution
 (`color_of`, `linetype_of`, `lineweight_of`). New documents use a mechanical
 template: layers `0`, `OUTLINE`, `HIDDEN`, `CENTER`, `DIMENSIONS`, `TEXT`.
 
+### Constraints, markup, sheet sets (`constraints.rs`, `markup.rs`, `arrange.rs`, `sheetset.rs`)
+
+`constraints.rs` holds geometric constraints and named driving dimensions
+over entity points (`PtRef`: line ends, polyline vertices, circle and arc
+centres and ends) and segments, an expression evaluator for the driving
+values, and the solver: every point of a constrained entity and every circle
+radius is an unknown; a damped Gauss–Newton solve with a weak, re-anchored
+pull to the current geometry meets the constraints while moving it least;
+preferred points (what the user dragged) are first held exactly. The rank of
+the constraint Jacobian gives the remaining degrees of freedom. `markup.rs`
+has revision clouds and the bill of materials with balloon placement;
+`arrange.rs` moves dimension text clear of other text and of the part;
+`sheetset.rs` is the `.icadset` model.
+
 ### Sheet and title block (`sheet.rs`)
 The sheet lives in model space: its lower-left corner is `origin` and it spans
 `paper_mm × scale` drawing units. Plotting therefore maps model space to paper
@@ -205,6 +219,9 @@ A detailed walk-through is in [AI_SKETCH_TO_CAD.md](AI_SKETCH_TO_CAD.md).
 | `dialogs2.rs` | Blocks palette, Quick Select, text editor, Units |
 | `secrets.rs` | API key storage (Keychain / Credential Manager / owner-only file) |
 | `ribbon.rs`, `icons.rs` | Ribbon tabs/panels (collapsing to dropdowns to fit the window) and vector-drawn icons |
+| `constraints_ui.rs` | Constraint commands, AUTOCONSTRAIN, driving dimensions, the Parameters manager, canvas glyphs, solving after edits |
+| `commands_markup.rs` | REVCLOUD, BOM, BALLOON, DIMARRANGE |
+| `sheetset_ui.rs` | Sheet Set Manager, set publishing |
 | `menus.rs` | The menu bar: every command, grouped, with its alias (a test keeps it complete) |
 | `macos_open.rs` | Finder's open-documents Apple event (double-click, Open With, Dock) |
 | `chat.rs` | AI Chat panel |

@@ -57,6 +57,11 @@ codes kept in extended data. The header carries `$DIMSCALE` and the dimension
 style (`$DIMTXT`, `$DIMASZ`, `$DIMEXO`, `$DIMEXE`, `$DIMGAP`, `$DIMDEC`), and
 reading restores them, so a drawing keeps its annotation scale.
 
+Revision clouds are written as closed `LWPOLYLINE`s of bulged segments (how
+other programs draw them) with extended data that keeps them clouds for
+ImagineCAD. Constraints and driving dimensions are kept in `.icad` drawings
+only; DXF and DWG files contain the geometry they produced.
+
 **R12 (option):** for very old readers. Entities newer than R12 are written as
 equivalents: ellipses and splines become polylines, hatches become lines or
 solids, multiline text becomes text lines, and construction lines become long
@@ -82,7 +87,16 @@ definitions**. Shapes: `Line`, `Circle`, `Arc` (CCW), `Polyline`, `Text`, `Dim`
 `Leader`, `Image`. Version 1 files open unchanged.
 
 Raster images are stored by file path (like external references), so keep the
-image with the drawing.
+image with the drawing. Constraints are stored in `constraints` (geometric
+ones by entity id and point index, driving dimensions with their name,
+expression and value).
+
+## `.icadset`
+
+A sheet set (JSON): its name, the shared title block values (company,
+project, drawn, checked and approved by, drawing number prefix) and the
+ordered sheets, each with its drawing file (relative to the set file), layout
+(none for the main sheet), number and title.
 
 ## PDF
 

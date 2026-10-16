@@ -70,6 +70,7 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("Paper Layout", "LAYOUT"),
             ("Model", "MODEL"),
             ("-", ""),
+            ("Parametric Ribbon", "RIBBON PARAMETRIC"),
             ("Properties Palette", "PROPERTIES"),
             ("AI Chat Panel", "AICHAT"),
         ],

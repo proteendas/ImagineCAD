@@ -397,6 +397,14 @@ impl App {
             "XREF" | "XR" | "EXTERNALREFERENCES" => self.dlg.xref = true,
             "SHEETSET" | "SSM" | "SHEETSETMANAGER" => self.dlg.sheetset = true,
             "PARAMETERS" | "PAR" | "PARAM" => self.dlg.parameters = true,
+            "RIBBON" => {
+                // Show a ribbon tab by name (RIBBON PARAMETRIC).
+                let want = args.first().map(|a| a.to_ascii_lowercase()).unwrap_or_default();
+                match crate::ribbon::TABS.iter().position(|t| t.to_ascii_lowercase().starts_with(&want) && !want.is_empty()) {
+                    Some(i) => self.ribbon_tab = i,
+                    None => self.log.push(format!("Ribbon tabs: {}", crate::ribbon::TABS.join(", "))),
+                }
+            }
             "CONSTRAINTBAR" | "CBAR" => {
                 self.settings.show_constraints ^= true;
                 self.log.push(format!("Constraint glyphs {}.", if self.settings.show_constraints { "shown" } else { "hidden" }));
