@@ -454,8 +454,8 @@ DXF and DWG drawings (other programs see the geometry).
 ## Languages
 
 The menus, ribbon, Properties palette and command line can be shown in
-English, German, French or Spanish: *Tools → Language…*, or `LANGUAGE de`
-(`en`, `de`, `fr`, `es`, `system`). By default ImagineCAD follows the system
+English, German, French, Spanish, Italian or Portuguese: *Tools →
+Language…*, or `LANGUAGE de` (`en`, `de`, `fr`, `es`, `it`, `pt`, `system`). By default ImagineCAD follows the system
 language. Command names stay in English in every language, so aliases,
 scripts and plugins work everywhere.
 
@@ -470,7 +470,7 @@ commands, written in any language, from a folder with a `plugin.json`
 
 | Action | Formats |
 |---|---|
-| Open | `.icad`, `.dwg`, `.dxf`; sketch images open Image to CAD. Also by double-clicking a drawing in Finder, Explorer or a Linux file manager, *Open With*, or dropping files on the window or the Dock icon |
+| Open | `.icad`, `.dwg` (2000–2018 read directly), `.dxf`; sketch images open Image to CAD. Also by double-clicking a drawing in Finder, Explorer or a Linux file manager, *Open With*, or dropping files on the window or the Dock icon |
 | Save / Save As | `.icad`, `.dwg`, `.dxf` (a drawing opened from DWG saves back to DWG) |
 | Export | DWG, DXF (2000, or R12 in Export options), PDF, SVG |
 | Plot | `PLOT` / `Ctrl+P`: true-scale vector PDF (or PDF/A) of the sheet, with an optional plot stamp |

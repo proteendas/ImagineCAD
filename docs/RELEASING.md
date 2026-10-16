@@ -29,9 +29,9 @@ Every platform job also:
 
 ```bash
 # 1. bump `version` in the root Cargo.toml and add a CHANGELOG.md entry
-git commit -am "Release 0.6.0"
+git commit -am "Release 0.7.0"
 # 2. tag and push
-git tag v0.6.0
+git tag v0.7.0
 git push origin main --tags
 ```
 

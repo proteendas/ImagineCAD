@@ -4,7 +4,17 @@ ImagineCAD's goal is complete day-to-day 2D mechanical drafting at the level
 of mature commercial CAD suites, plus AI sketch conversion. This page is an
 honest map of what exists and what is next.
 
-## 0.6 (current)
+## 0.7 (current)
+
+Everything in 0.6, plus:
+
+**DWG:** a DWG reader written in Rust: DWG 2000, 2004, 2010, 2013 and 2018
+drawings open without a converter, with every 2D drafting entity and
+native dimensions.
+
+**Languages:** Italian and Portuguese.
+
+## 0.6
 
 Everything in 0.5, plus:
 
@@ -95,10 +105,10 @@ Core drafting, modify and dimension commands, layers, blocks, hatching, DWG via
 bundled LibreDWG, DXF 2000/R12, PDF/SVG, Image to CAD with any provider's key,
 installers for macOS, Windows and Linux.
 
-## Next (0.7)
+## Next (0.8)
 
-- [ ] Native DWG reader in Rust (DWG R2000–R2018 opened without the bundled converter)
-- [ ] More interface languages (Italian, Portuguese; Hindi and Chinese with their fonts) and translated dialogs
+- [ ] DWG reader: DWG 2007 files, ImagineCAD's extended data and paper-space layouts, so the converter is needed only for writing
+- [ ] Interface languages with their own scripts (Hindi, Chinese, Japanese) and translated dialogs
 - [ ] Broken-out sections and aligned section views from a stepped cutting line
 - [ ] Plugin commands with live previews
 

@@ -2,7 +2,7 @@
 
 | Format | Open | Save | Implementation |
 |---|---|---|---|
-| `.dwg` | ✓ | ✓ | DXF 2000 ⇄ DWG through the bundled GNU LibreDWG tools (or the ODA File Converter if installed) |
+| `.dwg` | ✓ | ✓ | read by ImagineCAD's own DWG reader (DWG 2000–2018); written through the bundled GNU LibreDWG tools (or the ODA File Converter if installed) |
 | `.dxf` | ✓ | ✓ | native reader/writer: DXF 2000 (default) or R12 |
 | `.icad` | ✓ | ✓ | native JSON, lossless |
 | `.pdf` | | ✓ | native vector writer, true scale, embedded raster images |
@@ -11,7 +11,27 @@
 
 ## DWG
 
-DWG is a closed binary format. ImagineCAD converts through DXF 2000:
+**Reading.** ImagineCAD reads DWG 2000, 2004, 2010, 2013 and 2018 files
+itself (`icad-io/src/dwgnative`), with no converter: layers (colour,
+linetype, lineweight, on/off, frozen, locked), linetype names, blocks and
+every 2D drafting entity — lines, circles, arcs, ellipses, points, light and
+classic polylines with bulges, solids, hatches (lines, arcs, elliptical arcs,
+splines and polyline boundaries), splines, text, multiline text, block
+references (also arrays) with their attribute values, attribute definitions,
+leaders, tolerance frames, construction lines and rays, and all dimension
+types as native, editable dimensions. The header's dimension variables and
+linetype scale give the drawing its annotation scale. 3D objects (faces,
+meshes, solids) and multilines are counted and left out; paper-space
+content is not imported.
+
+The converter (below) is still used to read DWG 2007 files (which use a
+different layout), files whose objects the built-in reader could not
+decode, and drawings saved by ImagineCAD itself, whose extended data
+(exact symbols, constraints, dynamic blocks) the DXF path reads. When no
+converter is installed the built-in reader is always used.
+`IMAGINECAD_DWG_READER=native` or `converter` forces one or the other.
+
+**Writing** goes through DXF 2000 and a converter:
 
 - **Bundled LibreDWG** (GNU, GPL-3.0). Every installer contains `dwg2dxf` and
   `dxf2dwg` built from LibreDWG 0.13.3 with ImagineCAD's patch
@@ -21,9 +41,8 @@ DWG is a closed binary format. ImagineCAD converts through DXF 2000:
 - **ODA File Converter** (free download from opendesign.com). If installed, it
   is preferred because it covers more DWG versions and object types.
 
-Writing produces DWG 2000 (AC1015), which every current CAD program reads.
-Reading accepts DWG R13–2018 as supported by the converter. A drawing opened
-from DWG is saved back to DWG by **Save**.
+Writing produces DWG 2000 (AC1015), which every current CAD program reads. A
+drawing opened from DWG is saved back to DWG by **Save**.
 
 Round-trip coverage (verified by the `dwg_roundtrip` test in CI): lines,
 polylines, circles, arcs, ellipses, splines, points, text, multiline text,

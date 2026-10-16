@@ -6,6 +6,12 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-16
+
+### Added
+- **A DWG reader written in Rust.** DWG 2000, 2004, 2010, 2013 and 2018 drawings open without a converter: layers, linetypes, blocks, lines, circles, arcs, ellipses, points, polylines with bulges, solids, hatches, splines, text, multiline text, block references and arrays with attribute values, attribute definitions, leaders, tolerance frames, construction lines and rays, and every dimension type as a native dimension, at the drawing's own annotation scale. 3D objects are listed as not read. The converter is still used for DWG 2007, damaged objects and drawings saved by ImagineCAD (their extended data); `IMAGINECAD_DWG_READER` forces either.
+- **Interface languages:** Italian and Portuguese.
+
 ## [0.6.0] - 2026-10-16
 
 ### Added

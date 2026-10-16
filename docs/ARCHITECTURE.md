@@ -26,7 +26,7 @@ and `icad-core` depends on nothing but `serde`.
 | Crate | Path | Responsibility |
 |---|---|---|
 | `icad-core` | `crates/icad-core` | 2D math, entity model (incl. blocks, hatches, splines, ellipses, multiline text, leaders, images), document, layers, dimension geometry, sheet + title block, hatch boundary detection, edit operations |
-| `icad-io` | `crates/icad-io` | Native `.icad`, DXF 2000/R12 read/write, PDF (images, compression) and SVG plotting, DWG via the bundled LibreDWG tools or ODA |
+| `icad-io` | `crates/icad-io` | Native `.icad`, DXF 2000/R12 read/write, PDF/PDF-A and SVG plotting, a DWG 2000–2018 reader, DWG writing via the bundled LibreDWG tools or ODA |
 | `icad-vision` | `crates/icad-vision` | Image → CAD: raster processing, vectorisation, beautification, label reading (any cloud provider via API key, Ollama, OpenAI-compatible, Tesseract), provider auto-detection, dimension solving |
 | `imaginecad` | `crates/imaginecad` | Desktop application (eframe/egui) and headless CLI |
 
@@ -152,6 +152,16 @@ See [FILE_FORMATS.md](FILE_FORMATS.md). Highlights:
 - `plot.rs` resolves colours (monochrome or colour), linetype dash patterns and
   lineweights once; `pdf.rs` (hand-written PDF 1.4, Bézier arcs, WinAnsi
   Helvetica) and `svg.rs` render the resulting items.
+- `dwgnative/` reads DWG 2000–2018 without a converter: `bits.rs` (the
+  bit-coded values: BS, BL, BD, DD, MC, MS, handles, text), `container.rs`
+  (the R2000 section locators; for R2004+ the encrypted file header, the page
+  and section maps, and the LZ77 page decompressor; the object map),
+  `header.rs` (the header variables up to the dimension style),
+  `objects.rs` (common entity and object data, the handle and string
+  streams, table records and each entity type) and `mod.rs` (placing
+  entities in model space or their blocks and building the `Document`).
+  `examples/dwgprobe.rs` and `dwgdiff.rs` summarise a file and compare it
+  with a DXF of the same drawing.
 - `dwg.rs` locates the ODA File Converter (if installed) or the LibreDWG tools
   bundled next to the executable, and round-trips through DXF 2000 in a
   temporary directory. LibreDWG is built by `packaging/libredwg/build-libredwg.sh`
