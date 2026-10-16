@@ -116,12 +116,52 @@ pub struct Profile {
     pub dims: Vec<PDim>,
 }
 
+/// A spur gear: involute teeth from module, tooth count and pressure angle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gear {
+    pub module: f64,
+    pub teeth: usize,
+    /// Degrees (20 unless written).
+    pub pressure_angle: f64,
+    pub face_width: f64,
+    pub bore: f64,
+    pub hub: Option<(f64, f64)>,
+    pub keyway: Option<(f64, f64)>,
+}
+
+impl Gear {
+    pub fn pitch_d(&self) -> f64 {
+        self.module * self.teeth as f64
+    }
+    pub fn tip_d(&self) -> f64 {
+        self.module * (self.teeth as f64 + 2.0)
+    }
+    pub fn root_d(&self) -> f64 {
+        self.module * (self.teeth as f64 - 2.5)
+    }
+}
+
+/// A helical compression spring.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spring {
+    pub wire: f64,
+    /// Outside diameter of the coils.
+    pub od: f64,
+    pub free_length: f64,
+    pub active_coils: f64,
+    pub total_coils: f64,
+    /// Ends closed and ground flat.
+    pub ground: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum PartSpec {
     Shaft { segments: Vec<Segment>, keyways: Vec<Keyway>, chamfers: Vec<Chamfer>, total_length: Option<f64> },
     Plate { width: f64, height: f64, holes: Vec<Hole> },
     Wheel(Wheel),
     Profile(Profile),
+    Gear(Gear),
+    Spring(Spring),
 }
 
 fn pt(v: &Value) -> Option<V2> {
@@ -532,11 +572,53 @@ impl PartSpec {
                 .unwrap_or_default();
             return Some(PartSpec::Shaft { segments, keyways, chamfers, total_length: total });
         }
-        let round = ["wheel", "ring", "washer", "pulley", "sheave", "flange", "bush", "disc", "disk", "gear", "collar", "spacer"];
+        let pos = |x: Option<f64>| x.filter(|v| *v > 0.0);
+        if ty.contains("gear") || p.get("teeth").is_some() {
+            let teeth = field(p, &["teeth", "z", "number_of_teeth"])?.round() as usize;
+            let module = pos(field(p, &["module", "m"]))
+                .or_else(|| pos(field(p, &["pitch_diameter", "pcd"])).map(|d| d / teeth.max(1) as f64))
+                .or_else(|| pos(field(p, &["outer_diameter", "tip_diameter", "od"])).map(|d| d / (teeth as f64 + 2.0)))?;
+            let bore = pos(field(p, &["bore"])).unwrap_or(0.0);
+            let hub = match (pos(field(p, &["hub_diameter"])), pos(field(p, &["hub_length"]))) {
+                (Some(d), Some(l)) => Some((d, l)),
+                _ => None,
+            };
+            let keyway = p
+                .get("keyway")
+                .filter(|k| k.is_object())
+                .and_then(|k| Some((pos(field(k, &["width", "b"]))?, pos(field(k, &["depth", "t"]))?)));
+            let g = Gear {
+                module,
+                teeth,
+                pressure_angle: pos(field(p, &["pressure_angle", "alpha"])).unwrap_or(20.0),
+                face_width: pos(field(p, &["face_width", "width", "b"])).unwrap_or(module * 10.0),
+                bore,
+                hub,
+                keyway,
+            };
+            return (teeth >= 6 && module > 0.0 && g.bore < g.root_d()).then_some(PartSpec::Gear(g));
+        }
+        if ty.contains("spring") || p.get("wire_diameter").is_some() {
+            let wire = pos(field(p, &["wire_diameter", "wire", "d"]))?;
+            let od = pos(field(p, &["outer_diameter", "od"]))
+                .or_else(|| pos(field(p, &["mean_diameter", "dm"])).map(|m| m + wire))
+                .or_else(|| pos(field(p, &["inner_diameter", "id"])).map(|i| i + 2.0 * wire))?;
+            let active = pos(field(p, &["active_coils", "coils", "n"]))?;
+            let ground = p.get("ground").and_then(|g| g.as_bool()).unwrap_or(true);
+            let sp = Spring {
+                wire,
+                od,
+                free_length: pos(field(p, &["free_length", "length", "l0"]))?,
+                active_coils: active,
+                total_coils: pos(field(p, &["total_coils", "nt"])).unwrap_or(active + 2.0),
+                ground,
+            };
+            return (sp.od > 2.0 * sp.wire && sp.free_length > sp.total_coils * sp.wire * 0.9).then_some(PartSpec::Spring(sp));
+        }
+        let round = ["wheel", "ring", "washer", "pulley", "sheave", "flange", "bush", "disc", "disk", "collar", "spacer"];
         if round.iter().any(|r| ty.contains(r)) || p.get("outer_diameter").is_some() {
             let od = field(p, &["outer_diameter", "od", "diameter"])?;
             let width = field(p, &["width", "thickness", "length", "face_width"])?;
-            let pos = |x: Option<f64>| x.filter(|v| *v > 0.0);
             let bore = pos(field(p, &["bore", "inner_diameter", "id"])).unwrap_or(0.0);
             let hub = match (pos(field(p, &["hub_diameter"])), pos(field(p, &["hub_length", "hub_width"]))) {
                 (Some(d), Some(l)) => Some((d, l)),
@@ -631,6 +713,15 @@ impl PartSpec {
                 "chamfers": chamfers.iter().map(|c| serde_json::json!({"at": c.at, "size": c.size})).collect::<Vec<_>>(),
             }),
             PartSpec::Profile(pr) => pr.to_json(),
+            PartSpec::Gear(g) => serde_json::json!({
+                "type": "gear", "module": g.module, "teeth": g.teeth, "pressure_angle": g.pressure_angle,
+                "face_width": g.face_width, "bore": g.bore, "hub_diameter": g.hub.map(|h| h.0), "hub_length": g.hub.map(|h| h.1),
+                "keyway": g.keyway.map(|k| serde_json::json!({"width": k.0, "depth": k.1})),
+            }),
+            PartSpec::Spring(sp) => serde_json::json!({
+                "type": "spring", "wire_diameter": sp.wire, "outer_diameter": sp.od, "free_length": sp.free_length,
+                "active_coils": sp.active_coils, "total_coils": sp.total_coils, "ground": sp.ground,
+            }),
             PartSpec::Wheel(w) => serde_json::json!({
                 "type": w.kind,
                 "outer_diameter": w.od,
@@ -669,6 +760,16 @@ impl PartSpec {
             }
             PartSpec::Plate { width, height, holes } => format!("plate: {} × {}, {} hole(s)", fmt(*width), fmt(*height), holes.len()),
             PartSpec::Profile(p) => format!("{}: {} object(s), {} dimension(s)", p.name, p.shapes.len(), p.dims.len()),
+            PartSpec::Gear(g) => {
+                format!("spur gear: m {} × z {} (pitch Ø{}), face {}", fmt(g.module), g.teeth, fmt(g.pitch_d()), fmt(g.face_width))
+            }
+            PartSpec::Spring(sp) => format!(
+                "compression spring: wire Ø{}, OD {}, free length {}, {} active coil(s)",
+                fmt(sp.wire),
+                fmt(sp.od),
+                fmt(sp.free_length),
+                fmt(sp.active_coils)
+            ),
             PartSpec::Wheel(w) => {
                 let mut d = format!("{}: Ø{} × {}", w.kind, fmt(w.od), fmt(w.width));
                 if w.bore > 0.0 {
@@ -740,6 +841,30 @@ impl PartSpec {
                         "The written length {} is not the length of any segment, of neighbouring segments together, of a keyway or of a chamfer.",
                         fmt(*v)
                     ));
+                }
+            }
+            PartSpec::Gear(g) => {
+                let mut known = vec![g.module, g.teeth as f64, g.pressure_angle, g.face_width, g.bore, g.pitch_d(), g.tip_d(), g.root_d()];
+                known.extend(g.hub.map(|h| h.0));
+                known.extend(g.hub.map(|h| h.1));
+                if let Some(k) = g.keyway {
+                    known.extend([k.0, k.1, g.bore + k.1]);
+                }
+                for (_, v) in read.iter().filter(|r| r.0 != LabelKind::Radius) {
+                    if !known.iter().any(|k| same(*k, *v)) {
+                        out.push(format!(
+                            "The written value {} is not used by the gear description (module, teeth, face width, bore, hub?).",
+                            fmt(*v)
+                        ));
+                    }
+                }
+            }
+            PartSpec::Spring(sp) => {
+                let known = [sp.wire, sp.od, sp.od - sp.wire, sp.od - 2.0 * sp.wire, sp.free_length, sp.active_coils, sp.total_coils];
+                for (_, v) in &read {
+                    if !known.iter().any(|k| same(*k, *v)) {
+                        out.push(format!("The written value {} is not used by the spring description.", fmt(*v)));
+                    }
                 }
             }
             PartSpec::Profile(pr) => {
@@ -838,6 +963,8 @@ impl PartSpec {
             PartSpec::Plate { width, height, holes } => build_plate(*width, *height, holes),
             PartSpec::Wheel(w) => build_wheel(w),
             PartSpec::Profile(p) => p.build(),
+            PartSpec::Gear(g) => build_gear(g),
+            PartSpec::Spring(sp) => build_spring(sp),
         }
     }
 }
@@ -1284,6 +1411,199 @@ fn build_wheel(w: &Wheel) -> Vec<(String, Shape)> {
     out
 }
 
+/// Involute tooth outline of a spur gear (no profile shift), closed.
+pub fn gear_outline(g: &Gear) -> Vec<V2> {
+    let z = g.teeth as f64;
+    let (rp, ra, rf) = (g.pitch_d() / 2.0, g.tip_d() / 2.0, g.root_d() / 2.0);
+    let alpha = g.pressure_angle.to_radians();
+    let rb = rp * alpha.cos();
+    let inv = |a: f64| a.tan() - a;
+    // Half the tooth's angular thickness at radius r.
+    let half = |r: f64| -> f64 {
+        let ar = (rb / r.max(rb)).min(1.0).acos();
+        std::f64::consts::PI / (2.0 * z) + inv(alpha) - inv(ar)
+    };
+    let start = rf.max(rb);
+    let n = 8;
+    let flank: Vec<f64> = (0..=n).map(|i| start + (ra - start) * i as f64 / n as f64).collect();
+    let mut pts = vec![];
+    for i in 0..g.teeth {
+        let phi = std::f64::consts::TAU * i as f64 / z;
+        // Root to the tooth (radial below the base circle), up one flank, over the tip, down the other.
+        if rf < rb {
+            pts.push(V2::polar(rf, phi - half(rb)));
+        }
+        for r in &flank {
+            pts.push(V2::polar(*r, phi - half(*r)));
+        }
+        let (t0, t1) = (phi - half(ra), phi + half(ra));
+        for k in 1..4 {
+            pts.push(V2::polar(ra, t0 + (t1 - t0) * k as f64 / 4.0));
+        }
+        for r in flank.iter().rev() {
+            pts.push(V2::polar(*r, phi + half(*r)));
+        }
+        if rf < rb {
+            pts.push(V2::polar(rf, phi + half(rb)));
+        }
+        // Root arc to the next tooth.
+        let next = std::f64::consts::TAU * (i + 1) as f64 / z - half(rb.max(rf));
+        let from = phi + half(rb.max(rf));
+        for k in 1..4 {
+            pts.push(V2::polar(rf, from + (next - from) * k as f64 / 4.0));
+        }
+    }
+    pts
+}
+
+/// End view with true teeth, pitch circle and data table; hatched section.
+fn build_gear(g: &Gear) -> Vec<(String, Shape)> {
+    // The section and the bore come from the round-part drawing of the blank.
+    let blank = Wheel {
+        kind: "gear".into(),
+        od: g.tip_d(),
+        width: g.face_width,
+        bore: g.bore,
+        hub: g.hub,
+        web: None,
+        rim: None,
+        grooves: None,
+        keyway: g.keyway,
+        holes: None,
+    };
+    let mut out: Vec<(String, Shape)> = build_wheel(&blank)
+        .into_iter()
+        // The end view's outer circle becomes the toothed outline.
+        .filter(|(l, s)| {
+            !(l == layers::OUTLINE && matches!(s, Shape::Circle { c, r } if c.len() < 1e-9 && (*r - g.tip_d() / 2.0).abs() < 1e-9))
+        })
+        .collect();
+    out.push((layers::OUTLINE.into(), Shape::Polyline { pts: gear_outline(g), closed: true }));
+    out.push((layers::CENTER.into(), Shape::Circle { c: V2::ZERO, r: g.pitch_d() / 2.0 }));
+    // Pitch line on the section.
+    let r = g.tip_d() / 2.0;
+    let sect_x = out
+        .iter()
+        .filter_map(|(_, s)| if let Shape::Hatch(h) = s { Some(BBox::of(h.loops.iter().flatten().copied())) } else { None })
+        .fold(BBox::empty(), |b, x| b.union(&x));
+    if !sect_x.is_empty() {
+        let rp = g.pitch_d() / 2.0;
+        for y in [rp, -rp] {
+            out.push((
+                layers::CENTER.into(),
+                Shape::Line { a: V2::new(sect_x.min.x - 0.05 * r, y), b: V2::new(sect_x.max.x + 0.05 * r, y) },
+            ));
+        }
+    }
+    // Gear data table under the end view.
+    let ds = DimStyle::default();
+    let mut probe = Sheet::default();
+    probe.fit_to(&fit_margin(&BBox::from_pts(V2::new(-r, -r), V2::new(sect_x.max.x.max(r), r))));
+    let th = ds.text_height * probe.scale;
+    let rows: Vec<Vec<String>> = vec![
+        vec!["GEAR DATA".into(), String::new()],
+        vec!["Module m".into(), fmt(g.module)],
+        vec!["Number of teeth z".into(), g.teeth.to_string()],
+        vec!["Pressure angle".into(), format!("{}°", fmt(g.pressure_angle))],
+        vec!["Pitch diameter".into(), format!("Ø{}", fmt(g.pitch_d()))],
+        vec!["Tip diameter".into(), format!("Ø{}", fmt(g.tip_d()))],
+        vec!["Root diameter".into(), format!("Ø{}", fmt(g.root_d()))],
+    ];
+    // Beside the section, top-aligned with the part.
+    let mut t = icad_core::table::Table::from_rows(V2::new(sect_x.max.x.max(r) + 9.0 * th, r), &rows, th * 0.8);
+    t.cells[0][0].span = 1;
+    out.push((layers::DIMENSIONS.into(), Shape::Table(t)));
+    out
+}
+
+/// Section along the axis: the wire's coils as filled circles, the visible
+/// front coils between them, and a data table.
+fn build_spring(sp: &Spring) -> Vec<(String, Shape)> {
+    let mut out: Vec<(String, Shape)> = vec![];
+    let d = sp.wire;
+    let rm = (sp.od - d) / 2.0;
+    let l = sp.free_length;
+    // Closed ends take one coil each; the active coils share the rest.
+    let dead = ((sp.total_coils - sp.active_coils) / 2.0).max(0.0);
+    let pitch = if sp.active_coils > 0.0 { ((l - (2.0 * dead + 1.0) * d) / sp.active_coils).max(d) } else { d };
+    // Coil centre positions along the axis: top row, the bottom row half a turn on.
+    let mut x_of = vec![];
+    let turns = sp.total_coils;
+    let mut x = d / 2.0;
+    let mut k = 0.0;
+    while k <= turns + 1e-9 {
+        x_of.push((k, x.min(l - d / 2.0)));
+        let step = if k < dead || k >= turns - dead - 1e-9 { d } else { pitch };
+        x += step / 2.0;
+        k += 0.5;
+    }
+    let solid = |c: V2| {
+        Shape::Hatch(Hatch {
+            loops: vec![(0..24).map(|i| c + V2::polar(d / 2.0, std::f64::consts::TAU * i as f64 / 24.0)).collect()],
+            pattern: "SOLID".into(),
+            scale: 1.0,
+            angle: 0.0,
+        })
+    };
+    for (i, (_, x)) in x_of.iter().enumerate() {
+        let y = if i % 2 == 0 { rm } else { -rm };
+        let c = V2::new(*x, y);
+        out.push((layers::OUTLINE.into(), Shape::Circle { c, r: d / 2.0 }));
+        out.push((layers::HATCH.into(), solid(c)));
+        // In section only the far half of each turn shows: one slant, from the
+        // lower section to the next upper one.
+        if let Some((_, nx)) = x_of.get(i + 1).filter(|_| i % 2 == 1) {
+            let a = V2::new(*x, y);
+            let b = V2::new(*nx, -y);
+            let n = (b - a).norm().perp() * (d / 2.0);
+            out.push((layers::OUTLINE.into(), Shape::Line { a: a + n, b: b + n }));
+            out.push((layers::OUTLINE.into(), Shape::Line { a: a - n, b: b - n }));
+        }
+    }
+    if sp.ground {
+        // Ground ends: flat faces at both ends of the spring.
+        for xe in [0.0, l] {
+            out.push((layers::OUTLINE.into(), Shape::Line { a: V2::new(xe, -rm - d / 2.0), b: V2::new(xe, rm + d / 2.0) }));
+        }
+    }
+    let ext = 0.06 * l.max(sp.od);
+    out.push((layers::CENTER.into(), Shape::Line { a: V2::new(-ext, 0.0), b: V2::new(l + ext, 0.0) }));
+    let ds = DimStyle::default();
+    let mut probe = Sheet::default();
+    let r = sp.od / 2.0;
+    probe.fit_to(&fit_margin(&BBox::from_pts(V2::new(0.0, -r), V2::new(l, r))));
+    let th = ds.text_height * probe.scale;
+    let dim = |d: Dimension| (layers::DIMENSIONS.to_string(), Shape::Dim(d));
+    out.push(dim(Dimension::new(DimKind::Horizontal, V2::new(0.0, -r), V2::new(l, -r), V2::new(l / 2.0, -r - 2.5 * th))));
+    let mut od = Dimension::new(DimKind::Vertical, V2::new(l, -r), V2::new(l, r), V2::new(l + 3.0 * th, 0.0));
+    od.text = Some("Ø<>".into());
+    out.push(dim(od));
+    if let Some((_, x1)) = x_of.get(1) {
+        out.push((
+            layers::DIMENSIONS.into(),
+            Shape::Leader(Leader {
+                pts: vec![V2::new(*x1, -rm - d / 2.0), V2::new(*x1 + 2.0 * th, -r - 6.0 * th)],
+                text: format!("Wire Ø{}", fmt(d)),
+                style: None,
+            }),
+        ));
+    }
+    let rows: Vec<Vec<String>> = vec![
+        vec!["SPRING DATA".into(), String::new()],
+        vec!["Wire diameter".into(), format!("Ø{}", fmt(d))],
+        vec!["Outside diameter".into(), format!("Ø{}", fmt(sp.od))],
+        vec!["Mean diameter".into(), format!("Ø{}", fmt(sp.od - d))],
+        vec!["Free length".into(), fmt(l)],
+        vec!["Active coils".into(), fmt(sp.active_coils)],
+        vec!["Total coils".into(), fmt(sp.total_coils)],
+        vec!["Ends".into(), if sp.ground { "closed and ground".into() } else { "closed".into() }],
+    ];
+    let mut t = icad_core::table::Table::from_rows(V2::new(l + 8.0 * th, r), &rows, th * 0.8);
+    t.cells[0][0].span = 1;
+    out.push((layers::DIMENSIONS.into(), Shape::Table(t)));
+    out
+}
+
 fn build_plate(w: f64, h: f64, holes: &[Hole]) -> Vec<(String, Shape)> {
     let mut out: Vec<(String, Shape)> = vec![];
     let pts = vec![V2::new(0.0, 0.0), V2::new(w, 0.0), V2::new(w, h), V2::new(0.0, h)];
@@ -1455,6 +1775,46 @@ mod tests {
         let spec = PartSpec::from_json(&bad).unwrap();
         let issues = spec.acceptable(&labels).unwrap_err();
         assert!(issues.iter().any(|i| i.contains("measures 120")), "{issues:?}");
+    }
+
+    #[test]
+    fn gear_and_spring() {
+        let gear =
+            PartSpec::from_json(&serde_json::json!({"part": {"type": "spur gear", "module": 2, "teeth": 30, "face_width": 20, "bore": 20,
+            "keyway": {"width": 6, "depth": 2.8}}}))
+            .unwrap();
+        let PartSpec::Gear(g) = &gear else { panic!("{gear:?}") };
+        assert_eq!((g.pitch_d(), g.tip_d(), g.root_d()), (60.0, 64.0, 55.0));
+        let labels: Vec<String> = ["m2", "z30", "20", "Ø20", "Ø64", "6", "2.8"].iter().map(|s| s.to_string()).collect();
+        let _ = labels;
+        let shapes = gear.build();
+        let outline = shapes
+            .iter()
+            .find_map(|(_, s)| if let Shape::Polyline { pts, closed: true } = s { (pts.len() > 300).then_some(pts.clone()) } else { None })
+            .unwrap();
+        // Every point between the root and tip circles; the tips reach the tip circle.
+        let rmax = outline.iter().map(|p| p.len()).fold(0.0, f64::max);
+        let rmin = outline.iter().map(|p| p.len()).fold(f64::INFINITY, f64::min);
+        assert!((rmax - 32.0).abs() < 1e-6 && (rmin - 27.5).abs() < 1e-6, "{rmin} {rmax}");
+        // Tooth thickness on the pitch circle is half the circular pitch.
+        let near: Vec<&V2> = outline.iter().filter(|p| (p.len() - 30.0).abs() < 0.4).collect();
+        assert!(near.len() >= 2 * 30, "{}", near.len());
+        assert!(shapes.iter().any(|(_, s)| matches!(s, Shape::Table(t) if t.cells[2][1].text == "30")));
+        dump("gear", &conv_of(&gear));
+
+        let spring =
+            PartSpec::from_json(&serde_json::json!({"part": {"type": "compression spring", "wire_diameter": 3, "outer_diameter": 30,
+            "free_length": 80, "active_coils": 6, "total_coils": 8}}))
+            .unwrap();
+        let labels: Vec<String> = ["Ø3", "Ø30", "80"].iter().map(|s| s.to_string()).collect();
+        assert!(spring.issues_with(&labels).is_empty(), "{:?}", spring.issues_with(&labels));
+        let shapes = spring.build();
+        let wires = shapes.iter().filter(|(l, s)| l == layers::OUTLINE && matches!(s, Shape::Circle { .. })).count();
+        assert_eq!(wires, 17);
+        // Coils stay inside the free length.
+        let xs: Vec<f64> = shapes.iter().filter_map(|(_, s)| if let Shape::Circle { c, .. } = s { Some(c.x) } else { None }).collect();
+        assert!(xs.iter().all(|x| *x >= 1.5 - 1e-9 && *x <= 78.5 + 1e-9), "{xs:?}");
+        dump("spring", &conv_of(&spring));
     }
 
     #[test]

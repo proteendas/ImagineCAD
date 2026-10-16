@@ -766,7 +766,7 @@ impl App {
                         });
                         ui.checkbox(&mut d.opts.center_marks, "Add centre lines to holes");
                         ui.checkbox(&mut d.opts.reconstruct_parts, "Let AI rebuild the part exactly from the written dimensions")
-                            .on_hover_text("The AI describes the part (shaft, ring, flange, pulley, plate, or any profile) from its dimensions; the description is checked against the written values and its own geometry before it is drawn, otherwise the sketch is traced.");
+                            .on_hover_text("The AI describes the part (shaft, ring, flange, pulley, gear, spring, plate, or any profile) from its dimensions; the description is checked against the written values and its own geometry before it is drawn, otherwise the sketch is traced.");
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(format!("AI engine: {}", d.opts.ai.describe())).color(theme::AI_ACCENT));

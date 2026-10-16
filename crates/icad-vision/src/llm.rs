@@ -173,6 +173,11 @@ or thickness, \"bore\": d or 0, \"hub_diameter\": or null, \"hub_length\": or nu
 \"rim_thickness\": radial or null, \"grooves\": {{\"count\": n, \"angle\": included degrees (0 if square), \"depth\": h, \
 \"width\": width at the rim}} or null, \"keyway\": {{\"width\": b, \"depth\": depth into the hub}} or null, \"holes\": {{\"count\": n, \
 \"diameter\": d, \"pcd\": pitch circle diameter}} or null}}.\n\
+ - Spur gear: {{\"type\": \"gear\", \"module\": m (or \"pitch_diameter\"), \"teeth\": z, \"pressure_angle\": 20 unless \
+written, \"face_width\": b, \"bore\": d, \"hub_diameter\": or null, \"hub_length\": or null, \"keyway\": {{\"width\": b, \
+\"depth\": t}} or null}}.\n\
+ - Helical compression spring: {{\"type\": \"spring\", \"wire_diameter\": d, \"outer_diameter\": D (or \"mean_diameter\"), \
+\"free_length\": L0, \"active_coils\": n, \"total_coils\": nt or null, \"ground\": true if the ends are ground flat}}.\n\
  - Any other part (brackets, levers, links, housings, covers, blocks, multi-view drawings): {{\"type\": \"profile\", \"name\": \
 \"what it is\", \"entities\": [{{\"polyline\": [[x, y], ...], \"closed\": true}}, {{\"line\": [x1, y1, x2, y2]}}, {{\"circle\": \
 [cx, cy, diameter]}}, {{\"arc\": [cx, cy, radius, start_deg, end_deg]}} (counter-clockwise), add \"style\": \"hidden\" or \"center\" \

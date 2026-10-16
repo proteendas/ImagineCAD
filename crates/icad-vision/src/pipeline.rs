@@ -1136,7 +1136,8 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
     let geo_box = doc
         .entities
         .iter()
-        .filter(|e| doc.is_visible(e) && !e.shape.is_annotation())
+        // Tables (gear and spring data, parts lists) need room on the sheet too.
+        .filter(|e| doc.is_visible(e) && (!e.shape.is_annotation() || matches!(e.shape, Shape::Table(_))))
         .fold(BBox::empty(), |b, e| b.union(&doc.entity_bbox(e)));
     if !geo_box.is_empty() {
         doc.sheet.fit_to(&icad_core::sheet::fit_margin(&geo_box));
