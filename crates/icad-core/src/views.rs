@@ -145,6 +145,107 @@ pub fn path_intervals(curves: &[Curve], path: &[V2]) -> Vec<(f64, f64)> {
     out
 }
 
+/// A point inside a closed loop (its centroid, or a point just inside one
+/// of its edges when the centroid is outside).
+fn interior_point(l: &[V2]) -> V2 {
+    let c = l.iter().fold(V2::ZERO, |a, p| a + *p) / l.len().max(1) as f64;
+    if crate::hatch::region_contains(&[l.to_vec()], c) {
+        return c;
+    }
+    let size = BBox::of(l.iter().copied());
+    let eps = (size.width().max(size.height()) * 1e-4).max(1e-9);
+    for i in 0..l.len() {
+        let (a, b) = (l[i], l[(i + 1) % l.len()]);
+        let m = a.mid(b);
+        let n = (b - a).norm().perp();
+        for q in [m + n * eps, m - n * eps] {
+            if crate::hatch::region_contains(&[l.to_vec()], q) {
+                return q;
+            }
+        }
+    }
+    c
+}
+
+/// Separate parts from closed loops: loops are nested by containment
+/// (largest first, so a part filling a hole of the same size sits inside
+/// it); loops at even depth are a part's outline, those directly inside it
+/// its holes. Each part: its outline then its holes.
+pub fn parts_of(loops: &[Vec<V2>]) -> Vec<Vec<Vec<V2>>> {
+    let mut order: Vec<usize> = (0..loops.len()).filter(|i| loops[*i].len() >= 3).collect();
+    order.sort_by(|a, b| crate::hatch::signed_area(&loops[*b]).abs().total_cmp(&crate::hatch::signed_area(&loops[*a]).abs()));
+    let mut parent: Vec<Option<usize>> = vec![None; loops.len()];
+    let mut depth = vec![0usize; loops.len()];
+    for (k, &i) in order.iter().enumerate() {
+        let p = interior_point(&loops[i]);
+        // The smallest earlier (larger or equal) loop containing it.
+        if let Some(&j) = order[..k].iter().rev().find(|&&j| crate::hatch::region_contains(&[loops[j].clone()], p)) {
+            parent[i] = Some(j);
+            depth[i] = depth[j] + 1;
+        }
+    }
+    let mut parts: Vec<Vec<Vec<V2>>> = vec![];
+    for &i in &order {
+        if depth[i] % 2 == 0 {
+            let mut part = vec![loops[i].clone()];
+            part.extend(order.iter().filter(|&&h| parent[h] == Some(i)).map(|&h| loops[h].clone()));
+            parts.push(part);
+        }
+    }
+    parts
+}
+
+fn loop_curves(part: &[Vec<V2>]) -> Vec<Curve> {
+    part.iter().flat_map(|l| (0..l.len()).map(move |i| Curve::Seg(l[i], l[(i + 1) % l.len()]))).collect()
+}
+
+/// The cut of each part of an assembly along a path: (start, end, part).
+pub fn assembly_spans(parts: &[Vec<Vec<V2>>], path: &[V2]) -> Vec<(f64, f64, usize)> {
+    let mut out: Vec<(f64, f64, usize)> = parts
+        .iter()
+        .enumerate()
+        .flat_map(|(k, p)| path_intervals(&loop_curves(p), path).into_iter().map(move |(a, b)| (a, b, k)))
+        .collect();
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out
+}
+
+/// Hatch of the `k`-th part cut in a section: adjacent parts are hatched
+/// in different directions (45°, 135°), then at a closer spacing.
+pub fn part_hatch(k: usize) -> (f64, f64) {
+    let angle = if k % 2 == 0 { 0.0 } else { std::f64::consts::FRAC_PI_2 };
+    let scale = if (k / 2) % 2 == 0 { 1.0 } else { 0.5 };
+    (angle, scale)
+}
+
+/// A section of an assembly: each part's cut faces hatched in its own way.
+#[allow(clippy::too_many_arguments)]
+pub fn assembly_section(parts: &[Vec<Vec<V2>>], path: &[V2], depth: f64, origin: V2, letter: &str, text_height: f64) -> Vec<Piece> {
+    let spans = assembly_spans(parts, path);
+    // Parts in the order the cut meets them get the alternating hatches.
+    let mut met: Vec<usize> = vec![];
+    for s in &spans {
+        if !met.contains(&s.2) {
+            met.push(s.2);
+        }
+    }
+    let mut out = vec![];
+    for (s0, s1, k) in &spans {
+        let pts = vec![origin + V2::new(*s0, 0.0), origin + V2::new(*s1, 0.0), origin + V2::new(*s1, depth), origin + V2::new(*s0, depth)];
+        let (angle, scale) = part_hatch(met.iter().position(|m| m == k).unwrap_or(0));
+        out.push(Piece::on(layers::HATCH, Shape::Hatch(Hatch { loops: vec![pts.clone()], pattern: "ANSI31".into(), scale, angle })));
+        out.push(Piece::on(layers::OUTLINE, Shape::Polyline { pts, closed: true }));
+    }
+    if let (Some(first), Some(last)) = (spans.first(), spans.iter().map(|s| s.1).reduce(f64::max)) {
+        let mid = origin + V2::new((first.0 + last) / 2.0, -2.5 * text_height);
+        out.push(Piece::on(
+            layers::TEXT,
+            Shape::Text(Text::new(mid, text_height * 1.4, format!("SECTION {letter}–{letter}")).aligned(HAlign::Center, VAlign::Top)),
+        ));
+    }
+    out
+}
+
 /// The cutting-line symbol for a straight or stepped path: thick strokes at
 /// the ends and at each bend, arrows and letters at the ends.
 pub fn cutting_path(path: &[V2], view: V2, letter: &str, text_height: f64) -> Vec<Piece> {
@@ -436,6 +537,29 @@ mod tests {
         let marks = cutting_path(&path, V2::new(0.0, 1.0), "A", 2.5);
         assert_eq!(marks.iter().filter(|p| p.lineweight == Some(0.7)).count(), 2 + 4);
         assert_eq!(marks.iter().filter(|p| matches!(p.shape, Shape::Leader(_))).count(), 2);
+    }
+
+    #[test]
+    fn assembly_of_a_pin_in_a_bush() {
+        // A plate with a Ø20 bore holding a Ø20 pin (touching), and a Ø10
+        // hole in the pin.
+        let square = vec![V2::new(0.0, 0.0), V2::new(60.0, 0.0), V2::new(60.0, 40.0), V2::new(0.0, 40.0)];
+        let circle = |c: V2, r: f64| -> Vec<V2> { (0..64).map(|i| c + V2::polar(r, TAU * i as f64 / 64.0)).collect() };
+        let loops = vec![square, circle(V2::new(30.0, 20.0), 10.0), circle(V2::new(30.0, 20.0), 10.0), circle(V2::new(30.0, 20.0), 5.0)];
+        let parts = parts_of(&loops);
+        assert_eq!(parts.len(), 2, "plate and pin");
+        assert_eq!((parts[0].len(), parts[1].len()), (2, 2), "each with its hole");
+        let spans = assembly_spans(&parts, &[V2::new(-10.0, 20.0), V2::new(70.0, 20.0)]);
+        // Plate 10–30, pin 30–35, pin 45–50, plate 50–70: the touching
+        // faces of the plate and the pin stay apart.
+        let kinds: Vec<usize> = spans.iter().map(|s| s.2).collect();
+        assert_eq!(spans.len(), 4, "{spans:?}");
+        assert_eq!(kinds[0], kinds[3]);
+        assert_eq!(kinds[1], kinds[2]);
+        assert_ne!(kinds[0], kinds[1]);
+        let v = assembly_section(&parts, &[V2::new(-10.0, 20.0), V2::new(70.0, 20.0)], 8.0, V2::ZERO, "A", 2.5);
+        let angles: Vec<f64> = v.iter().filter_map(|p| if let Shape::Hatch(h) = &p.shape { Some(h.angle) } else { None }).collect();
+        assert_eq!(angles, vec![0.0, std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2, 0.0]);
     }
 
     #[test]

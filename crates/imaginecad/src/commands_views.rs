@@ -77,6 +77,8 @@ struct SectionCmd {
     toward: bool,
     /// A turned part: the round cross-section instead of a cut of a plate.
     revolved: bool,
+    /// The separate parts selected (an assembly when more than one).
+    parts: Vec<Vec<Vec<V2>>>,
 }
 
 impl SectionCmd {
@@ -104,7 +106,7 @@ impl SectionCmd {
         let hatch_scale = |sec: &mut Vec<Piece>| {
             for p in sec.iter_mut() {
                 if let Shape::Hatch(hh) = &mut p.shape {
-                    hh.scale = doc.ascale();
+                    hh.scale *= doc.ascale();
                 }
             }
         };
@@ -113,10 +115,18 @@ impl SectionCmd {
             hatch_scale(&mut sec);
             return (!sec.is_empty()).then(|| (sec, views::cutting_path(&path, view, &letter, h)));
         }
-        let mut sec = views::section_view_path(&self.curves, &path, depth, V2::ZERO, &letter, h);
-        let spans = views::path_intervals(&self.curves, &path);
-        let (first, last) = (spans.first()?, spans.last()?);
-        let centre = V2::new((first.0 + last.1) / 2.0, depth / 2.0);
+        let (mut sec, lo, hi) = if self.parts.len() > 1 {
+            // An assembly: each part cut on its own and hatched its own way.
+            let spans = views::assembly_spans(&self.parts, &path);
+            let lo = spans.iter().map(|s| s.0).reduce(f64::min)?;
+            let hi = spans.iter().map(|s| s.1).reduce(f64::max)?;
+            (views::assembly_section(&self.parts, &path, depth, V2::ZERO, &letter, h), lo, hi)
+        } else {
+            let spans = views::path_intervals(&self.curves, &path);
+            let (first, last) = (spans.first()?, spans.last()?);
+            (views::section_view_path(&self.curves, &path, depth, V2::ZERO, &letter, h), first.0, last.1)
+        };
+        let centre = V2::new((lo + hi) / 2.0, depth / 2.0);
         hatch_scale(&mut sec);
         place(&mut sec, &Xform::translate(-centre));
         place(&mut sec, &Xform::rotate(V2::ZERO, dir.angle()));
@@ -159,6 +169,11 @@ impl Command for SectionCmd {
         if self.curves.is_empty() {
             cx.msg("No part geometry to cut.");
             return Flow::Done;
+        }
+        let (loops, _, _) = crate::commands_region::loops_of(&cx.tab.doc, &ids);
+        self.parts = views::parts_of(&loops);
+        if self.parts.len() > 1 {
+            cx.msg(format!("{} parts: each is hatched in its own direction.", self.parts.len()));
         }
         self.ids = Some(ids);
         Flow::Continue
