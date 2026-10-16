@@ -37,11 +37,21 @@ fn reads_a_dwg_2018_drawing() {
     let (doc, rep) = read("example_2018.dwg");
     assert_eq!(rep.version, "DWG 2018");
     assert_eq!(rep.damaged, 0);
-    // Everything 2D is read; only 3D objects and a multiline are left out.
-    assert!(
-        rep.skipped.keys().all(|k| ["3D face", "3D solid", "mesh vertex", "polyface/mesh", "multiline"].contains(&k.as_str())),
-        "{rep:?}"
-    );
+    // The drafting entities are read; 3D objects, lights, multilines and a
+    // few class-defined annotation objects are listed as left out.
+    let known = [
+        "3D face",
+        "3D solid",
+        "mesh vertex",
+        "polyface/mesh",
+        "multiline",
+        "light",
+        "acad_table",
+        "arc_dimension",
+        "multileader",
+        "wipeout",
+    ];
+    assert!(rep.skipped.keys().all(|k| known.contains(&k.as_str())), "{rep:?}");
     for (kind, n) in [
         ("Line", 8),
         ("Arc", 2),
