@@ -170,6 +170,8 @@ block (by name, or the selected reference) in the block editor (Insert tab →
 |---|---|
 | `BSTRETCH` | base point → end point (direction and default length) → stretch frame → objects. Points inside the frame move with the value; optional minimum and maximum |
 | `BFLIP` | flip axis (two points) → objects mirrored when the reference is flipped |
+| `BROTATE` | base point → default angle → objects turned by the reference's angle |
+| `BARRAY` | a point on the first item → the same point on the next (the spacing) → default count → objects repeated as many times as the reference says |
 | `BVSTATE` | a named visibility state → the objects shown in it (objects in no state are always shown) |
 | `BLOOKUP` | a table of named rows, each setting several parameters at once (e.g. sizes M8, M10, M12) |
 
@@ -405,6 +407,11 @@ cutting line gets thick ends, arrows and letters (`A`–`A`, then `B`, …; I, O
 and Q are skipped), and the view is titled *SECTION A–A*. The arrows point
 away from the view; type **A** before placing it to point them toward it.
 
+For a turned part (a shaft, bush or tube drawn along its axis), answer the
+thickness prompt with **R** (*Revolved*) and cut across the part: the section
+is its round cross-section, solid or a ring round the bore, hatched, with
+centre lines.
+
 `DETAILVIEW` enlarges an area: pick the centre and radius of the area to
 circle, the scale (`2`, `5:1`…), and where to put the view. The geometry
 inside the circle is clipped, enlarged and framed, titled *DETAIL B (2 : 1)*,
@@ -443,6 +450,21 @@ coincident points) and driving dimensions show as `d1=50`; neither is plotted.
 `CONSTRAINTBAR` (`CBAR`) hides or shows the glyphs; `DELCONSTRAINT` removes the
 constraints of the selected objects (or all). Constraints are saved in `.icad`,
 DXF and DWG drawings (other programs see the geometry).
+
+## Languages
+
+The menus, ribbon, Properties palette and command line can be shown in
+English, German, French or Spanish: *Tools → Language…*, or `LANGUAGE de`
+(`en`, `de`, `fr`, `es`, `system`). By default ImagineCAD follows the system
+language. Command names stay in English in every language, so aliases,
+scripts and plugins work everywhere.
+
+## Scripts and plugins
+
+`SCRIPT` runs a command script (`.scr`): commands and their input as you would
+type them. `imaginecad script` runs one without a window. Plugins add new
+commands, written in any language, from a folder with a `plugin.json`
+(*Tools → Plugins…*). See [Scripts and plugins](PLUGINS.md).
 
 ## Files
 

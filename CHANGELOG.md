@@ -6,6 +6,15 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-16
+
+### Added
+- **Command scripts:** `SCRIPT` runs `.scr` files of commands and their input in the editor; `imaginecad script SCRIPT.scr [DRAWING] -o OUT` runs them without a window. Points typed where objects are asked for pick the object there; `L` selects the last object.
+- **Plugins:** folders with a `plugin.json` add commands that run a command script, or a program in any language which reads a JSON request (inputs, selection, the drawing) and answers with AI Chat's edit operations, applied as one undo step; failures and time-outs leave the drawing unchanged. *Tools → Plugins…*, `PLUGINS RELOAD`, an example plugin and docs/PLUGINS.md.
+- **Interface languages:** English, German, French and Spanish for the menus, ribbon, Properties palette, context menu and command line (`LANGUAGE`, *Tools → Language…*, or the system language). Command names stay in English.
+- **Revolved sections:** SECTIONVIEW's *Revolved* option draws the round cross-section of a turned part.
+- **Dynamic blocks:** rotation (`BROTATE`) and array (`BARRAY`) parameters.
+
 ## [0.5.0] - 2026-10-16
 
 ### Added

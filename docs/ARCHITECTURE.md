@@ -227,7 +227,10 @@ A detailed walk-through is in [AI_SKETCH_TO_CAD.md](AI_SKETCH_TO_CAD.md).
 | `ribbon.rs`, `icons.rs` | Ribbon tabs/panels (collapsing to dropdowns to fit the window) and vector-drawn icons |
 | `constraints_ui.rs` | Constraint commands, AUTOCONSTRAIN, driving dimensions, the Parameters manager, canvas glyphs, solving after edits |
 | `commands_markup.rs` | REVCLOUD, BOM, BALLOON, DIMARRANGE |
-| `commands_views.rs` | SECTIONVIEW, DETAILVIEW |
+| `commands_views.rs` | SECTIONVIEW (including revolved sections), DETAILVIEW |
+| `script.rs` | Command scripts: the line rules shared by the editor and the headless `Runner` (`imaginecad script`) |
+| `plugins.rs` | Plugin discovery (`plugin.json`), the plugin command, and the JSON request/answer protocol |
+| `i18n.rs` | Interface languages (`assets/i18n/*.json`) and `tr()` |
 | `blockedit_ui.rs` | Block editor (BEDIT/BSAVE/BCLOSE), dynamic block parameters, lookup tables |
 | `sheetset_ui.rs` | Sheet Set Manager, set publishing |
 | `menus.rs` | The menu bar: every command, grouped, with its alias (a test keeps it complete) |

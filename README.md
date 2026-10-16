@@ -43,6 +43,7 @@
 - **Industry-standard drafting workflow.** Ribbon that fits any window, a menu bar with every command, command line with aliases and autocomplete, object snaps, polar tracking, ortho, grips, layers, a properties palette, blocks, hatching, dimensions and leaders, model and paper layouts.
 - **Open, edit and save DWG and DXF.** DWG support ships inside the installer (GNU LibreDWG), and the free ODA File Converter is used automatically when installed. DXF 2000 is written natively with full fidelity, or R12 for maximum compatibility.
 - **Image to CAD.** Upload a photo of a hand-drawn mechanical sketch. An AI model reads the handwritten dimensions and describes the part (shafts with threads and surface finish, rings, flanges, pulleys, gears, springs, plates, any profile, or several parts with a parts list); the description is validated against the written values and its own geometry before it is drawn. Otherwise computer vision traces the sketch and a solver makes every dimension exact, including slanted lengths, angles and fillet radii, across aligned views. You get an editable drawing with a title block, with the sketch overlaid for review.
+- **Scripts, plugins and languages.** Automate with command scripts, add commands with plugins in any language, and use the interface in English, German, French or Spanish.
 - **AI Chat.** Describe a change ("make the long segment 1400 mm", "set the material to C45") and the AI edits the drawing; each answer is one undo step, and manual editing stays available.
 - **Any AI provider.** Paste any API key (OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, Together, Hugging Face, NVIDIA, Fireworks…). ImagineCAD recognises the provider and configures the best vision model automatically. Prefer free and private? Use a local Ollama model, or no AI at all.
 - **Title block and true-scale plotting.** ISO-style title block with your company name in the bottom-right corner; PDF (or archival PDF/A) and SVG output at true scale with lineweights and an optional plot stamp; section and detail views generated from the geometry.
@@ -64,11 +65,12 @@
 | Annotate | `TEXT` `MTEXT` `TEXTEDIT` `LEADER` `MLEADER` `DIMLINEAR` `DIMALIGNED` `DIMANGULAR` `DIMRADIUS` `DIMDIAMETER` `DIMORDINATE` `DIMARC` `QDIM` `DIMBASELINE` `DIMCONTINUE` `DIMARRANGE` `CENTERMARK` `DIMSTYLE` `TOLERANCE` `DATUM` `SURFFINISH` `WELD` `TABLE` `STYLE` `SPELL` |
 | Markup & views | `REVCLOUD`, `BOM` (bill of materials), `BALLOON`, `SECTIONVIEW`, `DETAILVIEW` |
 | Parametric | `GCHORIZONTAL` `GCVERTICAL` `GCPARALLEL` `GCPERPENDICULAR` `GCCOLLINEAR` `GCEQUAL` `GCCOINCIDENT` `GCCONCENTRIC` `GCTANGENT` `GCFIX` `AUTOCONSTRAIN`, driving dimensions `DCHORIZONTAL` `DCVERTICAL` `DCALIGNED` `DCRADIUS` `DCDIAMETER` `DCANGULAR`, `PARAMETERS` |
-| Blocks & references | `BLOCK` `INSERT` Blocks palette, dynamic blocks (`BEDIT` `BSTRETCH` `BFLIP` `BVSTATE` `BLOOKUP`), `IMAGEATTACH` raster underlays, `PURGE` |
+| Blocks & references | `BLOCK` `INSERT` Blocks palette, dynamic blocks (`BEDIT` `BSTRETCH` `BFLIP` `BROTATE` `BARRAY` `BVSTATE` `BLOOKUP`), `IMAGEATTACH` raster underlays, `PURGE` |
 | Layers | Layer Properties Manager, `LAYISO` `LAYUNISO` `LAYOFF` `LAYON` `LAYLCK` `LAYULK` `LAYMCUR` |
 | Inquiry & selection | `DIST` `AREA` `ID` `LIST` `QSELECT` `SELECTALL` |
 | Precision | typed coordinates (`x,y`, `@dx,dy`, `@d<a`), direct distance, object snaps (end, mid, center, quadrant, intersection, perpendicular, insertion, node, nearest), polar tracking, ortho, grid snap, dynamic input |
 | Sheets & output | paper sizes A4–A0/ANSI, ISO scales, title block, layouts and viewports (`LAYOUTNEW` `MVIEW`), plot styles, `PLOT` to PDF or PDF/A, `PLOTSTAMP`, `PUBLISH`, sheet sets (`SHEETSET`), export DWG/DXF/SVG, `UNITS` |
+| Automation & languages | `SCRIPT`, `imaginecad script`, plugins (`PLUGINS`), `LANGUAGE` (English, Deutsch, Français, Español) |
 | AI | `IMAGETOCAD`, `AICHAT` (edit by conversation), `AISETUP` (any API key), `AISETTINGS`, headless `imaginecad convert` and `imaginecad ask` |
 
 See the [User Guide](docs/USER_GUIDE.md) for every command and option.
@@ -129,6 +131,7 @@ Rust 1.81+. See [docs/BUILDING.md](docs/BUILDING.md) for platform prerequisites,
 | [User Guide](docs/USER_GUIDE.md) | Interface, every command, input methods, layers, blocks, hatching, sheets, plotting, shortcuts |
 | [Image to CAD](docs/AI_SKETCH_TO_CAD.md) | How sketch conversion works, API keys and providers, local models, tips |
 | [File Formats](docs/FILE_FORMATS.md) | DWG, DXF 2000/R12, `.icad`, PDF, SVG |
+| [Scripts and Plugins](docs/PLUGINS.md) | Command scripts, `imaginecad script`, writing plugins in any language |
 | [Architecture](docs/ARCHITECTURE.md) | Crates, data model, rendering, command engine, vision pipeline |
 | [Building](docs/BUILDING.md) | Toolchain, tests, LibreDWG, installers |
 | [Releasing](docs/RELEASING.md) | Publishing installers with GitHub Actions, code signing |

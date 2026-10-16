@@ -1532,7 +1532,7 @@ checksum = "048af31de955890c62a8506fec511335a5089e91e1c516537add16f96c507d84"
 
 [[package]]
 name = "icad-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "i_overlay",
  "serde",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "icad-io"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "base64",
  "icad-core",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "icad-vision"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "base64",
  "icad-core",
@@ -1697,7 +1697,7 @@ dependencies = [
 
 [[package]]
 name = "imaginecad"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "dirs",
  "eframe",

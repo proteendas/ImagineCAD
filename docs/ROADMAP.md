@@ -4,7 +4,21 @@ ImagineCAD's goal is complete day-to-day 2D mechanical drafting at the level
 of mature commercial CAD suites, plus AI sketch conversion. This page is an
 honest map of what exists and what is next.
 
-## 0.5 (current)
+## 0.6 (current)
+
+Everything in 0.5, plus:
+
+**Automation:** command scripts (`SCRIPT`, `imaginecad script`) and plugins in
+any programming language that add commands and edit the drawing through the
+same operations as AI Chat.
+
+**Languages:** the interface in English, German, French and Spanish.
+
+**Views:** revolved sections of turned parts.
+
+**Blocks:** rotation and array parameters for dynamic blocks.
+
+## 0.5
 
 Everything in 0.4, plus:
 
@@ -81,16 +95,16 @@ Core drafting, modify and dimension commands, layers, blocks, hatching, DWG via
 bundled LibreDWG, DXF 2000/R12, PDF/SVG, Image to CAD with any provider's key,
 installers for macOS, Windows and Linux.
 
-## Next (0.6)
+## Next (0.7)
 
-- [ ] Scripting: run command scripts (`SCRIPT`), and a plugin API for new commands
-- [ ] Localisation of the interface (German, French, Spanish, Hindi, Chinese to start)
-- [ ] Section views of turned parts (revolved sections) and broken-out sections
-- [ ] Dynamic blocks: rotate, array and polar stretch parameters
+- [ ] Native DWG reader in Rust (DWG R2000–R2018 opened without the bundled converter)
+- [ ] More interface languages (Italian, Portuguese; Hindi and Chinese with their fonts) and translated dialogs
+- [ ] Broken-out sections and aligned section views from a stepped cutting line
+- [ ] Plugin commands with live previews
 
 ## Later
 
-- [ ] Native DWG reader/writer in Rust (removing the external converter)
+- [ ] Native DWG writer in Rust (removing the external converter entirely)
 - [ ] 3D modelling (solids, extrude/revolve, 2D views from 3D)
 
 ## Principles
