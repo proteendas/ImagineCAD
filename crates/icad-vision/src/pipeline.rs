@@ -674,14 +674,14 @@ fn views(geometry: &[Geo], tol: f64) -> Vec<(Vec<usize>, BBox)> {
         }
     }
     let mut out: Vec<(usize, Vec<usize>, BBox)> = vec![];
-    for i in 0..geometry.len() {
+    for (i, g) in geometry.iter().enumerate() {
         let r = root(&mut parent, i);
         match out.iter_mut().find(|v| v.0 == r) {
             Some(v) => {
                 v.1.push(i);
-                v.2 = v.2.union(&geometry[i].bbox());
+                v.2 = v.2.union(&g.bbox());
             }
-            None => out.push((r, vec![i], geometry[i].bbox())),
+            None => out.push((r, vec![i], g.bbox())),
         }
     }
     out.into_iter().map(|v| (v.1, v.2)).collect()
