@@ -38,6 +38,8 @@ pub enum ViewReq {
     Previous,
     /// Zoom by a factor about the view centre (ZOOM 2X).
     Scale(f64),
+    /// Run a command script next (from a plugin).
+    Script(String),
 }
 
 /// Values remembered between command invocations (like CAD system variables).
@@ -322,6 +324,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("LAYOUTNEW", ""),
     ("PUBLISH", ""),
     ("PLOTSTAMP", ""),
+    ("SCRIPT", "SCR"),
+    ("PLUGINS", ""),
     ("XATTACH", "XA"),
     ("XREF", "XR"),
     ("REVCLOUD", "RC"),

@@ -1,0 +1,24 @@
+{
+  "name": "Bolt circle",
+  "version": "1.0",
+  "description": "Holes equally spaced on a pitch circle, with its centre line and a note.",
+  "commands": [
+    {
+      "name": "BOLTCIRCLE",
+      "description": "holes on a pitch circle",
+      "run": ["python3", "boltcircle.py"],
+      "inputs": [
+        { "name": "center", "prompt": "Centre of the bolt circle", "kind": "point" },
+        { "name": "pcd", "prompt": "Pitch circle diameter", "kind": "number", "default": 100 },
+        { "name": "count", "prompt": "Number of holes", "kind": "number", "default": 6 },
+        { "name": "hole", "prompt": "Hole diameter", "kind": "number", "default": 9 },
+        { "name": "start", "prompt": "Angle of the first hole", "kind": "number", "default": 90 }
+      ]
+    },
+    {
+      "name": "ORIGINMARK",
+      "description": "a cross marking the drawing origin (a command script)",
+      "script": "originmark.scr"
+    }
+  ]
+}

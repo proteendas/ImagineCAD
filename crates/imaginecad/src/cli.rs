@@ -27,6 +27,8 @@ USAGE:
 PLOT OPTIONS:
   --pdfa                  Write PDF/A-2b (archival: text as outlines, sRGB profile, metadata)
   --stamp [TEXT]          Plot stamp in the margin: drawing, layout, date, user (and TEXT)
+  imaginecad script SCRIPT.scr [DRAWING] -o OUT
+                                         Run a command script (on DRAWING, or a new drawing) and save the result
   imaginecad --version | --help
 
 CONVERT OPTIONS:
@@ -65,6 +67,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         "export" => Some(export(&args[1..])),
         "ask" => Some(ask(&args[1..])),
         "publish" => Some(publish(&args[1..])),
+        "script" => Some(script(&args[1..])),
         _ => None,
     }
 }
@@ -186,6 +189,64 @@ fn ai_options(args: &[String], ai: &mut icad_vision::llm::AiSettings) -> Result<
         }
     }
     Ok(())
+}
+
+fn script(args: &[String]) -> i32 {
+    let positional: Vec<&String> = {
+        let mut v = vec![];
+        let mut skip = false;
+        for a in args {
+            if skip {
+                skip = false;
+            } else if a == "-o" || a == "--output" {
+                skip = true;
+            } else if !a.starts_with('-') {
+                v.push(a);
+            }
+        }
+        v
+    };
+    let (Some(scr), Some(out)) = (positional.first(), out_path(args)) else {
+        eprintln!("usage: imaginecad script SCRIPT.scr [DRAWING] -o OUT");
+        return 2;
+    };
+    let src = match std::fs::read_to_string(scr) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("cannot read {scr}: {e}");
+            return 1;
+        }
+    };
+    let doc = match positional.get(1) {
+        Some(d) => match icad_io::open(std::path::Path::new(d.as_str())) {
+            Ok(doc) => doc,
+            Err(e) => {
+                eprintln!("cannot open {d}: {e}");
+                return 1;
+            }
+        },
+        None => icad_core::Document::new(),
+    };
+    let fresh = positional.get(1).is_none();
+    let mut r = crate::script::Runner::new(doc, "script");
+    crate::script::run_script(&mut r, &src);
+    r.finish();
+    if fresh {
+        // A new drawing gets a sheet and scale that fit what the script drew.
+        let ext = r.tab.doc.extents();
+        if !ext.is_empty() {
+            r.tab.doc.sheet.fit_to(&icad_core::sheet::fit_margin(&ext));
+        }
+    }
+    for l in &r.log {
+        eprintln!("{l}");
+    }
+    let code = write(r.doc(), &out);
+    if code == 0 && !r.unknown.is_empty() {
+        1
+    } else {
+        code
+    }
 }
 
 fn publish(args: &[String]) -> i32 {

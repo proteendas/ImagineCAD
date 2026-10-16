@@ -24,7 +24,9 @@ mod layouts_ui;
 #[cfg(target_os = "macos")]
 mod macos_open;
 mod menus;
+mod plugins;
 mod ribbon;
+mod script;
 mod secrets;
 mod settings;
 mod sheetset_ui;

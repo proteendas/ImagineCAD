@@ -251,6 +251,7 @@ pub struct Dialogs {
     pub parameters: bool,
     pub lookup: bool,
     pub plotstamp: bool,
+    pub plugins: bool,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -351,6 +352,7 @@ impl App {
         self.parameters_dialog(ctx);
         self.lookup_dialog(ctx);
         self.plot_stamp_dialog(ctx);
+        self.plugins_dialog(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
@@ -1220,6 +1222,67 @@ impl App {
             t.dirty = true;
         }
         self.dlg.dimstyle = open;
+    }
+
+    fn plugins_dialog(&mut self, ctx: &egui::Context) {
+        if !self.dlg.plugins {
+            return;
+        }
+        let mut open = true;
+        let (plugins, problems) = crate::plugins::installed();
+        let mut run = None;
+        egui::Window::new("Plugins").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+            if plugins.is_empty() {
+                ui.label("No plugins installed.");
+            }
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for p in &plugins {
+                    ui.label(RichText::new(format!("{} {}", p.name, p.version)).strong());
+                    if !p.description.is_empty() {
+                        ui.label(RichText::new(&p.description).size(11.5).color(theme::TEXT_DIM));
+                    }
+                    for c in &p.commands {
+                        ui.horizontal(|ui| {
+                            if ui.small_button(&c.name).on_hover_text("Run").clicked() {
+                                run = Some(c.name.clone());
+                            }
+                            ui.label(RichText::new(&c.description).size(11.5));
+                        });
+                    }
+                    ui.separator();
+                }
+            });
+            for e in &problems {
+                ui.colored_label(theme::WARN, e);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Reload").clicked() {
+                    run = Some("PLUGINS RELOAD".into());
+                }
+                if let Some(dir) = crate::plugins::plugin_dir() {
+                    if ui.button("Open plugins folder").clicked() {
+                        let _ = std::fs::create_dir_all(&dir);
+                        let opener = if cfg!(target_os = "macos") {
+                            "open"
+                        } else if cfg!(windows) {
+                            "explorer"
+                        } else {
+                            "xdg-open"
+                        };
+                        let _ = std::process::Command::new(opener).arg(&dir).spawn();
+                    }
+                }
+            });
+            ui.label(
+                RichText::new("A plugin is a folder with a plugin.json; its commands run like built-in ones. Only install plugins you trust: they run as programs on this computer.")
+                    .size(11.0)
+                    .color(theme::TEXT_DIM),
+            );
+        });
+        self.dlg.plugins = open;
+        if let Some(c) = run {
+            self.run(&c);
+        }
     }
 
     fn plot_stamp_dialog(&mut self, ctx: &egui::Context) {

@@ -217,7 +217,7 @@ pub fn create(name: &str) -> Option<Box<dyn Command>> {
         "BSTRETCH" | "BPSTRETCH" => Some(Box::new(BStretchCmd::default())),
         "BFLIP" | "BPFLIP" => Some(Box::new(BFlipCmd::default())),
         "BVSTATE" | "BVISIBILITY" => Some(Box::new(BVStateCmd::default())),
-        _ => None,
+        other => crate::plugins::create(other),
     }
 }
 

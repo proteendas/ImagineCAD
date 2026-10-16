@@ -197,6 +197,11 @@ impl App {
         } else {
             self.box_start = None;
         }
+        if let Some(ViewReq::Script(src)) = &self.view_req {
+            let src = src.clone();
+            self.view_req = None;
+            crate::script::run_script(self, &src);
+        }
     }
 
     pub fn cancel(&mut self) {
@@ -275,6 +280,31 @@ impl App {
             },
             "PLOT" | "PRINT" => self.export("pdf"),
             "PLOTSTAMP" | "STAMP" => self.dlg.plotstamp = true,
+            "PLUGINS" => {
+                if arg == "RELOAD" {
+                    let (p, problems) = crate::plugins::reload();
+                    self.log.push(format!("{} plugin(s) loaded.", p.len()));
+                    for e in problems {
+                        self.log.push(e);
+                    }
+                }
+                self.dlg.plugins = true;
+            }
+            "SCRIPT" | "SCR" => {
+                let path = match args.first() {
+                    Some(_) => Some(std::path::PathBuf::from(args.join(" "))),
+                    None => rfd::FileDialog::new().add_filter("Command script", &["scr", "txt"]).pick_file(),
+                };
+                if let Some(p) = path {
+                    match std::fs::read_to_string(&p) {
+                        Ok(src) => {
+                            self.log.push(format!("Running script {}", p.display()));
+                            crate::script::run_script(self, &src);
+                        }
+                        Err(e) => self.error(format!("Cannot read {}: {e}", p.display())),
+                    }
+                }
+            }
             "PAGESETUP" | "TITLEBLOCK" | "TB" => self.dlg.page = true,
             "DIMSTYLE" | "D" | "DDIM" => self.dlg.dimstyle = true,
             "IMAGETOCAD" | "AI" | "SKETCH" => self.open_image_to_cad(None),
@@ -503,6 +533,23 @@ impl App {
         if wants == Want::Select && text.eq_ignore_ascii_case("ALL") {
             self.app_command("SELECTALL", &[]);
             return;
+        }
+        // A typed point picks the object there (scripts, keyboard users).
+        if matches!(wants, Want::Select | Want::Entity) {
+            if let Some(p) = commands::parse_point(text, self.last_point) {
+                let doc = &self.tabs[self.active].doc;
+                match doc.pick(p, crate::script::pick_tolerance(doc)) {
+                    Some(id) if wants == Want::Entity => self.with_cmd(|c, cx| c.entity(cx, id, p)),
+                    Some(id) => {
+                        let sel = &mut self.tab().selection;
+                        if !sel.contains(&id) {
+                            sel.push(id);
+                        }
+                    }
+                    None => self.log.push(format!("Nothing found at {text}.")),
+                }
+                return;
+            }
         }
         let t = text.to_string();
         self.with_cmd(|c, cx| c.value(cx, &t));
@@ -820,6 +867,7 @@ impl App {
                 }
                 ViewReq::Window(b) => t.view.fit(&b),
                 ViewReq::Scale(f) => t.view.zoom *= f,
+                ViewReq::Script(_) => {}
                 ViewReq::Previous => {
                     // The current view was just pushed; drop it and restore the one before.
                     t.view_history.pop();
@@ -2280,5 +2328,17 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.settings.save();
+    }
+}
+
+impl crate::script::Engine for App {
+    fn wants(&self) -> Option<Want> {
+        self.cmd.as_ref().map(|c| c.wants())
+    }
+    fn submit(&mut self, text: &str) {
+        App::submit(self, text)
+    }
+    fn run(&mut self, line: &str) {
+        App::run(self, line)
     }
 }
