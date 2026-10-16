@@ -4,7 +4,17 @@ ImagineCAD's goal is complete day-to-day 2D mechanical drafting at the level
 of mature commercial CAD suites, plus AI sketch conversion. This page is an
 honest map of what exists and what is next.
 
-## 0.8 (current)
+## 0.9 (current)
+
+Everything in 0.8, plus:
+
+**Languages:** every dialog translated, in all eight interface languages.
+
+**DWG:** paper layouts with their viewports and paper-space content.
+
+**Views:** assembly sections, each part hatched in its own direction.
+
+## 0.8
 
 Everything in 0.7, plus:
 
@@ -120,16 +130,14 @@ Core drafting, modify and dimension commands, layers, blocks, hatching, DWG via
 bundled LibreDWG, DXF 2000/R12, PDF/SVG, Image to CAD with any provider's key,
 installers for macOS, Windows and Linux.
 
-## Next (0.9)
+## Next (0.10)
 
-- [ ] Translated dialogs (Layer Properties, Page Setup, Dimension Style, Export…)
-- [ ] DWG reader: paper-space layouts with their viewports; multileaders and tables
-- [ ] Section views of whole assemblies with per-part hatch angles
+- [ ] 3D modelling: extrude and revolve 2D profiles into solids, an orbit view, and projected 2D views (front, top, side, with hidden lines) generated from the model
+- [ ] DWG reader: multileaders and tables
 
 ## Later
 
 - [ ] Native DWG writer in Rust (removing the external converter entirely)
-- [ ] 3D modelling (solids, extrude/revolve, 2D views from 3D)
 
 ## Principles
 

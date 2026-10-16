@@ -6,6 +6,13 @@ All notable changes to ImagineCAD are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-17
+
+### Added
+- **Translated dialogs:** every dialog, palette, hint, table header and colour and plot-style name in German, French, Spanish, Italian, Portuguese, Simplified Chinese and Japanese.
+- **Paper-space content on layouts**, drawn and plotted with the viewports; the DWG reader imports layouts with their paper size, viewports and paper-space content.
+- **Assembly sections:** SECTIONVIEW cuts each selected part on its own and hatches it in its own direction.
+
 ## [0.8.0] - 2026-10-17
 
 ### Added

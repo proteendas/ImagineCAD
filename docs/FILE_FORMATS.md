@@ -25,7 +25,8 @@ extended data with exact symbols, tables and regions, and the records of
 constraints and dynamic block parameters are read too. The header's dimension variables and
 linetype scale give the drawing its annotation scale. 3D objects (faces,
 meshes, solids), multilines, multileaders, wipeouts and tables from other
-programs are counted and left out; paper-space content is not imported.
+programs are counted and left out. Paper layouts are read with their paper
+size, margins, viewports (scale and view) and paper-space content.
 
 The converter (below) is used for reading only when the built-in reader could
 not decode some objects of a file; when no converter is installed the

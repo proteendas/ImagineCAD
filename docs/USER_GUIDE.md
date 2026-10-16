@@ -354,6 +354,9 @@ sheet, drawn over the model) and any number of **paper layouts**:
   embedded sRGB colour profile and XMP metadata.
 
 Layouts are saved in `.icad` drawings; DXF/DWG exports contain the main sheet.
+Layouts of DWG drawings from other programs are imported with their paper
+size, viewports and the paper-space content drawn on them (title blocks,
+notes), which is shown and plotted with the layout.
 
 ## Sheet sets
 
@@ -413,6 +416,10 @@ give the thickness. Jogs square to the first leg add no width (an *offset*
 section); legs at another angle are unfolded at their true length (an
 *aligned* section). Thick strokes mark the bends.
 
+When the outlines selected are several parts — a pin in a bush, a shaft in
+its housing — each part is cut on its own, so touching faces stay apart, and
+hatched in its own way: alternating 45° and 135°, then at a closer spacing.
+
 `BROKENOUT` draws a broken-out (partial) section: select the part's outline,
 then pick the points of a freehand boundary (Enter or **C** closes it). The
 material inside the boundary is hatched, and a thin break line is drawn
@@ -466,7 +473,7 @@ DXF and DWG drawings (other programs see the geometry).
 
 The menus, ribbon, Properties palette and command line can be shown in
 English, German, French, Spanish, Italian, Portuguese, Simplified Chinese or
-Japanese: *Tools → Language…*, or `LANGUAGE de` (`en`, `de`, `fr`, `es`,
+Japanese (dialogs included): *Tools → Language…*, or `LANGUAGE de` (`en`, `de`, `fr`, `es`,
 `it`, `pt`, `zh`, `ja`, `system`). For Chinese and Japanese an installed font
 for the script is used (Hiragino, Heiti, YaHei, Yu Gothic, Meiryo, Noto Sans
 CJK…). By default ImagineCAD follows the system
