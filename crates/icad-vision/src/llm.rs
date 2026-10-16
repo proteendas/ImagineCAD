@@ -9,7 +9,7 @@
 //! * **Ollama** (local, free, open-weight models), e.g. `qwen2.5vl:7b`.
 //! * **OpenAI-compatible** local servers: LM Studio, llama.cpp, vLLM, LocalAI.
 
-use crate::labels::{parse, Label};
+use crate::labels::{parse, Label, LabelKind};
 use base64::Engine as _;
 use icad_core::geom::*;
 use image::GrayImage;
@@ -115,6 +115,8 @@ pub struct LlmReading {
     pub title: Option<String>,
     /// Parametric part description, when the model recognised one.
     pub part: Option<crate::parts::PartSpec>,
+    /// The parts of a sketch showing several (an assembly).
+    pub parts: Vec<crate::parts::AsmPart>,
     /// Set when the configured model could not be used and another was used instead.
     pub switched_model: Option<String>,
     /// Why the model was switched (for the user).
@@ -152,12 +154,14 @@ pub fn openai_models(url: &str, key: &str) -> Result<Vec<String>, String> {
 pub fn prompt(w: u32, h: u32) -> String {
     format!(
         "You are an expert mechanical draftsman reading a photo of a hand-drawn engineering sketch ({w}x{h} pixels).\n\
-1. List EVERY dimension value written on the drawing (e.g. 50, 12.5, Ø20, 2xØ8, R5, M6, 45°, 2.5x45°). Ignore values that \
+1. List EVERY dimension value written on the drawing (e.g. 50, 12.5, Ø20, 2xØ8, R5, M6, M20x1.5, 45°, 2.5x45°), and every \
+surface finish written beside a finish symbol (e.g. Ra 0.8, Rz 6.3). Ignore values that \
 are crossed out or scribbled over. For each give the exact text and its bounding box [x1, y1, x2, y2] normalised to \
 0-1000 on each axis (x relative to the image width, y relative to the height, origin top-left).\n\
 2. Describe the part parametrically in \"part\" when possible, using only the written values:\n\
  - Turned shaft/axle drawn in side view (stepped cylinder along a centre line): {{\"type\": \"shaft\", \"total_length\": T or null, \
-\"segments\": [{{\"length\": L, \"diameter\": D}} ... from left to right], \"keyways\": [{{\"start\": distance from the left end, \
+\"segments\": [{{\"length\": L, \"diameter\": D, \"thread\": \"M20x1.5\" when the step is threaded or null, \
+\"finish\": \"Ra 0.8\" when a finish is written on the step or null}} ... from left to right], \"keyways\": [{{\"start\": distance from the left end, \
 \"length\": L, \"width\": W or 0 if not written}}], \"chamfers\": [{{\"at\": boundary index (0 = left end, k = between segment k-1 and k, \
 n = right end), \"size\": C}}]}}. Each segment is a stretch of constant diameter: if one length dimension covers several \
 diameters (e.g. 50 + rest + 50), split it so every segment has its own length and diameter. The segment lengths must add up to \
@@ -188,9 +192,12 @@ written values (the sketch is not to scale): origin at the lower-left of the mai
 view above, side view to the right, aligned with the main view) with a clear gap. Every written dimension must appear in \
 \"dimensions\" with its points exactly on the geometry, and must measure exactly its value on it.\n\
  - Use null only when the drawing is not a part.\n\
+ - When the sketch shows several separate parts (an assembly or a set of parts, often numbered), set \"part\" to null and \
+give \"parts\": [{{\"name\": \"Pin\", \"quantity\": 2, \"material\": \"C45\" or null, ...the fields of that part's type as \
+above}}] in item order instead.\n\
 3. The part title if one is written.\n\
 Answer with JSON only, no prose:\n\
-{{\"title\": \"TITLE or null\", \"part\": {{...}} or null, \"dimensions\": [{{\"text\": \"Ø20\", \"bbox\": [x1, y1, x2, y2]}}]}}"
+{{\"title\": \"TITLE or null\", \"part\": {{...}} or null, \"parts\": [...] or null, \"dimensions\": [{{\"text\": \"Ø20\", \"bbox\": [x1, y1, x2, y2]}}]}}"
     )
 }
 
@@ -203,6 +210,13 @@ fn part_issues(v: &Value) -> Vec<String> {
     }
     if let Some(p) = crate::parts::PartSpec::from_json(v) {
         out.extend(p.issues_with(&dimension_texts(v)));
+    } else {
+        let parts = crate::parts::assembly_from_json(v);
+        if parts.len() > 1 {
+            if let Err(e) = crate::parts::assembly_acceptable(&parts, &dimension_texts(v)) {
+                out.extend(e);
+            }
+        }
     }
     out
 }
@@ -425,7 +439,9 @@ pub fn labels_from_json(v: &Value, img_w: f64, img_h: f64, sent_w: f64, sent_h: 
             Some(Value::Number(n)) => n.to_string(),
             _ => continue,
         };
-        let Some((kind, value)) = parse(&text) else { continue };
+        let Some((kind, value)) = crate::labels::parse_finish(&text).map(|v| (LabelKind::Finish, v)).or_else(|| parse(&text)) else {
+            continue;
+        };
         let Some(b) = bbox_of(&d) else { continue };
         let x0 = b[0].min(b[2]) * sx;
         let x1 = b[0].max(b[2]) * sx;
@@ -719,7 +735,8 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
             let text = correction_prompt(sw, sh, &v, &issues);
             if let Ok(second) = ask_vision(s, Some(&first.model), &b64, &text) {
                 if let Some((v2, _)) = parse_reply(&second.raw) {
-                    if v2.get("part").is_some_and(|p| !p.is_null()) && part_issues(&v2).len() < issues.len() {
+                    let described = v2.get("part").is_some_and(|p| !p.is_null()) || v2.get("parts").is_some_and(|p| p.is_array());
+                    if described && part_issues(&v2).len() < issues.len() {
                         raw = second.raw;
                         save_reply(&raw);
                         if let Some((m, why)) = second.switched {
@@ -736,7 +753,8 @@ pub fn read_labels(s: &AiSettings, img: &GrayImage) -> Result<LlmReading, String
     })?;
     let (labels, title) = labels_from_json(&v, img.width() as f64, img.height() as f64, sw as f64, sh as f64);
     let part = crate::parts::PartSpec::from_json(&v);
-    Ok(LlmReading { labels, title, part, switched_model, switch_reason, cut_off, raw })
+    let parts = crate::parts::assembly_from_json(&v);
+    Ok(LlmReading { labels, title, part, parts, switched_model, switch_reason, cut_off, raw })
 }
 
 #[cfg(test)]

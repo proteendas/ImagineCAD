@@ -11,6 +11,16 @@ pub enum LabelKind {
     Diameter,
     Radius,
     Angle,
+    /// Surface texture requirement (Ra 1.6, Rz 6.3): a symbol, not a dimension.
+    Finish,
+}
+
+/// A surface texture requirement such as "Ra 1.6" or "Rz6.3", with its value.
+pub fn parse_finish(text: &str) -> Option<f64> {
+    let t = text.trim();
+    let rest = t.strip_prefix("Ra").or_else(|| t.strip_prefix("RA")).or_else(|| t.strip_prefix("Rz")).or_else(|| t.strip_prefix("RZ"))?;
+    let num: String = rest.trim().chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',').collect();
+    num.replace(',', ".").parse::<f64>().ok().filter(|v| *v > 0.0 && *v < 1000.0)
 }
 
 #[derive(Clone, Debug)]
@@ -103,6 +113,14 @@ pub fn parse(text: &str) -> Option<(LabelKind, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn surface_finishes() {
+        assert_eq!(parse_finish("Ra 0.8"), Some(0.8));
+        assert_eq!(parse_finish("Rz6,3"), Some(6.3));
+        assert_eq!(parse_finish("R5"), None);
+        assert!(crate::parts::is_thread("M20x1.5") && !crate::parts::is_thread("Ø20"));
+    }
 
     #[test]
     fn parses_common_forms() {

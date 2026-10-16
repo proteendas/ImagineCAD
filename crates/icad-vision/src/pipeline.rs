@@ -138,6 +138,46 @@ pub fn convert(bytes: &[u8], opts: &ConvertOptions, progress: Progress) -> Resul
                         false
                     }
                 });
+                // Several parts on one sheet: each built from its description,
+                // numbered, with a parts list.
+                let asm = (part.is_none() && r.parts.len() > 1)
+                    .then(|| match crate::parts::assembly_acceptable(&r.parts, &texts) {
+                        Ok(()) => Some(r.parts.clone()),
+                        Err(issues) => {
+                            warnings.push(format!(
+                                "The AI's description of the parts did not check out against the written dimensions ({}); the sketch was traced instead.",
+                                issues.join(" ")
+                            ));
+                            None
+                        }
+                    })
+                    .flatten();
+                if let (true, Some(parts)) = (opts.reconstruct_parts, asm) {
+                    progress(0.9, "Building the parts from the AI description");
+                    let names: Vec<String> = parts.iter().map(|p| format!("{} × {}", p.quantity, p.name)).collect();
+                    let desc = format!("assembly of {} parts: {}", parts.len(), names.join(", "));
+                    log.push(format!("AI recognised {desc}"));
+                    log.push("Drawing generated from the written dimensions (exact); sketch tracing skipped.".into());
+                    for p in &parts {
+                        warnings.extend(p.spec.check().into_iter().map(|w| format!("{}: {w}", p.name)));
+                    }
+                    let shapes = crate::parts::build_assembly(&parts);
+                    let dims = shapes.iter().filter(|(_, s)| matches!(s, Shape::Dim(_))).count();
+                    progress(1.0, "Done");
+                    return Ok(Conversion {
+                        shapes,
+                        title: r.title,
+                        log,
+                        warnings,
+                        mm_per_px: 0.0,
+                        labels_found: r.labels.len(),
+                        dims_applied: dims,
+                        switched_model: r.switched_model,
+                        reconstructed: Some(desc),
+                        part: None,
+                        underlay: None,
+                    });
+                }
                 if opts.reconstruct_parts {
                     if let Some(spec) = part {
                         progress(0.9, "Building the part from the AI description");
@@ -657,9 +697,22 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
         let loc = if lc.dist(c) > r * 1.05 { lc } else { c + u * (r * 1.6 + extent * 0.03) };
         let kind = if l.kind == LabelKind::Diameter { DimKind::Diameter } else { DimKind::Radius };
         let want = if kind == DimKind::Diameter { l.value } else { l.value / 1.0 };
-        let dim = Dimension { kind, p1: c, p2: c + u * r, loc, text: None, center: None, assoc: None };
+        let mut dim = Dimension { kind, p1: c, p2: c + u * r, loc, text: None, center: None, assoc: None };
         if (dim.measurement() - want).abs() < (0.002 * want).max(0.01) {
             dims_applied += 1;
+        }
+        // A tapped hole (M6…): the visible circle is the tap drill, the
+        // thread a thin three-quarter circle, the dimension its designation.
+        if kind == DimKind::Diameter && crate::parts::is_thread(&l.text) {
+            let pitch = crate::parts::thread_pitch(&l.text, l.value);
+            let drill = (l.value - pitch) / 2.0;
+            if let Some((_, sh)) = shapes.iter_mut().find(|(ly, sh)| {
+                ly == layers::OUTLINE && matches!(sh, Shape::Circle { c: cc, r: rr } if cc.dist(c) < 1e-6 && (rr - r).abs() < 1e-6)
+            }) {
+                *sh = Shape::Circle { c, r: drill };
+            }
+            shapes.push((crate::parts::THIN.into(), Shape::Arc { c, r, start: 0.0, end: 1.5 * std::f64::consts::PI }));
+            dim.text = Some(l.text.trim().to_string());
         }
         shapes.push((layers::DIMENSIONS.into(), Shape::Dim(dim)));
     }
@@ -678,8 +731,37 @@ pub fn convert_gray(gray: &Gray, labels: Vec<Label>, opts: &ConvertOptions, prog
     }
     let th = (extent * 0.025).max(2.5);
     let mut unmatched = 0;
+    // Surface texture values: a symbol on the nearest outline edge, standing
+    // outside the part.
+    let edges = outline_segments(&shapes[..geo_of.len()]);
+    for l in labels.iter().filter(|l| l.kind == LabelKind::Finish) {
+        let at = moves.apply(map(l.center()));
+        let Some((a, b)) =
+            edges.iter().copied().min_by(|p, q| dist_point_segment(at, p.0, p.1).total_cmp(&dist_point_segment(at, q.0, q.1)))
+        else {
+            continue;
+        };
+        let t = project_t(at, a, b).clamp(0.15, 0.85);
+        let tip = a + (b - a) * t;
+        let mut n = (b - a).norm().perp();
+        if (tip - mbox.center()).dot(n) < 0.0 {
+            n = -n;
+        }
+        shapes.push((
+            layers::DIMENSIONS.into(),
+            Shape::Surface(icad_core::symbols::SurfaceFinish {
+                pos: tip,
+                rotation: norm_angle(n.angle() - std::f64::consts::FRAC_PI_2),
+                process: icad_core::symbols::SurfaceProcess::Removal,
+                requirement: l.text.trim().to_string(),
+                method: String::new(),
+                lay: String::new(),
+                all_around: false,
+            }),
+        ));
+    }
     for (i, l) in labels.iter().enumerate() {
-        if !cls.matched[i] {
+        if !cls.matched[i] && l.kind != LabelKind::Finish {
             unmatched += 1;
             shapes.push((
                 layers::AI_REVIEW.into(),
@@ -1197,6 +1279,7 @@ pub fn apply(conv: &Conversion, doc: &mut Document) {
     for (name, l) in [
         (layers::HIDDEN, Layer::new(layers::HIDDEN, 2, LineType::Hidden, 0.25)),
         (layers::HATCH, Layer::new(layers::HATCH, 8, LineType::Continuous, 0.13)),
+        (crate::parts::THIN, Layer::new(crate::parts::THIN, 7, LineType::Continuous, 0.13)),
     ] {
         if conv.shapes.iter().any(|(n, _)| n == name) {
             doc.ensure_layer(l);

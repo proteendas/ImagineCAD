@@ -15,10 +15,53 @@ use icad_core::sheet::{fit_margin, Sheet};
 use icad_core::style::DimStyle;
 use serde_json::Value;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Segment {
     pub length: f64,
     pub diameter: f64,
+    /// Thread designation, e.g. "M20x1.5" (the diameter is its major diameter).
+    pub thread: Option<String>,
+    /// Surface texture requirement of this step, e.g. "Ra 0.8".
+    pub finish: Option<String>,
+}
+
+/// ISO metric coarse pitch for a nominal diameter.
+pub fn coarse_pitch(d: f64) -> f64 {
+    const T: [(f64, f64); 15] = [
+        (3.0, 0.5),
+        (4.0, 0.7),
+        (5.0, 0.8),
+        (6.0, 1.0),
+        (8.0, 1.25),
+        (10.0, 1.5),
+        (12.0, 1.75),
+        (14.0, 2.0),
+        (16.0, 2.0),
+        (20.0, 2.5),
+        (24.0, 3.0),
+        (30.0, 3.5),
+        (36.0, 4.0),
+        (42.0, 4.5),
+        (48.0, 5.0),
+    ];
+    T.iter().min_by(|a, b| (a.0 - d).abs().total_cmp(&(b.0 - d).abs())).map(|t| t.1).unwrap_or(d * 0.125)
+}
+
+/// Pitch of a thread designation ("M20x1.5" → 1.5, "M20" → coarse 2.5).
+pub fn thread_pitch(spec: &str, d: f64) -> f64 {
+    spec.to_ascii_lowercase()
+        .split(['x', '×'])
+        .nth(1)
+        .and_then(|p| p.trim().parse::<f64>().ok())
+        .filter(|p| *p > 0.0 && *p < d)
+        .unwrap_or_else(|| coarse_pitch(d))
+}
+
+/// Whether a label is a thread designation (M6, M20x1.5).
+pub fn is_thread(text: &str) -> bool {
+    let t = text.trim();
+    let mut c = t.chars();
+    matches!(c.next(), Some('M') | Some('m')) && c.next().is_some_and(|d| d.is_ascii_digit())
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -519,15 +562,29 @@ impl PartSpec {
         }
         if ty.contains("shaft") || ty.contains("turn") || p.get("segments").is_some() {
             let total = field(p, &["total_length", "overall_length"]);
+            let text = |s: &Value, k: &str| {
+                s.get(k)
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("null"))
+                    .map(String::from)
+            };
+            let mut extras: Vec<(Option<String>, Option<String>)> = vec![];
             let mut raw: Vec<(Option<f64>, Option<f64>)> = p
                 .get("segments")?
                 .as_array()?
                 .iter()
-                .map(|s| {
+                .filter_map(|s| {
                     let pos = |x: Option<f64>| x.filter(|v| *v > 0.0);
-                    (pos(field(s, &["length", "l"])), pos(field(s, &["diameter", "d", "dia"])))
+                    let thread = text(s, "thread").filter(|t| is_thread(t));
+                    let dia = pos(field(s, &["diameter", "d", "dia"]))
+                        .or_else(|| thread.as_deref().and_then(|t| crate::labels::parse(t).map(|x| x.1)));
+                    let r = (pos(field(s, &["length", "l"])), dia);
+                    (r.0.is_some() || r.1.is_some()).then(|| {
+                        extras.push((thread, text(s, "finish")));
+                        r
+                    })
                 })
-                .filter(|s| s.0.is_some() || s.1.is_some())
                 .collect();
             // One missing length follows from the written total.
             let missing: Vec<usize> = (0..raw.len()).filter(|i| raw[*i].0.is_none()).collect();
@@ -539,7 +596,11 @@ impl PartSpec {
             }
             // A shaft with a step of unknown size is not drawn from the description
             // (the sketch is traced instead): a wrong part is worse than none.
-            let segments: Vec<Segment> = raw.iter().map(|s| Some(Segment { length: s.0?, diameter: s.1? })).collect::<Option<Vec<_>>>()?;
+            let segments: Vec<Segment> = raw
+                .iter()
+                .zip(extras)
+                .map(|(s, (thread, finish))| Some(Segment { length: s.0?, diameter: s.1?, thread, finish }))
+                .collect::<Option<Vec<_>>>()?;
             if segments.is_empty() {
                 return None;
             }
@@ -708,7 +769,7 @@ impl PartSpec {
             PartSpec::Shaft { segments, keyways, chamfers, total_length } => serde_json::json!({
                 "type": "shaft",
                 "total_length": total_length,
-                "segments": segments.iter().map(|s| serde_json::json!({"length": s.length, "diameter": s.diameter})).collect::<Vec<_>>(),
+                "segments": segments.iter().map(|s| serde_json::json!({"length": s.length, "diameter": s.diameter, "thread": s.thread, "finish": s.finish})).collect::<Vec<_>>(),
                 "keyways": keyways.iter().map(|k| serde_json::json!({"start": k.start, "length": k.length, "width": k.width})).collect::<Vec<_>>(),
                 "chamfers": chamfers.iter().map(|c| serde_json::json!({"at": c.at, "size": c.size})).collect::<Vec<_>>(),
             }),
@@ -969,6 +1030,156 @@ impl PartSpec {
     }
 }
 
+/// Layer for thin lines (thread roots).
+pub const THIN: &str = "THIN";
+
+/// One part of an assembly sketch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsmPart {
+    pub spec: PartSpec,
+    pub name: String,
+    pub quantity: usize,
+    pub material: String,
+}
+
+/// The `parts` list of a reply (several parts on one sketch).
+pub fn assembly_from_json(v: &Value) -> Vec<AsmPart> {
+    v.get("parts")
+        .and_then(|p| p.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|item| {
+                    let spec = PartSpec::from_json(&serde_json::json!({ "part": item }))?;
+                    let text = |k: &str| {
+                        item.get(k)
+                            .and_then(|x| x.as_str())
+                            .map(str::trim)
+                            .filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("null"))
+                            .map(String::from)
+                    };
+                    Some(AsmPart {
+                        name: text("name").unwrap_or_else(|| spec.describe().split(':').next().unwrap_or("part").to_string()),
+                        quantity: item.get("quantity").and_then(num).map(|q| q.round().max(1.0) as usize).unwrap_or(1),
+                        material: text("material").unwrap_or_default(),
+                        spec,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether an issue says a written value is not used by the description.
+fn is_unused(msg: &str) -> bool {
+    msg.starts_with("The written length")
+        || msg.starts_with("The written value")
+        || msg.starts_with("The sketch shows Ø")
+        || msg.starts_with("The angle")
+}
+
+/// Validate the parts of an assembly together: each must be sound on its own,
+/// and every written value must be used by one of them.
+pub fn assembly_acceptable(parts: &[AsmPart], labels: &[String]) -> Result<(), Vec<String>> {
+    let mut issues = vec![];
+    for p in parts {
+        let own: Vec<String> = p.spec.issues_with(labels).into_iter().filter(|m| !is_unused(m)).collect();
+        issues.extend(own.into_iter().map(|m| format!("{}: {m}", p.name)));
+        if let PartSpec::Profile(pr) = &p.spec {
+            issues.extend(pr.self_check().into_iter().map(|m| format!("{}: {m}", p.name)));
+        }
+    }
+    for t in labels {
+        let one = [t.clone()];
+        if parts.iter().all(|p| p.spec.issues_with(&one).iter().any(|m| is_unused(m))) {
+            issues.push(format!("The written value {t} is not used by any part."));
+        }
+    }
+    let unused = issues.iter().filter(|m| m.ends_with("is not used by any part.")).count();
+    if issues.len() - unused == 0 && unused <= 1 {
+        Ok(())
+    } else {
+        Err(issues)
+    }
+}
+
+fn shapes_box(shapes: &[(String, Shape)]) -> BBox {
+    let mut b = BBox::empty();
+    for (l, s) in shapes {
+        if l == layers::DIMENSIONS {
+            continue;
+        }
+        match s {
+            Shape::Circle { c, r } | Shape::Arc { c, r, .. } => {
+                b.add(*c - V2::new(*r, *r));
+                b.add(*c + V2::new(*r, *r));
+            }
+            other => other.grips().into_iter().for_each(|p| b.add(p)),
+        }
+    }
+    b
+}
+
+/// Every part drawn in a row, numbered with balloons and named, and a parts
+/// list beside them.
+pub fn build_assembly(parts: &[AsmPart]) -> Vec<(String, Shape)> {
+    let built: Vec<(Vec<(String, Shape)>, BBox)> = parts
+        .iter()
+        .map(|p| {
+            let s = p.spec.build();
+            let b = shapes_box(&s);
+            (s, b)
+        })
+        .collect();
+    let tallest = built.iter().map(|(_, b)| b.height()).fold(0.0, f64::max).max(1.0);
+    let widest = built.iter().map(|(_, b)| b.width()).fold(0.0, f64::max).max(1.0);
+    let total: f64 = built.iter().map(|(_, b)| b.width()).sum::<f64>() + 0.6 * widest * parts.len() as f64;
+    let ds = DimStyle::default();
+    let mut probe = Sheet::default();
+    probe.fit_to(&fit_margin(&BBox::from_pts(V2::ZERO, V2::new(total + widest, tallest * 1.6))));
+    let th = ds.text_height * probe.scale;
+    let gap = (0.6 * widest).max(14.0 * th);
+    let mut out = vec![];
+    let mut x = 0.0;
+    for (i, ((shapes, b), p)) in built.into_iter().zip(parts).enumerate() {
+        // Each part's own box from x, bottoms aligned.
+        let d = V2::new(x - b.min.x, -b.min.y);
+        for (l, mut s) in shapes {
+            s.transform(&Xform::translate(d));
+            out.push((l, s));
+        }
+        let top = V2::new(x + b.width() * 0.8, b.height());
+        out.push((
+            layers::DIMENSIONS.into(),
+            Shape::Leader(Leader {
+                pts: vec![top, top + V2::new(3.0 * th, 5.0 * th)],
+                text: (i + 1).to_string(),
+                style: Some("Balloon".into()),
+            }),
+        ));
+        let caption = if p.quantity > 1 { format!("{} ({}×)", p.name.to_uppercase(), p.quantity) } else { p.name.to_uppercase() };
+        out.push((
+            layers::DIMENSIONS.into(),
+            Shape::Text(
+                icad_core::prim::Text::new(V2::new(x + b.width() / 2.0, -6.0 * th), th * 1.2, caption)
+                    .aligned(icad_core::HAlign::Center, icad_core::VAlign::Top),
+            ),
+        ));
+        x += b.width() + gap;
+    }
+    // Parts list to the right, top-aligned.
+    let mut rows = vec![vec!["ITEM".to_string(), "QTY".to_string(), "DESCRIPTION".to_string(), "MATERIAL".to_string()]];
+    for (i, p) in parts.iter().enumerate() {
+        rows.push(vec![(i + 1).to_string(), p.quantity.to_string(), p.name.clone(), p.material.clone()]);
+    }
+    let mut t = icad_core::table::Table::from_rows(V2::new(x, tallest), &rows, th * 0.8);
+    t.insert_row(0);
+    let cols = t.cols();
+    t.cells[0][0] = icad_core::table::Cell { text: "PARTS LIST".into(), align: icad_core::HAlign::Center, span: cols - 1 };
+    t.tag = "BOM".into();
+    out.push((layers::DIMENSIONS.into(), Shape::Table(t)));
+    out
+}
+
 fn fmt(v: f64) -> String {
     let s = format!("{v:.2}");
     s.trim_end_matches('0').trim_end_matches('.').to_string()
@@ -1103,7 +1314,9 @@ fn build_shaft(segments: &[Segment], keyways: &[Keyway], chamfers: &[Chamfer], t
     // face for the end segments, otherwise as a leader callout above the shaft.
     let mut callouts: Vec<(V2, String)> = vec![];
     for i in 0..n {
-        let label = format!("Ø{}", fmt(segments[i].diameter));
+        // Threads are dimensioned by their designation (M20x1.5).
+        let dia_text = segments[i].thread.clone().unwrap_or_else(|| "Ø<>".into());
+        let label = segments[i].thread.clone().unwrap_or_else(|| format!("Ø{}", fmt(segments[i].diameter)));
         let (a, b) = (xs[i], xs[i + 1]);
         let fits = 2.0 * r[i] >= tw(&label) + 1.6 * ar && b - a >= 1.6 * th;
         // The text sits left of a vertical dimension line: it needs [x - 1.4 th, x + 0.2 th].
@@ -1118,12 +1331,12 @@ fn build_shaft(segments: &[Segment], keyways: &[Keyway], chamfers: &[Chamfer], t
         };
         if let Some(x) = spot {
             let mut d = Dimension::new(DimKind::Vertical, V2::new(x, -r[i]), V2::new(x, r[i]), V2::new(x, 0.0));
-            d.text = Some("Ø<>".into());
+            d.text = Some(dia_text.clone());
             out.push(dim(d));
         } else if i == 0 || i == n - 1 {
             let (x, off) = if i == 0 { (0.0, -1.2 * th) } else { (length, 2.4 * th) };
             let mut d = Dimension::new(DimKind::Vertical, V2::new(x, -r[i]), V2::new(x, r[i]), V2::new(x + off, 0.0));
-            d.text = Some("Ø<>".into());
+            d.text = Some(dia_text.clone());
             out.push(dim(d));
         } else {
             // Leader from the top edge, away from keyways when possible.
@@ -1133,6 +1346,30 @@ fn build_shaft(segments: &[Segment], keyways: &[Keyway], chamfers: &[Chamfer], t
             ];
             let (fa, fb) = free.into_iter().max_by(|p, q| (p.1 - p.0).total_cmp(&(q.1 - q.0))).unwrap_or((a, b));
             callouts.push((V2::new((fa + fb) / 2.0, r[i]), label));
+        }
+    }
+    // Threads: thin lines at the minor diameter along the threaded step (ISO 6410).
+    for (i, sg) in segments.iter().enumerate() {
+        if let Some(t) = &sg.thread {
+            let minor = (sg.diameter - 1.226_87 * thread_pitch(t, sg.diameter)) / 2.0;
+            for y in [minor, -minor] {
+                out.push((THIN.into(), Shape::Line { a: V2::new(xs[i], y), b: V2::new(xs[i + 1], y) }));
+            }
+        }
+        // Surface texture symbol on the step's top edge.
+        if let Some(f) = &sg.finish {
+            out.push((
+                layers::DIMENSIONS.into(),
+                Shape::Surface(icad_core::symbols::SurfaceFinish {
+                    pos: V2::new(xs[i] + (xs[i + 1] - xs[i]) * 0.3, r[i]),
+                    rotation: 0.0,
+                    process: icad_core::symbols::SurfaceProcess::Removal,
+                    requirement: f.clone(),
+                    method: String::new(),
+                    lay: String::new(),
+                    all_around: false,
+                }),
+            ));
         }
     }
     for c in chamfers {
@@ -1818,9 +2055,52 @@ mod tests {
     }
 
     #[test]
+    fn threads_finishes_and_assemblies() {
+        let reply = serde_json::json!({"part": {"type": "shaft", "segments": [
+            {"length": 30, "thread": "M20x1.5"}, {"length": 60, "diameter": 30, "finish": "Ra 0.8"}]}});
+        let spec = PartSpec::from_json(&reply).unwrap();
+        let PartSpec::Shaft { segments, .. } = &spec else { panic!() };
+        assert_eq!((segments[0].diameter, segments[0].thread.as_deref()), (20.0, Some("M20x1.5")));
+        let shapes = spec.build();
+        // Thread roots at the minor diameter, d − 1.22687 P.
+        let minor = (20.0 - 1.226_87 * 1.5) / 2.0;
+        assert!(shapes.iter().any(|(l, s)| l == THIN && matches!(s, Shape::Line { a, .. } if (a.y - minor).abs() < 1e-9)));
+        let ds = DimStyle::default();
+        assert!(shapes.iter().any(|(_, s)| matches!(s, Shape::Dim(d) if d.label(&ds) == "M20x1.5")));
+        assert!(shapes.iter().any(|(_, s)| matches!(s, Shape::Surface(f) if f.requirement == "Ra 0.8")));
+        assert_eq!(thread_pitch("M12", 12.0), 1.75);
+
+        let asm = serde_json::json!({"parts": [
+            {"name": "Pin", "quantity": 2, "material": "C45", "type": "shaft", "segments": [{"length": 40, "diameter": 10}]},
+            {"name": "Washer", "type": "washer", "outer_diameter": 24, "width": 3, "bore": 10.5}]});
+        let parts = assembly_from_json(&asm);
+        assert_eq!(parts.len(), 2);
+        let labels: Vec<String> = ["40", "Ø10", "Ø24", "3", "Ø10.5"].iter().map(|s| s.to_string()).collect();
+        assert!(assembly_acceptable(&parts, &labels).is_ok(), "{:?}", assembly_acceptable(&parts, &labels));
+        let bad: Vec<String> = ["40", "Ø10", "Ø24", "3", "Ø10.5", "77", "Ø66"].iter().map(|s| s.to_string()).collect();
+        assert!(assembly_acceptable(&parts, &bad).is_err());
+        let shapes = build_assembly(&parts);
+        let Some(Shape::Table(t)) = shapes.iter().map(|x| &x.1).find(|s| matches!(s, Shape::Table(_))) else { panic!() };
+        assert_eq!((t.cells[2][1].text.as_str(), t.cells[2][2].text.as_str(), t.cells[2][3].text.as_str()), ("2", "Pin", "C45"));
+        assert_eq!(shapes.iter().filter(|(_, s)| matches!(s, Shape::Leader(l) if l.style.as_deref() == Some("Balloon"))).count(), 2);
+        // The parts sit side by side without overlapping.
+        let boxes: Vec<BBox> = shapes
+            .iter()
+            .filter(|(l, _)| l == layers::OUTLINE)
+            .map(|(_, s)| shapes_box(&[(layers::OUTLINE.to_string(), s.clone())]))
+            .collect();
+        let pin = boxes.iter().filter(|b| b.max.x < 45.0).fold(BBox::empty(), |a, b| a.union(b));
+        let washer = boxes.iter().filter(|b| b.min.x > 45.0).fold(BBox::empty(), |a, b| a.union(b));
+        assert!(!pin.is_empty() && !washer.is_empty() && pin.max.x < washer.min.x);
+    }
+
+    #[test]
     fn disagreements_with_the_written_values() {
         let shaft = PartSpec::Shaft {
-            segments: vec![Segment { length: 50.0, diameter: 40.0 }, Segment { length: 100.0, diameter: 30.0 }],
+            segments: vec![
+                Segment { length: 50.0, diameter: 40.0, ..Default::default() },
+                Segment { length: 100.0, diameter: 30.0, ..Default::default() },
+            ],
             keyways: vec![],
             chamfers: vec![],
             total_length: Some(150.0),
@@ -1839,7 +2119,7 @@ mod tests {
         let spec = PartSpec::from_json(&reply).unwrap();
         assert_eq!(spec, PartSpec::Plate { width: 160.0, height: 100.0, holes: vec![Hole { x: 60.0, y: 50.0, diameter: 40.0 }] });
         let bad = PartSpec::Shaft {
-            segments: vec![Segment { length: 10.0, diameter: 5.0 }],
+            segments: vec![Segment { length: 10.0, diameter: 5.0, ..Default::default() }],
             keyways: vec![],
             chamfers: vec![],
             total_length: Some(12.0),
@@ -1851,7 +2131,8 @@ mod tests {
     fn crowded_callouts_terminate_and_stack() {
         // Many short steps with chamfers everywhere: every diameter needs a leader and
         // the tips are closer than one text height.
-        let segments: Vec<Segment> = (0..12).map(|i| Segment { length: 4.0, diameter: 40.0 - 2.0 * i as f64 }).collect();
+        let segments: Vec<Segment> =
+            (0..12).map(|i| Segment { length: 4.0, diameter: 40.0 - 2.0 * i as f64, ..Default::default() }).collect();
         let chamfers = (0..=12).map(|at| Chamfer { at, size: 0.5 }).collect();
         let spec = PartSpec::Shaft { segments, keyways: vec![], chamfers, total_length: None };
         let shapes = spec.build();
