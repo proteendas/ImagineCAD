@@ -341,6 +341,14 @@ pub enum Ent {
     },
     /// Construction line (`ray` = one-sided): point and direction.
     XLine(P2, P2, bool),
+    /// Paper-space viewport: centre and size on the paper; the model point
+    /// at its centre and the model height it shows.
+    Viewport {
+        center: P2,
+        size: P2,
+        view_center: P2,
+        view_height: f64,
+    },
     /// Raster image: corner, u and v pixel vectors, size in pixels, definition, fade.
     Image {
         pos: P2,
@@ -406,7 +414,7 @@ fn text_data(o: &mut Obj) -> Ent {
 
 /// Entity types the reader converts.
 pub fn is_entity_read(ty: u16) -> bool {
-    matches!(ty, 1..=3 | 7 | 8 | 10 | 11 | 15 | 16 | 17..=27 | 31 | 35 | 36 | 40 | 41 | 44..=46 | 77 | 78)
+    matches!(ty, 1..=3 | 7 | 8 | 10 | 11 | 15 | 16 | 17..=27 | 31 | 34..=36 | 40 | 41 | 44..=46 | 77 | 78)
 }
 
 /// Decode an entity of a known type; None for other types.
@@ -622,6 +630,21 @@ pub fn entity(o: &mut Obj) -> Option<(Common, Ent)> {
             Ent::Tolerance(p, text)
         }
         78 => hatch(o)?,
+        34 => {
+            let d = &mut o.d;
+            let center = p2(d.p3bd());
+            let size = (d.bd(), d.bd());
+            let target = d.p3bd();
+            d.p3bd();
+            d.bd();
+            let view_height = d.bd();
+            d.bd();
+            d.bd();
+            d.bd();
+            d.bd();
+            let vc = d.p2rd();
+            Ent::Viewport { center, size, view_center: (vc.0 + target.0, vc.1 + target.1), view_height }
+        }
         45 => {
             let d = &mut o.d;
             d.b();
@@ -1087,6 +1110,94 @@ pub fn imagedef(o: &mut Obj) -> Option<String> {
     o.d.p2rd();
     let path = o.t();
     (!o.d.overrun && !path.is_empty()).then_some(path)
+}
+
+/// A paper layout (a class-defined object).
+#[derive(Clone, Debug, Default)]
+pub struct LayoutRec {
+    pub name: String,
+    pub tab: u16,
+    /// Paper size in millimetres as plotted (after rotation).
+    pub paper: P2,
+    pub limmin: P2,
+    /// Lower-left margins.
+    pub margins: P2,
+    pub block: u64,
+    pub active_viewport: u64,
+    pub viewports: Vec<u64>,
+}
+
+pub fn layout(o: &mut Obj) -> Option<LayoutRec> {
+    let ver = o.ver;
+    object_common(o);
+    o.t();
+    o.t();
+    let d = &mut o.d;
+    d.bs();
+    let (left, bottom, _right, _top) = (d.bd(), d.bd(), d.bd(), d.bd());
+    let (w, h) = (d.bd(), d.bd());
+    o.t();
+    let d = &mut o.d;
+    d.bd();
+    d.bd();
+    let units = d.bs();
+    let rotation = d.bs();
+    d.bs();
+    d.bd();
+    d.bd();
+    d.bd();
+    d.bd();
+    if ver < Ver::R2004 {
+        o.t();
+    } else {
+        o.href(); // plot view
+    }
+    let d = &mut o.d;
+    d.bd();
+    d.bd();
+    o.t();
+    let d = &mut o.d;
+    d.bs();
+    d.bd();
+    d.bd();
+    d.bd();
+    if ver >= Ver::R2004 {
+        d.bs();
+        d.bs();
+        d.bs();
+    }
+    if ver >= Ver::R2007 {
+        o.href(); // shade plot
+    }
+    let name = o.t();
+    let d = &mut o.d;
+    let tab = d.bs();
+    d.bs();
+    d.p3bd();
+    let limmin = d.p2rd();
+    d.p2rd();
+    d.p3bd();
+    d.p3bd();
+    d.p3bd();
+    d.bd();
+    d.bs();
+    d.p3bd();
+    d.p3bd();
+    let n = if ver >= Ver::R2004 { d.bl() as usize } else { 0 };
+    let block = o.href();
+    let active_viewport = o.href();
+    o.href();
+    o.href();
+    let viewports = (0..n.min(1000)).map(|_| o.href()).collect();
+    if o.d.overrun {
+        return None;
+    }
+    // Paper sizes and margins are in millimetres; plotting rotated 90°/270°
+    // swaps them.
+    let _ = units;
+    let (w, h) = if rotation % 2 == 1 { (h, w) } else { (w, h) };
+    let margins = if rotation % 2 == 1 { (bottom, left) } else { (left, bottom) };
+    Some(LayoutRec { name, tab, paper: (w, h), limmin, margins, block, active_viewport, viewports })
 }
 
 /// The group-code strings of an XRECORD (other values end the list).

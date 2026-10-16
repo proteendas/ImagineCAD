@@ -93,6 +93,10 @@ pub struct Layout {
     /// Plot the viewport frames.
     #[serde(default)]
     pub plot_frames: bool,
+    /// Drawn on the paper itself, in paper millimetres (title blocks, notes
+    /// of drawings from elsewhere).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paper: Vec<crate::entity::Entity>,
 }
 
 impl Layout {
@@ -103,7 +107,7 @@ impl Layout {
         let mut vp = Viewport { min: area.min, max: area.max, center: V2::ZERO, scale: 1.0, locked: false };
         vp.fit(ext);
         sheet.scale = vp.scale;
-        Self { name: name.into(), sheet, viewports: vec![vp], plot_frames: false }
+        Self { name: name.into(), sheet, viewports: vec![vp], plot_frames: false, paper: vec![] }
     }
 }
 
@@ -250,6 +254,13 @@ impl Document {
             for (p, lw) in self.sheet_prims_for(&sh) {
                 out.push(RenderItem { prim: p.transformed(&to_paper), color: 7, linetype: LineType::Continuous, lineweight: lw });
             }
+        }
+        for e in &l.paper {
+            let Some(layer) = self.layer(&e.layer) else { continue };
+            if !layer.visible || (for_plot && !layer.plot) {
+                continue;
+            }
+            out.extend(self.render_items(e));
         }
         for vp in &l.viewports {
             let r = vp.rect();

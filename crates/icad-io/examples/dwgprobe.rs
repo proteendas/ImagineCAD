@@ -42,6 +42,16 @@ fn main() {
                         }
                     }
                 }
+                for l in &doc.layouts {
+                    println!(
+                        "  layout {:?} {:?} landscape {} paper ents {} viewports {:?}",
+                        l.name,
+                        l.sheet.paper,
+                        l.sheet.landscape,
+                        l.paper.len(),
+                        l.viewports.iter().map(|v| (v.min, v.max, v.center, v.scale)).collect::<Vec<_>>()
+                    );
+                }
                 let e = doc.extents();
                 println!("  extents {:.1},{:.1} – {:.1},{:.1}", e.min.x, e.min.y, e.max.x, e.max.y);
             }

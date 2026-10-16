@@ -56,7 +56,6 @@ fn type_name(ty: u16) -> Option<&'static str> {
         29 | 30 => "polyface/mesh",
         32 => "trace",
         33 => "shape",
-        34 => return None, // viewport
         37..=39 => "3D solid",
         47 => "multiline",
         _ => return None,
@@ -99,6 +98,7 @@ struct Extras {
     dynblocks: String,
     /// Image definition handle → file.
     images: HashMap<u64, String>,
+    layouts: Vec<objects::LayoutRec>,
 }
 
 /// Read a DWG file.
@@ -148,6 +148,12 @@ pub fn read(file: &[u8]) -> Result<(Document, Report), String> {
                 Some((common, ent)) => items.push(Item { handle, common, ent, eed: std::mem::take(&mut o.eed) }),
                 None => report.damaged += 1,
             },
+            // LAYOUT has the fixed type 82 in newer files, a class number in older ones.
+            ty if ty == 82 || (ty >= 500 && classes.get(&ty).is_some_and(|c| c.0 == "LAYOUT")) => {
+                if let Some(l) = objects::layout(&mut o) {
+                    extras.layouts.push(l);
+                }
+            }
             ty if ty >= 500 && classes.get(&ty).is_some_and(|c| c.0 == "IMAGEDEF") => {
                 if let Some(p) = objects::imagedef(&mut o) {
                     extras.images.insert(handle, p);
@@ -279,14 +285,31 @@ fn build(
 
     let mut model: Vec<Entity> = vec![];
     let mut in_block: HashMap<u64, Vec<Entity>> = HashMap::new();
+    // Paper-space content by its block record, and the viewports.
+    let mut paper: HashMap<u64, Vec<Entity>> = HashMap::new();
+    let mut viewports: Vec<(u64, u64, P2, P2, P2, f64)> = vec![];
+    let paper_space = blocks.iter().find(|(_, b)| b.name.eq_ignore_ascii_case("*Paper_Space")).map(|(h, _)| *h);
+    enum Target {
+        Model,
+        Block(u64),
+        Paper(u64),
+    }
     let mut next_id = 1u64;
     // DWG handle → entity id, for the records that refer to entities.
     let mut handle_ids: HashMap<u64, u64> = HashMap::new();
     for it in &items {
         let target = match place(&it.common) {
-            Place::Model => None,
-            Place::Block(b) => Some(b),
-            Place::Paper | Place::Owned(_) => continue,
+            Place::Model => Target::Model,
+            Place::Block(b) => Target::Block(b),
+            Place::Paper => {
+                let Some(pb) = (if it.common.entmode == 1 { paper_space } else { Some(it.common.owner) }) else { continue };
+                if let Ent::Viewport { center, size, view_center, view_height } = &it.ent {
+                    viewports.push((pb, it.handle, *center, *size, *view_center, *view_height));
+                    continue;
+                }
+                Target::Paper(pb)
+            }
+            Place::Owned(_) => continue,
         };
         // ImagineCAD's exact shape, when it stored one.
         let exact = extras.app.and_then(|app| exact_shape(&it.eed, app));
@@ -328,8 +351,9 @@ fn build(
                 Entity { id: next_id, layer: layer_name(c.layer), color, linetype, lineweight: objects::lineweight(c.lineweight), shape };
             next_id += 1;
             match target {
-                None => model.push(e),
-                Some(b) => in_block.entry(b).or_default().push(e),
+                Target::Model => model.push(e),
+                Target::Block(b) => in_block.entry(b).or_default().push(e),
+                Target::Paper(b) => paper.entry(b).or_default().push(e),
             }
         }
     }
@@ -381,6 +405,59 @@ fn build(
         .collect();
     defs.sort_by(|a, b| a.name.cmp(&b.name));
     doc.blocks = defs;
+    // Paper layouts: their paper, viewports and paper-space content. Paper
+    // space has its origin at the printable area's lower-left corner.
+    let mut layouts = extras.layouts.clone();
+    layouts.sort_by_key(|l| l.tab);
+    for l in layouts {
+        if blocks.get(&l.block).is_none_or(|b| b.name.eq_ignore_ascii_case("*Model_Space")) || l.paper.0 <= 0.0 || l.paper.1 <= 0.0 {
+            continue;
+        }
+        let off = V2::new(l.margins.0, l.margins.1);
+        let mut sheet = doc.sheet.clone();
+        let (pw, ph) = l.paper;
+        let (lo, hi) = (pw.min(ph), pw.max(ph));
+        sheet.paper = *icad_core::sheet::PaperSize::ALL
+            .iter()
+            .min_by(|a, b| {
+                let d = |p: &icad_core::sheet::PaperSize| {
+                    let (x, y) = p.mm();
+                    (x - lo).abs() + (y - hi).abs()
+                };
+                d(a).total_cmp(&d(b))
+            })
+            .unwrap_or(&icad_core::sheet::PaperSize::A3);
+        sheet.landscape = pw > ph;
+        sheet.visible = false;
+        sheet.origin = V2::ZERO;
+        let mut vps: Vec<icad_core::layout::Viewport> = vec![];
+        for (k, (pb, h, c, s, vc, vh)) in viewports.iter().filter(|v| v.0 == l.block).enumerate() {
+            // The first viewport of a layout is the paper itself (it shows
+            // paper space at full size).
+            let shows_paper = (vh - s.1).abs() < 1e-6 * s.1.max(1.0) && v(*vc).dist(v(*c)) < 1e-3 * s.0.max(1.0);
+            let overall = *h == l.active_viewport || l.viewports.first() == Some(h) || shows_paper;
+            let _ = k;
+            if overall || *vh <= 0.0 || s.1 <= 0.0 {
+                continue;
+            }
+            let _ = pb;
+            let c = v(*c) + off;
+            let half = V2::new(s.0, s.1) * 0.5;
+            vps.push(icad_core::layout::Viewport { min: c - half, max: c + half, center: v(*vc), scale: vh / s.1, locked: false });
+        }
+        if let Some(v0) = vps.first() {
+            sheet.scale = v0.scale;
+        }
+        let mut ents = paper.remove(&l.block).unwrap_or_default();
+        // Layouts with nothing on them would only add empty tabs.
+        if vps.is_empty() && ents.is_empty() {
+            continue;
+        }
+        for e in &mut ents {
+            e.shape.transform(&Xform::translate(off));
+        }
+        doc.layouts.push(icad_core::layout::Layout { name: l.name.clone(), sheet, viewports: vps, plot_frames: false, paper: ents });
+    }
     doc.entities = model;
     doc.next_id = next_id;
     let back = |h: &str| u64::from_str_radix(h.trim(), 16).ok().and_then(|h| handle_ids.get(&h).copied());

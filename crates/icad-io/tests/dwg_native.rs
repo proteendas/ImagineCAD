@@ -92,3 +92,32 @@ fn reads_a_dwg_2007_drawing() {
     assert_eq!(kinds(&doc), kinds(&d18));
     assert_eq!(count(&doc, "Arc Length Dimension"), 1);
 }
+
+#[test]
+fn reads_layout_records() {
+    // The layouts of the sample: names, Letter paper in landscape, margins.
+    for name in ["example_2007.dwg", "example_2018.dwg"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(name);
+        let file = std::fs::read(path).unwrap();
+        let c = icad_io::dwgnative::container::read(&file).unwrap();
+        let classes = icad_io::dwgnative::classes::read(&c);
+        let layouts: Vec<_> = c
+            .map
+            .iter()
+            .filter_map(|&(_, off)| {
+                let mut o = icad_io::dwgnative::objects::open(&c, off)?;
+                (o.ty == 82 || classes.get(&o.ty).is_some_and(|x| x.0 == "LAYOUT"))
+                    .then(|| icad_io::dwgnative::objects::layout(&mut o))
+                    .flatten()
+            })
+            .collect();
+        let names: Vec<&str> = layouts.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Model", "Layout1", "Layout2"], "{name}");
+        let l1 = &layouts[1];
+        assert!((l1.paper.0 - 279.4).abs() < 0.01 && (l1.paper.1 - 215.9).abs() < 0.01, "{l1:?}");
+        assert!((l1.margins.0 - 6.35).abs() < 0.01);
+        // Their only viewports are the paper itself, so no layout tabs are added.
+        let (doc, _) = read(name);
+        assert!(doc.layouts.is_empty());
+    }
+}
