@@ -19,6 +19,8 @@ use icad_core::Document;
 use std::path::{Path, PathBuf};
 
 pub struct App {
+    /// The open sheet set (SHEETSET).
+    pub sheetset: Option<crate::sheetset_ui::SheetSetState>,
     /// The logo for the application menu button.
     logo: Option<egui::TextureHandle>,
     pub tabs: Vec<Tab>,
@@ -70,6 +72,7 @@ impl App {
             cc.egui_ctx.load_texture("imaginecad_logo", ci, egui::TextureOptions::LINEAR)
         });
         let mut app = Self {
+            sheetset: None,
             logo,
             tabs: vec![],
             active: 0,
@@ -147,6 +150,10 @@ impl App {
 
     pub fn open_path(&mut self, p: &Path) {
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if ext == "icadset" {
+            self.open_sheet_set(p);
+            return;
+        }
         if ["png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp"].contains(&ext.as_str()) {
             self.open_image_to_cad(Some(p));
             return;
@@ -388,6 +395,7 @@ impl App {
             "PUBLISH" | "BATCHPLOT" => self.open_publish(),
             "XATTACH" | "XA" => self.xattach(),
             "XREF" | "XR" | "EXTERNALREFERENCES" => self.dlg.xref = true,
+            "SHEETSET" | "SSM" | "SHEETSETMANAGER" => self.dlg.sheetset = true,
             "REGEN" | "RE" | "REGENALL" => {}
             "HELP" | "?" => self.dlg.help = true,
             "ABOUT" => self.dlg.about = true,

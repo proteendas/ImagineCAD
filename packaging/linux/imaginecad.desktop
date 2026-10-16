@@ -7,5 +7,5 @@ Exec=imaginecad %F
 Icon=imaginecad
 Terminal=false
 Categories=Graphics;Engineering;VectorGraphics;
-MimeType=image/vnd.dxf;image/x-dxf;application/dxf;image/vnd.dwg;image/x-dwg;application/acad;application/x-imaginecad;image/png;image/jpeg;
+MimeType=image/vnd.dxf;image/x-dxf;application/dxf;image/vnd.dwg;image/x-dwg;application/acad;application/x-imaginecad;application/x-imaginecad-sheetset;image/png;image/jpeg;
 Keywords=CAD;drafting;DXF;DWG;mechanical;drawing;sketch;

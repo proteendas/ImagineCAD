@@ -856,6 +856,14 @@ fn output(ui: &mut Ui, out: &mut Vec<String>) {
         panel("Plot", Icon::Pdf, &[], |ui, out| {
             big(ui, Icon::Pdf, "Plot\nto PDF", "PLOT — true-scale vector PDF of the sheet or layout on screen", "PLOT", out);
             big(ui, Icon::Pdf, "Publish", "PUBLISH — batch plot sheets and layouts of open drawings to PDF", "PUBLISH", out);
+            big(
+                ui,
+                Icon::SheetSet,
+                "Sheet\nSet",
+                "SHEETSET (SSM) — sheets of many drawings: numbering, shared title block values, publish, sheet list",
+                "SHEETSET",
+                out,
+            );
             big(ui, Icon::PageSetup, "Page\nSetup", "PAGESETUP — paper, scale, title block and plot style", "PAGESETUP", out);
         }),
         panel("Layouts", Icon::TitleBlock, &[], |ui, out| {

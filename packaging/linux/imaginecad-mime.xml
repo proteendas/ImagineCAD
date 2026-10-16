@@ -6,4 +6,9 @@
     <glob pattern="*.icad"/>
     <sub-class-of type="application/json"/>
   </mime-type>
+  <mime-type type="application/x-imaginecad-sheetset">
+    <comment>ImagineCAD sheet set</comment>
+    <glob pattern="*.icadset"/>
+    <sub-class-of type="application/json"/>
+  </mime-type>
 </mime-info>

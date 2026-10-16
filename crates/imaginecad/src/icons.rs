@@ -106,6 +106,7 @@ pub enum Icon {
     Balloon,
     Bom,
     Lineweight,
+    SheetSet,
 }
 
 /// Every icon, for the icon sheet (`IMAGINECAD_ICON_SHEET=1`).
@@ -202,6 +203,7 @@ pub const ALL: &[Icon] = &[
     Icon::Balloon,
     Icon::Bom,
     Icon::Lineweight,
+    Icon::SheetSet,
 ];
 
 /// Drawing on the icon's 24-unit grid.
@@ -881,6 +883,14 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, col: Color32) {
                 let y = 6.0 + i as f32 * 6.0;
                 g.line((3.0, y), (21.0, y), (wt * k).max(0.8), if i == 2 { ACC } else { ink });
             }
+        }
+        Icon::SheetSet => {
+            // Stacked sheets, the front one with its title block.
+            g.rect((7.0, 2.5), (21.0, 16.5), t, dim);
+            g.rect((5.0, 4.5), (19.0, 18.5), t, ink.gamma_multiply(0.7));
+            g.rect_fill((3.0, 6.5), (17.0, 21.0), 0.0, crate::theme::RIBBON);
+            g.rect((3.0, 6.5), (17.0, 21.0), w, ink);
+            g.rect_fill((10.0, 17.0), (17.0, 21.0), 0.0, ACC);
         }
         Icon::Grid => {
             for i in 0..5 {

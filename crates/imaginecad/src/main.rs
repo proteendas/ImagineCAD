@@ -24,6 +24,7 @@ mod menus;
 mod ribbon;
 mod secrets;
 mod settings;
+mod sheetset_ui;
 mod spell;
 mod symbol_ui;
 mod tab;

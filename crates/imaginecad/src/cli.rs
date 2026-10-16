@@ -20,6 +20,8 @@ USAGE:
   imaginecad export DRAWING -o OUT       Convert a drawing between formats (.icad/.dxf/.dwg → .dxf/.dwg/.pdf/.svg/.icad)
   imaginecad ask DRAWING \"CHANGE\" -o OUT  Let the AI edit a drawing as described (or answer a question about it);
                                          takes the same AI options as convert
+  imaginecad publish SET.icadset -o OUT.pdf
+                                         Plot every sheet of a sheet set to one PDF, numbered as in the set
   imaginecad --version | --help
 
 CONVERT OPTIONS:
@@ -57,6 +59,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         "convert" => Some(convert(&args[1..])),
         "export" => Some(export(&args[1..])),
         "ask" => Some(ask(&args[1..])),
+        "publish" => Some(publish(&args[1..])),
         _ => None,
     }
 }
@@ -175,6 +178,39 @@ fn ai_options(args: &[String], ai: &mut icad_vision::llm::AiSettings) -> Result<
         }
     }
     Ok(())
+}
+
+fn publish(args: &[String]) -> i32 {
+    let (Some(set_path), Some(out)) = (args.first().filter(|a| !a.starts_with('-')), out_path(args)) else {
+        eprintln!("usage: imaginecad publish SET.icadset -o OUT.pdf");
+        return 2;
+    };
+    let set_path = std::path::PathBuf::from(set_path);
+    let set = match icad_core::sheetset::SheetSet::load(&set_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let (pages, problems) = crate::sheetset_ui::set_pages(&set, Some(&set_path), |p| icad_io::open(p));
+    for p in &problems {
+        eprintln!("skipped {p}");
+    }
+    match std::fs::write(&out, icad_io::pdf::write_pages(&pages, &set.name)) {
+        Ok(()) => {
+            eprintln!("wrote {} ({} sheet(s))", out.display(), pages.len());
+            if problems.is_empty() {
+                0
+            } else {
+                1
+            }
+        }
+        Err(e) => {
+            eprintln!("cannot write {}: {e}", out.display());
+            1
+        }
+    }
 }
 
 fn ask(args: &[String]) -> i32 {

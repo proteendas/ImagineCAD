@@ -22,6 +22,11 @@
       <key>CFBundleTypeRole</key><string>Editor</string>
     </dict>
     <dict>
+      <key>CFBundleTypeName</key><string>ImagineCAD Sheet Set</string>
+      <key>CFBundleTypeExtensions</key><array><string>icadset</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+    </dict>
+    <dict>
       <key>CFBundleTypeName</key><string>DWG Drawing</string>
       <key>CFBundleTypeExtensions</key><array><string>dwg</string></array>
       <key>CFBundleTypeRole</key><string>Editor</string>

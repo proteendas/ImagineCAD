@@ -52,6 +52,7 @@ Root: HKA; Subkey: "Software\Classes\.icad"; ValueType: string; ValueName: ""; V
 Root: HKA; Subkey: "Software\Classes\ImagineCAD.Drawing"; ValueType: string; ValueName: ""; ValueData: "ImagineCAD Drawing"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\ImagineCAD.Drawing\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\imaginecad.exe,0"
 Root: HKA; Subkey: "Software\Classes\ImagineCAD.Drawing\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\imaginecad.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.icadset"; ValueType: string; ValueName: ""; ValueData: "ImagineCAD.Drawing"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.dxf\OpenWithProgids"; ValueType: string; ValueName: "ImagineCAD.Drawing"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdxf
 Root: HKA; Subkey: "Software\Classes\.dwg\OpenWithProgids"; ValueType: string; ValueName: "ImagineCAD.Drawing"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdwg
 ; "Open with" for every type ImagineCAD reads (drawings and sketch photos).

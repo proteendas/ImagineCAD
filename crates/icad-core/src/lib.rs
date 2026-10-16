@@ -19,6 +19,7 @@ pub mod ops;
 pub mod prim;
 pub mod region;
 pub mod sheet;
+pub mod sheetset;
 pub mod style;
 pub mod symbols;
 pub mod table;

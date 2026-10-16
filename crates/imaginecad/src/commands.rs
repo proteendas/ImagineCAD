@@ -319,6 +319,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("XATTACH", "XA"),
     ("XREF", "XR"),
     ("REVCLOUD", "RC"),
+    ("SHEETSET", "SSM"),
     ("DIMARRANGE", "DARR"),
     ("BOM", ""),
     ("BALLOON", "BAL"),

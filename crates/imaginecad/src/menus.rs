@@ -30,6 +30,7 @@ pub const MENUS: &[(&str, &[Entry])] = &[
             ("Page Setup…", "PAGESETUP"),
             ("Plot to PDF…", "PLOT"),
             ("Publish (batch plot)…", "PUBLISH"),
+            ("Sheet Set Manager…", "SHEETSET"),
             ("-", ""),
             ("Exit", "EXIT"),
         ],

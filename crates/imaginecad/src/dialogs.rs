@@ -247,6 +247,7 @@ pub struct Dialogs {
     pub layout_rename: Option<(usize, String)>,
     pub publish: Option<crate::layouts_ui::PublishDialog>,
     pub xref: bool,
+    pub sheetset: bool,
     /// Which engine `ai_models` was loaded for.
     pub ai_models_for: String,
     pub model_filter: ModelFilter,
@@ -343,6 +344,7 @@ impl App {
         self.spell_dialog(ctx);
         self.layout_dialogs(ctx);
         self.xref_palette(ctx);
+        self.sheet_set_palette(ctx);
         self.help_dialogs(ctx);
         self.confirm_dialogs(ctx);
         self.poll_ai_check();
